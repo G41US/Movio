@@ -87,7 +87,7 @@ class XPassStreamProvider(
                     val child = value.opt(key)
                     if (key.equals("url", true) || key.equals("link", true) || key.equals("src", true)) {
                         val candidate = child?.toString().orEmpty()
-                        if (isXPassEntry(candidate)) output += candidate
+                        normalizeEntry(candidate)?.let(output::add)
                     } else if (child is JSONObject || child is JSONArray) {
                         collectEntryUrls(child, output)
                     }
@@ -96,13 +96,15 @@ class XPassStreamProvider(
         }
     }
 
-    private fun isXPassEntry(value: String): Boolean = runCatching {
-        val uri = Uri.parse(value)
-        uri.scheme == "https" && uri.host.equals(baseHost, true) &&
-            uri.path?.startsWith("/e/") == false &&
-            !uri.path.orEmpty().substringAfterLast('/').contains(".m3u8", true) &&
-            !uri.path.orEmpty().substringAfterLast('/').contains(".mp4", true)
-    }.getOrDefault(false)
+    private fun normalizeEntry(value: String): String? = runCatching {
+        val resolved = URL(URL("$baseUrl/"), value)
+        val uri = Uri.parse(resolved.toString())
+        require(uri.scheme == "https" && uri.host.equals(baseHost, true))
+        require(uri.path?.startsWith("/e/") == false)
+        require(!uri.path.orEmpty().substringAfterLast('/').contains(".m3u8", true))
+        require(!uri.path.orEmpty().substringAfterLast('/').contains(".mp4", true))
+        resolved.toString()
+    }.getOrNull()
 
     private fun collectCandidates(value: Any?): List<StreamCandidate> {
         val output = mutableListOf<StreamCandidate>()
