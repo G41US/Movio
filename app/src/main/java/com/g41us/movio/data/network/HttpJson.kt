@@ -17,7 +17,7 @@ internal object HttpJson {
             connection.connectTimeout = 12_000
             connection.readTimeout = 15_000
             connection.setRequestProperty("Accept", "application/json")
-            connection.setRequestProperty("User-Agent", "Movio-Android/0.1.0 (catalogue client)")
+            connection.setRequestProperty("User-Agent", "Movio-Android/${com.g41us.movio.BuildConfig.VERSION_NAME} (catalogue client)")
             val status = connection.responseCode
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
             val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()

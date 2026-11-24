@@ -12,8 +12,30 @@ android {
         applicationId = "com.g41us.movio"
         minSdk = 23
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        // Release CI passes these from the git tag (v1.2.3 -> 1.2.3 / 10203).
+        versionCode = (project.findProperty("movioVersionCode") as String?)?.toInt() ?: 1
+        versionName = (project.findProperty("movioVersionName") as String?) ?: "0.1.0"
+    }
+
+    // One fixed key for every release so updates install over each other.
+    // Supplied by CI from repository secrets; never committed.
+    val keystorePath = System.getenv("MOVIO_KEYSTORE_PATH")
+    signingConfigs {
+        if (keystorePath != null) {
+            create("release") {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("MOVIO_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("MOVIO_KEY_ALIAS")
+                keyPassword = System.getenv("MOVIO_KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            if (keystorePath != null) signingConfig = signingConfigs.getByName("release")
+        }
     }
 
     buildFeatures {

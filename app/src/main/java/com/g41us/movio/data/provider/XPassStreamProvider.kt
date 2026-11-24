@@ -66,7 +66,7 @@ class XPassStreamProvider(
             connection.readTimeout = 18_000
             connection.instanceFollowRedirects = false
             connection.setRequestProperty("Accept", "application/json")
-            connection.setRequestProperty("User-Agent", "Movio-Android/0.2.0")
+            connection.setRequestProperty("User-Agent", "Movio-Android/${com.g41us.movio.BuildConfig.VERSION_NAME}")
             connection.setRequestProperty("Referer", "$baseUrl/")
             val status = connection.responseCode
             if (status !in 200..299) throw IllegalStateException("XPass returned HTTP $status")

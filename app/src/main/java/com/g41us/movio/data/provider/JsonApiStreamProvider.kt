@@ -79,7 +79,7 @@ class JsonApiStreamProvider(
             connection.connectTimeout = 12_000
             connection.readTimeout = 20_000
             connection.setRequestProperty("Accept", "application/json")
-            connection.setRequestProperty("User-Agent", "Movio-Android/0.2.0")
+            connection.setRequestProperty("User-Agent", "Movio-Android/${com.g41us.movio.BuildConfig.VERSION_NAME}")
             config.referer?.let { connection.setRequestProperty("Referer", it) }
             config.headers.forEach { (key, value) -> connection.setRequestProperty(key, value) }
             val status = connection.responseCode

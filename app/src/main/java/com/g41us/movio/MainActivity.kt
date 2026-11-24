@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -23,6 +24,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -30,10 +34,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.VideoLibrary
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.rounded.Bookmark
+import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -86,6 +95,7 @@ private val streamRepository = StreamRepository()
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(
@@ -116,6 +126,9 @@ private fun MovioApp() {
     val isTv = remember(context) { isTelevision(context) }
 
     Surface(modifier = Modifier.fillMaxSize(), color = MovioBackground) {
+        // Android 15+ draws edge-to-edge; keep every screen clear of the status bar,
+        // gesture bar and display cutout.
+        Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
         if (playback != null) {
             Column(Modifier.fillMaxSize()) {
                 Row(
@@ -135,7 +148,7 @@ private fun MovioApp() {
                 onPlayStream = { candidate -> playback = candidate }
             )
         } else {
-            Column {
+            Column(Modifier.fillMaxSize()) {
                 if (wide || isTv) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 36.dp, vertical = 22.dp),
@@ -167,32 +180,47 @@ private fun MovioApp() {
                     }
                 }
 
-                when (selected) {
-                    Destination.HOME -> HomeScreen(wide || isTv, onSearch = { selected = Destination.SEARCH })
-                    Destination.SEARCH -> SearchScreen(onSelect = { selectedMedia = it })
-                    Destination.LIBRARY -> PlaceholderScreen("My List", "Saved titles will appear here when watchlist storage is added.")
-                    Destination.SETTINGS -> SettingsScreen(onPlaySample = { playback = DemoPlaybackProvider.sample() })
+                // weight(1f) leaves room for the bottom tab bar; fillMaxSize screens
+                // would otherwise push it off-screen.
+                Box(Modifier.weight(1f)) {
+                    when (selected) {
+                        Destination.HOME -> HomeScreen(wide || isTv, onSearch = { selected = Destination.SEARCH })
+                        Destination.SEARCH -> SearchScreen(onSelect = { selectedMedia = it })
+                        Destination.LIBRARY -> PlaceholderScreen("My List", "Saved titles will appear here when watchlist storage is added.")
+                        Destination.SETTINGS -> SettingsScreen(onPlaySample = { playback = DemoPlaybackProvider.sample() })
+                    }
                 }
 
                 if (!wide && !isTv) {
-                    NavigationBar(containerColor = MovioSurface) {
+                    // iOS-style tab bar: outlined glyphs, filled when selected, no pill indicator.
+                    // Insets are already applied above, so the bar adds none of its own.
+                    NavigationBar(containerColor = MovioSurface, windowInsets = WindowInsets(0, 0, 0, 0)) {
                         Destination.entries.forEach { destination ->
+                            val isSelected = selected == destination
                             val icon = when (destination) {
-                                Destination.HOME -> Icons.Default.Home
-                                Destination.SEARCH -> Icons.Default.Search
-                                Destination.LIBRARY -> Icons.Default.VideoLibrary
-                                Destination.SETTINGS -> Icons.Default.Settings
+                                Destination.HOME -> if (isSelected) Icons.Rounded.Home else Icons.Outlined.Home
+                                Destination.SEARCH -> if (isSelected) Icons.Rounded.Search else Icons.Outlined.Search
+                                Destination.LIBRARY -> if (isSelected) Icons.Rounded.Bookmark else Icons.Outlined.BookmarkBorder
+                                Destination.SETTINGS -> if (isSelected) Icons.Rounded.Settings else Icons.Outlined.Settings
                             }
                             NavigationBarItem(
-                                selected = selected == destination,
+                                selected = isSelected,
                                 onClick = { selected = destination },
                                 icon = { Icon(icon, contentDescription = destination.label) },
-                                label = { Text(destination.label) }
+                                label = { Text(destination.label, fontSize = 10.sp) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = MovioAccent,
+                                    selectedTextColor = MovioAccent,
+                                    unselectedIconColor = MovioMuted,
+                                    unselectedTextColor = MovioMuted,
+                                    indicatorColor = Color.Transparent
+                                )
                             )
                         }
                     }
                 }
             }
+        }
         }
     }
 }
@@ -531,7 +559,7 @@ private fun fetchLatestMovioRelease(): MovioUpdateResult {
         connection.connectTimeout = 10_000
         connection.readTimeout = 10_000
         connection.setRequestProperty("Accept", "application/vnd.github+json")
-        connection.setRequestProperty("User-Agent", "Movio-Android")
+        connection.setRequestProperty("User-Agent", "Movio-Android/${BuildConfig.VERSION_NAME}")
         val responseCode = connection.responseCode
         if (responseCode == 404) return MovioUpdateResult("No published release is available yet.")
         if (responseCode !in 200..299) return MovioUpdateResult("GitHub check failed (HTTP $responseCode). Try again later.")
