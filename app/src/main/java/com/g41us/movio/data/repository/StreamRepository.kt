@@ -10,33 +10,54 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 
+data class ProviderDiagnostic(
+    val providerName: String,
+    val sourceCount: Int,
+    val error: String? = null
+)
+
+data class StreamResolution(
+    val candidates: List<StreamCandidate>,
+    val diagnostics: List<ProviderDiagnostic>
+)
+
 class StreamRepository(
     private val registry: StreamProviderRegistry = MovioStreamProviders.createRegistry()
 ) {
     fun providerNames(item: MediaItem): List<String> =
         registry.providersFor(item).map { it.displayName }
 
-    /** Run independent providers concurrently; one provider failure never cancels its siblings. */
+    /** Compatibility wrapper for callers that only need playable candidates. */
     suspend fun resolve(item: MediaItem, episode: Episode? = null): List<StreamCandidate> =
+        resolveDetailed(item, episode).candidates
+
+    /** Resolve providers independently and retain each provider's outcome for diagnostics. */
+    suspend fun resolveDetailed(item: MediaItem, episode: Episode? = null): StreamResolution =
         withContext(Dispatchers.IO) {
             val providers = registry.providersFor(item)
-            supervisorScope {
+            val outcomes = supervisorScope {
                 providers.map { provider ->
                     async {
                         try {
-                            provider.resolve(item, episode)
+                            val candidates = provider.resolve(item, episode)
+                            ProviderDiagnostic(provider.displayName, candidates.size)
+                                .let { it to candidates }
                         } catch (cancelled: kotlinx.coroutines.CancellationException) {
                             throw cancelled
-                        } catch (_: Exception) {
-                            emptyList()
+                        } catch (error: Exception) {
+                            val reason = error.message?.take(180)
+                                ?: error.javaClass.simpleName
+                            ProviderDiagnostic(provider.displayName, 0, reason) to emptyList()
                         }
                     }
-                }.flatMap { it.await() }
-            }.distinctBy { it.url }
+                }.map { it.await() }
+            }
+            val candidates = outcomes.flatMap { it.second }.distinctBy { it.url }
                 .sortedWith(
                     compareBy<StreamCandidate> { formatRank(it) }
                         .thenByDescending { qualityRank(it.qualityLabel) }
                 )
+            StreamResolution(candidates, outcomes.map { it.first })
         }
 
     private fun formatRank(candidate: StreamCandidate): Int = when (candidate.format) {
