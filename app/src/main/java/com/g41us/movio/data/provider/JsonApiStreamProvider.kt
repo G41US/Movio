@@ -62,6 +62,7 @@ class JsonApiStreamProvider(
 ) : StreamProvider {
     override val id: String = config.id
     override val displayName: String = config.name
+    val displayOrder: Int = config.displayOrder
 
     override fun supports(item: MediaItem): Boolean {
         if (!config.enabled || item.tmdbId == null || item.tmdbId <= 0) return false
@@ -162,7 +163,7 @@ class JsonApiStreamProvider(
                     if (key.isNotBlank() && value.isNotBlank()) put(key, value)
                 }
             }
-            config.referer?.let { putIfAbsent("Referer", it) }
+            config.referer?.let { if (!containsKey("Referer")) put("Referer", it) }
         }
 
         val subtitles = parseSubtitles(source.optJSONArray("subtitles"))
@@ -216,7 +217,7 @@ object JsonStreamProviderRegistryFactory {
                 ?: return@mapNotNull null
             if (providerConfig.id.isBlank() || providerConfig.name.isBlank()) return@mapNotNull null
             JsonApiStreamProvider(providerConfig)
-        }.sortedBy { (it as JsonApiStreamProvider).let { provider -> provider.id } }
+        }.sortedBy { it.displayOrder }
         return StreamProviderRegistry(providers)
     }
 }
