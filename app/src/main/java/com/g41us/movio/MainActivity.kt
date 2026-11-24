@@ -380,18 +380,36 @@ private fun MediaDetailsScreen(
             loading -> CircularProgressIndicator(color = MovioAccent, modifier = Modifier.padding(12.dp))
             episodes.isEmpty() -> Text("No episode guide is available from this provider.", color = MovioMuted, modifier = Modifier.padding(vertical = 8.dp))
             else -> episodes.take(30).forEach { episode ->
-                Text(
-                    "${episode.number}. ${episode.title}",
-                    color = Color.White,
-                    modifier = Modifier.fillMaxWidth()
-                        .clickable { resolveStreams(episode) }
-                        .focusable()
-                        .padding(vertical = 10.dp)
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "Episode ${episode.number}",
+                            color = Color(0xFFC4B5FD),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            episode.title,
+                            color = Color.White,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                    Button(
+                        onClick = { resolveStreams(episode) },
+                        enabled = !resolvingStreams,
+                        colors = ButtonDefaults.buttonColors(containerColor = MovioAccent)
+                    ) {
+                        Text("Play")
+                    }
+                }
             }
         }
         if (item.mediaType != com.g41us.movio.data.model.MediaType.MOVIE && episodes.isNotEmpty()) {
-            Text("Select an episode to check its available streams.", color = MovioMuted, fontSize = 12.sp)
+            Text("Tap Play beside an episode to find a playable source. Choose a source below when one is found.", color = MovioMuted, fontSize = 12.sp)
         }
         if (resolvingStreams) {
             CircularProgressIndicator(color = MovioAccent, modifier = Modifier.padding(12.dp))
