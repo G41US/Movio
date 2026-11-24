@@ -3,6 +3,8 @@ package com.g41us.movio
 import android.app.UiModeManager
 import android.content.Context
 import android.content.res.Configuration
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -69,6 +71,11 @@ import com.g41us.movio.data.repository.CatalogRepository
 import com.g41us.movio.data.repository.StreamRepository
 import com.g41us.movio.playback.MovioPlayerScreen
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 
 private val MovioBackground = Color(0xFF090B10)
 private val MovioSurface = Color(0xFF151923)
@@ -462,6 +469,12 @@ private fun PlaceholderScreen(title: String, message: String) {
 
 @Composable
 private fun SettingsScreen(onPlaySample: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var checkingUpdate by remember { mutableStateOf(false) }
+    var updateMessage by remember { mutableStateOf("Check GitHub for the latest Movio release.") }
+    var updateDownloadUrl by remember { mutableStateOf<String?>(null) }
+
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(22.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -477,12 +490,77 @@ private fun SettingsScreen(onPlaySample: () -> Unit) {
         Surface(color = MovioSurface, shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, Color(0xFF292F3D))) {
             Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("App updates", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Text("GitHub Releases updater is planned. Release signing and download verification are not configured yet.", color = MovioMuted, fontSize = 13.sp)
-                Text("Current version  •  0.1.0", color = Color(0xFFC4B5FD), fontSize = 12.sp)
+                Text("Installed version  •  ${BuildConfig.VERSION_NAME}", color = Color(0xFFC4B5FD), fontSize = 12.sp)
+                Text(updateMessage, color = MovioMuted, fontSize = 13.sp)
+                Button(
+                    onClick = {
+                        scope.launch {
+                            checkingUpdate = true
+                            updateMessage = "Checking GitHub releases…"
+                            updateDownloadUrl = null
+                            val result = withContext(Dispatchers.IO) { fetchLatestMovioRelease() }
+                            updateMessage = result.message
+                            updateDownloadUrl = result.apkUrl
+                            checkingUpdate = false
+                        }
+                    },
+                    enabled = !checkingUpdate
+                ) {
+                    if (checkingUpdate) CircularProgressIndicator(modifier = Modifier.width(18.dp).height(18.dp), strokeWidth = 2.dp)
+                    else Text("Check for updates")
+                }
+                if (updateDownloadUrl != null) {
+                    Button(onClick = {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(updateDownloadUrl))
+                        context.startActivity(intent)
+                    }) { Text("Download update APK") }
+                }
+                Text("Updates are downloaded from the official Movio GitHub Releases page and installed by Android after your confirmation.", color = MovioMuted, fontSize = 11.sp)
             }
         }
         Text("About Movio", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
         Text("Built for Android phones and Android TV.", color = MovioMuted)
+    }
+}
+
+private data class MovioUpdateResult(val message: String, val apkUrl: String? = null)
+
+private fun fetchLatestMovioRelease(): MovioUpdateResult {
+    val connection = (URL("https://api.github.com/repos/G41US/Movio/releases/latest").openConnection() as HttpURLConnection)
+    return try {
+        connection.connectTimeout = 10_000
+        connection.readTimeout = 10_000
+        connection.setRequestProperty("Accept", "application/vnd.github+json")
+        connection.setRequestProperty("User-Agent", "Movio-Android")
+        val responseCode = connection.responseCode
+        if (responseCode == 404) return MovioUpdateResult("No published release is available yet.")
+        if (responseCode !in 200..299) return MovioUpdateResult("GitHub check failed (HTTP $responseCode). Try again later.")
+        val body = connection.inputStream.bufferedReader().use { it.readText() }
+        val release = JSONObject(body)
+        val tag = release.optString("tag_name", "").removePrefix("v")
+        val releaseUrl = release.optString("html_url", "https://github.com/G41US/Movio/releases")
+        val apkUrl = release.optJSONArray("assets")
+            ?.let { assets -> (0 until assets.length()).map { assets.getJSONObject(it) } }
+            ?.firstOrNull { it.optString("name").endsWith(".apk", ignoreCase = true) }
+            ?.optString("browser_download_url")
+            ?.takeIf { it.startsWith("https://") }
+        if (tag.isBlank()) return MovioUpdateResult("The latest GitHub release has no version tag.")
+        val latestParts = tag.split(".").map { it.toIntOrNull() ?: 0 }
+        val currentParts = BuildConfig.VERSION_NAME.split(".").map { it.toIntOrNull() ?: 0 }
+        val latestIsNewer = (0 until maxOf(latestParts.size, currentParts.size)).firstNotNullOfOrNull { index ->
+            val latest = latestParts.getOrElse(index) { 0 }
+            val current = currentParts.getOrElse(index) { 0 }
+            if (latest != current) latest > current else null
+        } ?: false
+        when {
+            !latestIsNewer -> MovioUpdateResult("You're running the latest version (${BuildConfig.VERSION_NAME}).")
+            apkUrl != null -> MovioUpdateResult("Movio ${tag} is available. Download the APK to update.", apkUrl)
+            else -> MovioUpdateResult("Movio ${tag} is available, but this release has no APK asset. Open the releases page: $releaseUrl")
+        }
+    } catch (error: Exception) {
+        MovioUpdateResult("Couldn't check for updates: ${error.message ?: "network error"}.")
+    } finally {
+        connection.disconnect()
     }
 }
 
