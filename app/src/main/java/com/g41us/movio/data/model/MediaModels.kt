@@ -16,6 +16,8 @@ data class MediaItem(
     val mediaType: MediaType,
     val providerId: String,
     val providerItemId: String,
+    /** TMDB identifier used only when a configured stream API requires it. */
+    val tmdbId: Int? = null,
 )
 
 enum class MediaType {
@@ -40,6 +42,7 @@ data class Episode(
     val overview: String = "",
     val thumbnailUrl: String? = null,
     val providerEpisodeId: String,
+    val seasonNumber: Int? = null,
 )
 
 data class StreamCandidate(
