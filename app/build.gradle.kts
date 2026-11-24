@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -12,9 +14,10 @@ android {
         applicationId = "com.g41us.movio"
         minSdk = 23
         targetSdk = 36
-        // Release CI passes these from the git tag (v1.2.3 -> 1.2.3 / 10203).
-        versionCode = (project.findProperty("movioVersionCode") as String?)?.toInt() ?: 1
-        versionName = (project.findProperty("movioVersionName") as String?) ?: "0.1.0"
+        // Bump version.properties on main to publish a new release.
+        val version = Properties().apply { rootProject.file("version.properties").inputStream().use(::load) }
+        versionCode = version.getProperty("versionCode").toInt()
+        versionName = version.getProperty("versionName")
     }
 
     // One fixed key for every release so updates install over each other.
