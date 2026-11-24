@@ -6,9 +6,9 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 internal object HttpJson {
-    fun getObject(url: String): JSONObject = request(url, ::JSONObject)
+    fun getObject(url: String): JSONObject = request(url) { body -> JSONObject(body) }
 
-    fun getArray(url: String): JSONArray = request(url, ::JSONArray)
+    fun getArray(url: String): JSONArray = request(url) { body -> JSONArray(body) }
 
     private fun <T> request(address: String, parse: (String) -> T): T {
         val connection = URL(address).openConnection() as HttpURLConnection
