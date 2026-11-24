@@ -66,7 +66,8 @@ class TvMazeCatalogProvider : CatalogProvider {
                     number = episode.optInt("number"),
                     overview = episode.optString("summary").stripHtml(),
                     thumbnailUrl = episode.optJSONObject("image")?.optString("medium")?.takeIf { it.isNotBlank() },
-                    providerEpisodeId = episode.optLong("id").toString()
+                    providerEpisodeId = episode.optLong("id").toString(),
+                    seasonNumber = episode.optInt("season").takeIf { it > 0 }
                 )
             }
         }
@@ -80,6 +81,7 @@ class TvMazeCatalogProvider : CatalogProvider {
         val year = premiered.take(4).toIntOrNull()
         val genres = optJSONArray("genres").toStringList()
         val id = optLong("id").toString()
+        val tmdbId = optJSONObject("externals")?.optInt("tmdb")?.takeIf { it > 0 }
         return MediaItem(
             id = "tvmaze-$id",
             title = optString("name").ifBlank { "Untitled show" },
@@ -90,7 +92,8 @@ class TvMazeCatalogProvider : CatalogProvider {
             genres = genres,
             mediaType = MediaType.SERIES,
             providerId = this@TvMazeCatalogProvider.id,
-            providerItemId = id
+            providerItemId = id,
+            tmdbId = tmdbId
         )
     }
 
