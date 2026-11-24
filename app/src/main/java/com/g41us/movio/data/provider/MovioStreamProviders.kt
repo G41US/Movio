@@ -31,6 +31,28 @@ object MovioStreamProviders {
             XPassStreamProvider(),
             JsonApiStreamProvider(
                 JsonStreamProviderConfig(
+                    id = "vidnest_videasy",
+                    name = "VidNest Easy",
+                    enabled = true,
+                    movieUrl = "https://new.vidnest.fun/videasy/movie/{tmdb_id}",
+                    tvUrl = "https://new.vidnest.fun/videasy/tv/{tmdb_id}/{season}/{episode}",
+                    referer = "https://vidnest.fun/",
+                    displayOrder = 3,
+                )
+            ),
+            JsonApiStreamProvider(
+                JsonStreamProviderConfig(
+                    id = "vidnest_moviesapi",
+                    name = "VidNest Movies",
+                    enabled = true,
+                    movieUrl = "https://new.vidnest.fun/moviesapi/movie/{tmdb_id}",
+                    tvUrl = "https://new.vidnest.fun/moviesapi/tv/{tmdb_id}/{season}/{episode}",
+                    referer = "https://vidnest.fun/",
+                    displayOrder = 4,
+                )
+            ),
+            JsonApiStreamProvider(
+                JsonStreamProviderConfig(
                     id = "vidrock",
                     name = "VidRock",
                     enabled = true,
