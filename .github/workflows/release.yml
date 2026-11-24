@@ -1,10 +1,10 @@
 name: Release
 
-# Push a tag like v0.2.0 to build a signed APK and publish it as the latest
-# GitHub Release, which the in-app updater checks.
+# Publish a GitHub Release tagged like v0.2.0; this builds a signed APK and
+# attaches it, so the in-app updater can find it.
 on:
-  push:
-    tags: ["v*.*.*"]
+  release:
+    types: [published]
 
 permissions:
   contents: write
@@ -19,7 +19,8 @@ jobs:
       - name: Read version from tag
         id: version
         run: |
-          name="${GITHUB_REF_NAME#v}"
+          tag="${{ github.event.release.tag_name }}"
+          name="${tag#v}"
           IFS=. read -r major minor patch <<< "$name"
           code=$(( major * 10000 + minor * 100 + patch ))
           echo "name=$name" >> "$GITHUB_OUTPUT"
@@ -68,11 +69,9 @@ jobs:
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$apk"
           cp "$apk" "Movio-${{ steps.version.outputs.name }}.apk"
 
-      - name: Publish release
+      - name: Attach APK to release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" "Movio-${{ steps.version.outputs.name }}.apk" \
-            --title "Movio ${{ steps.version.outputs.name }}" \
-            --notes "" \
-            --latest
+          gh release upload "${{ github.event.release.tag_name }}" \
+            "Movio-${{ steps.version.outputs.name }}.apk" --clobber
