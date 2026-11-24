@@ -363,20 +363,32 @@ private fun MediaDetailsScreen(
         scope.launch {
             resolvingStreams = true
             streamCandidates = emptyList()
-            streamMessage = if (item.tmdbId == null) {
-                "This catalogue result has no TMDB ID, so the configured movie sources cannot look it up yet."
-            } else {
-                "Checking configured sources…"
+            streamMessage = when {
+                item.tmdbId == null ->
+                    "Playback lookup stopped: this title has no TMDB ID. We need to match it to TMDB before these sources can search."
+                item.mediaType != com.g41us.movio.data.model.MediaType.MOVIE && episode == null ->
+                    "Select an episode first."
+                episode != null && episode.seasonNumber == null ->
+                    "Playback lookup stopped: this episode has no season number, so the TV source URL cannot be built."
+                else -> "Checking VixSrc, XPass and VidRock for ${episode?.let { "S${it.seasonNumber} E${it.number}" } ?: "this movie"}…"
             }
-            if (item.tmdbId != null) {
-                streamCandidates = streamRepository.resolve(item, episode)
-                streamMessage = if (streamCandidates.isEmpty()) {
-                    "No direct playable source was returned. This can mean the provider is unavailable, the title is not indexed, or its response needs a provider-specific resolver."
-                } else {
-                    "Choose a source to play."
+            try {
+                if (item.tmdbId != null &&
+                    (item.mediaType == com.g41us.movio.data.model.MediaType.MOVIE ||
+                        (episode != null && episode.seasonNumber != null))
+                ) {
+                    streamCandidates = streamRepository.resolve(item, episode)
+                    streamMessage = if (streamCandidates.isEmpty()) {
+                        "No direct stream found. The providers may be unavailable, may not list this title, or may require a supported provider-specific response."
+                    } else {
+                        "Found ${streamCandidates.size} source(s). Choose one below."
+                    }
                 }
+            } catch (error: Exception) {
+                streamMessage = "Source lookup failed: ${error.message ?: error.javaClass.simpleName}"
+            } finally {
+                resolvingStreams = false
             }
-            resolvingStreams = false
         }
     }
 
@@ -450,7 +462,18 @@ private fun MediaDetailsScreen(
             CircularProgressIndicator(color = MovioAccent, modifier = Modifier.padding(12.dp))
         }
         if (streamMessage.isNotBlank()) {
-            Text(streamMessage, color = MovioMuted, fontSize = 12.sp, modifier = Modifier.padding(vertical = 8.dp))
+            Surface(
+                color = Color(0xFF202638),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+            ) {
+                Text(
+                    streamMessage,
+                    color = if (streamMessage.startsWith("Source lookup failed") || streamMessage.startsWith("Playback lookup stopped")) Color(0xFFFFC4A8) else Color(0xFFE3D9FF),
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(12.dp)
+                )
+            }
         }
         streamCandidates.forEachIndexed { index, candidate ->
             Button(
