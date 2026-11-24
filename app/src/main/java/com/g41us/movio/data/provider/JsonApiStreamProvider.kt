@@ -11,13 +11,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import org.json.JSONTokener
 import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * Clean, provider-neutral adapter for a JSON API that the Movio owner is
- * authorized to use. It deliberately does not scrape embed pages, execute
- * page scripts, defeat access checks, or extract DRM-protected media.
+ * Clean, provider-neutral adapter for an authorized JSON stream API.
+ * It does not scrape embed pages, execute page scripts, defeat access checks,
+ * decrypt protected media URLs, or extract DRM-protected streams.
  *
  * URL templates may contain {tmdb_id}, {season}, and {episode}.
  */
@@ -30,33 +31,8 @@ data class JsonStreamProviderConfig(
     val referer: String? = null,
     val headers: Map<String, String> = emptyMap(),
     val displayOrder: Int = 100,
-) {
-    companion object {
-        fun fromJson(json: JSONObject): JsonStreamProviderConfig {
-            val headersObject = json.optJSONObject("headers") ?: JSONObject()
-            val headers = buildMap {
-                val keys = headersObject.keys()
-                while (keys.hasNext()) {
-                    val key = keys.next()
-                    val value = headersObject.optString(key).trim()
-                    if (key.isNotBlank() && value.isNotBlank()) put(key, value)
-                }
-            }
-            return JsonStreamProviderConfig(
-                id = json.optString("id").trim(),
-                name = json.optString("name").ifBlank { json.optString("id") },
-                enabled = json.optBoolean("enabled", false),
-                movieUrl = json.optString("movie_url").takeIf { it.isNotBlank() },
-                tvUrl = json.optString("tv_url").takeIf { it.isNotBlank() },
-                referer = json.optString("referer").takeIf { it.isNotBlank() },
-                headers = headers,
-                displayOrder = json.optInt("display_order", 100),
-            )
-        }
-    }
-}
+)
 
-/** A generic JSON endpoint adapter; no provider is enabled by default. */
 class JsonApiStreamProvider(
     private val config: JsonStreamProviderConfig,
 ) : StreamProvider {
@@ -93,11 +69,10 @@ class JsonApiStreamProvider(
                     .replace("{episode}", Uri.encode(selectedEpisode.number.toString()))
             }
 
-            val response = request(endpoint)
-            parseCandidates(response)
+            parseCandidates(request(endpoint))
         }
 
-    private fun request(endpoint: String): JSONObject {
+    private fun request(endpoint: String): Any {
         val connection = URL(endpoint).openConnection() as HttpURLConnection
         try {
             connection.requestMethod = "GET"
@@ -113,36 +88,57 @@ class JsonApiStreamProvider(
             if (status !in 200..299) {
                 throw IllegalStateException("${config.name} returned HTTP $status")
             }
-            return JSONObject(body)
+            return JSONTokener(body).nextValue()
         } finally {
             connection.disconnect()
         }
     }
 
-    private fun parseCandidates(root: JSONObject): List<StreamCandidate> {
-        val nested = root.optJSONObject("data") ?: root
-        val sources = nested.optJSONArray("sources")
-            ?: nested.optJSONArray("streams")
-            ?: nested.optJSONArray("results")
+    private fun parseCandidates(root: Any): List<StreamCandidate> {
         val candidates = mutableListOf<StreamCandidate>()
-
-        if (sources != null) {
-            for (index in 0 until sources.length()) {
-                val source = sources.optJSONObject(index) ?: continue
-                candidateFrom(source)?.let(candidates::add)
-            }
-        } else {
-            candidateFrom(nested)?.let(candidates::add)
-        }
+        collectCandidates(root, candidates)
         return candidates.distinctBy { it.url }
+    }
+
+    private fun collectCandidates(value: Any?, output: MutableList<StreamCandidate>) {
+        when (value) {
+            is JSONArray -> {
+                for (index in 0 until value.length()) collectCandidates(value.opt(index), output)
+            }
+            is JSONObject -> {
+                val nested = value.optJSONObject("data")
+                if (nested != null) collectCandidates(nested, output)
+
+                val sources = value.optJSONArray("sources")
+                    ?: value.optJSONArray("streams")
+                    ?: value.optJSONArray("results")
+                if (sources != null) {
+                    for (index in 0 until sources.length()) {
+                        val source = sources.optJSONObject(index) ?: continue
+                        candidateFrom(source)?.let(output::add)
+                    }
+                } else {
+                    candidateFrom(value)?.let(output::add)
+                    val keys = value.keys()
+                    while (keys.hasNext()) {
+                        val key = keys.next()
+                        if (key !in setOf("data", "headers", "subtitles", "sources", "streams", "results")) {
+                            val child = value.opt(key)
+                            if (child is JSONObject || child is JSONArray) collectCandidates(child, output)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private fun candidateFrom(source: JSONObject): StreamCandidate? {
         val url = listOf("url", "file", "src", "link")
-            .firstNotNullOfOrNull { key -> source.optString(key).takeIf { it.startsWith("http://") || it.startsWith("https://") } }
-            ?: return null
+            .firstNotNullOfOrNull { key ->
+                source.optString(key).takeIf { it.startsWith("http://") || it.startsWith("https://") }
+            } ?: return null
 
-        val declaredType = listOf("type", "streamType", "mimeType", "mime_type")
+        val declaredType = listOf("type", "streamType", "mimeType", "mime_type", "format")
             .firstNotNullOfOrNull { key -> source.optString(key).takeIf { it.isNotBlank() } }
             ?.lowercase()
         val format = when {
@@ -159,15 +155,15 @@ class JsonApiStreamProvider(
                 val keys = sourceHeaders.keys()
                 while (keys.hasNext()) {
                     val key = keys.next()
-                    val value = sourceHeaders.optString(key).trim()
-                    if (key.isNotBlank() && value.isNotBlank()) put(key, value)
+                    val headerValue = sourceHeaders.optString(key).trim()
+                    if (key.isNotBlank() && headerValue.isNotBlank()) put(key, headerValue)
                 }
             }
             config.referer?.let { if (!containsKey("Referer")) put("Referer", it) }
         }
 
         val subtitles = parseSubtitles(source.optJSONArray("subtitles"))
-        val quality = listOf("quality", "label", "name")
+        val quality = listOf("quality", "label", "name", "resolution")
             .firstNotNullOfOrNull { key -> source.optString(key).takeIf { it.isNotBlank() } }
         val mime = source.optString("mimeType").takeIf { it.isNotBlank() }
             ?: when (format) {
@@ -193,8 +189,9 @@ class JsonApiStreamProvider(
         return (0 until array.length()).mapNotNull { index ->
             val item = array.optJSONObject(index) ?: return@mapNotNull null
             val url = listOf("url", "file", "src")
-                .firstNotNullOfOrNull { key -> item.optString(key).takeIf { it.startsWith("http://") || it.startsWith("https://") } }
-                ?: return@mapNotNull null
+                .firstNotNullOfOrNull { key ->
+                    item.optString(key).takeIf { it.startsWith("http://") || it.startsWith("https://") }
+                } ?: return@mapNotNull null
             SubtitleTrack(
                 url = url,
                 language = item.optString("lang").takeIf { it.isNotBlank() }
@@ -204,20 +201,5 @@ class JsonApiStreamProvider(
                 isDefault = item.optBoolean("default", false)
             )
         }
-    }
-}
-
-/** Builds an independent provider registry from a JSON config's providers array. */
-object JsonStreamProviderRegistryFactory {
-    fun fromJson(config: JSONObject): StreamProviderRegistry {
-        val array = config.optJSONArray("providers") ?: JSONArray()
-        val providers = (0 until array.length()).mapNotNull { index ->
-            val item = array.optJSONObject(index) ?: return@mapNotNull null
-            val providerConfig = runCatching { JsonStreamProviderConfig.fromJson(item) }.getOrNull()
-                ?: return@mapNotNull null
-            if (providerConfig.id.isBlank() || providerConfig.name.isBlank()) return@mapNotNull null
-            JsonApiStreamProvider(providerConfig)
-        }.sortedBy { it.displayOrder }
-        return StreamProviderRegistry(providers)
     }
 }
