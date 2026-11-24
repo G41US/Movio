@@ -410,7 +410,7 @@ private fun MediaDetailsScreen(
         }
         Spacer(Modifier.height(18.dp))
         Text(
-            "This catalogue provider supplies metadata and episode information only. It does not supply a licensed playback stream for this title.",
+            "Catalogue metadata and playback sources are separate. A title is playable only when a configured source returns a direct stream URL supported by the player.",
             color = MovioMuted,
             fontSize = 12.sp
         )
