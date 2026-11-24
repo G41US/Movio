@@ -376,6 +376,7 @@ private fun MediaDetailsScreen(
     var resolvingStreams by remember(item.id) { mutableStateOf(false) }
     var streamCandidates by remember(item.id) { mutableStateOf<List<StreamCandidate>>(emptyList()) }
     var providerDiagnostics by remember(item.id) { mutableStateOf<List<ProviderDiagnostic>>(emptyList()) }
+    var resolvedTmdbId by remember(item.id) { mutableStateOf<Int?>(item.tmdbId) }
     var streamMessage by remember(item.id) { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -404,6 +405,7 @@ private fun MediaDetailsScreen(
                     }
                     return@launch
                 }
+                resolvedTmdbId = matchedId
                 val matchedItem = item.copy(tmdbId = matchedId)
                 val sources = streamRepository.providerNames(matchedItem).ifEmpty { listOf("configured sources") }
                 streamMessage = "TMDB match #$matchedId. Checking ${sources.joinToString()}…"
@@ -478,12 +480,36 @@ private fun MediaDetailsScreen(
                             fontWeight = FontWeight.Medium
                         )
                     }
-                    Button(
-                        onClick = { resolveStreams(episode) },
-                        enabled = !resolvingStreams,
-                        colors = ButtonDefaults.buttonColors(containerColor = MovioAccent)
-                    ) {
-                        Text("Play")
+                    Column(horizontalAlignment = Alignment.End) {
+                        Button(
+                            onClick = { resolveStreams(episode) },
+                            enabled = !resolvingStreams,
+                            colors = ButtonDefaults.buttonColors(containerColor = MovioAccent)
+                        ) { Text("Play") }
+                        if (resolvedTmdbId != null && episode.seasonNumber != null) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    "VixSrc",
+                                    color = Color(0xFFC4B5FF),
+                                    modifier = Modifier.clickable {
+                                        onOpenEmbed(
+                                            "https://vixsrc.to/tv/$resolvedTmdbId/${episode.seasonNumber}/${episode.number}",
+                                            "VixSrc"
+                                        )
+                                    }.focusable().padding(5.dp)
+                                )
+                                Text(
+                                    "VidRock",
+                                    color = Color(0xFFC4B5FF),
+                                    modifier = Modifier.clickable {
+                                        onOpenEmbed(
+                                            "https://vidrock.to/tv/$resolvedTmdbId/${episode.seasonNumber}/${episode.number}",
+                                            "VidRock"
+                                        )
+                                    }.focusable().padding(5.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -506,36 +532,6 @@ private fun MediaDetailsScreen(
                     fontSize = 13.sp,
                     modifier = Modifier.padding(12.dp)
                 )
-            }
-        }
-        val matchedTmdbId = item.tmdbId
-        if (matchedTmdbId != null && matchedTmdbId > 0 &&
-            item.mediaType != com.g41us.movio.data.model.MediaType.MOVIE &&
-            episodes.isNotEmpty()
-        ) {
-            val selectedEpisode = episodes.firstOrNull { it.seasonNumber != null }
-            if (selectedEpisode != null) {
-                Spacer(Modifier.height(10.dp))
-                Text("Embedded player options", color = Color.White, fontWeight = FontWeight.Bold)
-                Text(
-                    "These open the provider's own web player. Availability and playback are controlled by that provider.",
-                    color = MovioMuted,
-                    fontSize = 12.sp
-                )
-                Button(
-                    onClick = {
-                        val url = "https://vixsrc.to/tv/$matchedTmdbId/${selectedEpisode.seasonNumber}/${selectedEpisode.number}"
-                        onOpenEmbed(url, "VixSrc")
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = MovioSurface)
-                ) { Text("Open VixSrc embedded player") }
-                Button(
-                    onClick = {
-                        val url = "https://vidrock.to/tv/$matchedTmdbId/${selectedEpisode.seasonNumber}/${selectedEpisode.number}"
-                        onOpenEmbed(url, "VidRock")
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = MovioSurface)
-                ) { Text("Open VidRock embedded player") }
             }
         }
         if (providerDiagnostics.isNotEmpty()) {
