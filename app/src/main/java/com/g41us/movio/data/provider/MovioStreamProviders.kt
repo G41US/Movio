@@ -28,6 +28,7 @@ object MovioStreamProviders {
                     displayOrder = 2,
                 )
             ),
+            XPassStreamProvider(),
             JsonApiStreamProvider(
                 JsonStreamProviderConfig(
                     id = "vidrock",
