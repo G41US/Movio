@@ -1,0 +1,49 @@
+package com.g41us.movio.playback
+
+import android.annotation.SuppressLint
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.viewinterop.AndroidView
+
+private val allowedEmbedHosts = setOf("vixsrc.to", "vidrock.to", "vidrock.net")
+
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+fun MovioEmbedScreen(url: String, modifier: Modifier = Modifier) {
+    AndroidView(
+        modifier = modifier,
+        factory = { context ->
+            WebView(context).apply {
+                settings.javaScriptEnabled = true
+                settings.domStorageEnabled = true
+                settings.mediaPlaybackRequiresUserGesture = false
+                settings.loadsImagesAutomatically = true
+                settings.javaScriptCanOpenWindowsAutomatically = false
+                settings.setSupportMultipleWindows(false)
+                webChromeClient = WebChromeClient()
+                webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(
+                        view: WebView,
+                        request: WebResourceRequest
+                    ): Boolean {
+                        val uri = request.url
+                        val host = uri.host?.lowercase().orEmpty()
+                        return uri.scheme != "https" || host !in allowedEmbedHosts
+                    }
+                }
+                val parsed = android.net.Uri.parse(url)
+                require(parsed.scheme == "https" && parsed.host?.lowercase() in allowedEmbedHosts) {
+                    "Unsupported embedded player host"
+                }
+                loadUrl(url)
+            }
+        },
+        update = { view ->
+            if (view.url != url) view.loadUrl(url)
+        }
+    )
+}
