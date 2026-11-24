@@ -370,7 +370,10 @@ private fun MediaDetailsScreen(
                     "Select an episode first."
                 episode != null && episode.seasonNumber == null ->
                     "Playback lookup stopped: this episode has no season number, so the TV source URL cannot be built."
-                else -> "Checking VixSrc, XPass and VidRock for ${episode?.let { "S${it.seasonNumber} E${it.number}" } ?: "this movie"}…"
+                else -> {
+                    val sources = streamRepository.providerNames(item).ifEmpty { listOf("configured sources") }
+                    "Checking ${sources.joinToString()} for ${episode?.let { "S${it.seasonNumber} E${it.number}" } ?: "this movie"}…"
+                }
             }
             try {
                 if (item.tmdbId != null &&
@@ -384,6 +387,8 @@ private fun MediaDetailsScreen(
                         "Found ${streamCandidates.size} source(s). Choose one below."
                     }
                 }
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
             } catch (error: Exception) {
                 streamMessage = "Source lookup failed: ${error.message ?: error.javaClass.simpleName}"
             } finally {

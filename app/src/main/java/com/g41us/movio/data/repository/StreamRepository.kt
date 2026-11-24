@@ -11,6 +11,9 @@ import kotlinx.coroutines.withContext
 class StreamRepository(
     private val registry: StreamProviderRegistry = MovioStreamProviders.createRegistry()
 ) {
+    fun providerNames(item: MediaItem): List<String> =
+        registry.providersFor(item).map { it.displayName }
+
     suspend fun resolve(item: MediaItem, episode: Episode? = null): List<StreamCandidate> =
         withContext(Dispatchers.IO) {
             registry.providersFor(item).flatMap { provider ->
