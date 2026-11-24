@@ -80,6 +80,8 @@ import com.g41us.movio.data.provider.TmdbMatcher
 import com.g41us.movio.data.repository.CatalogRepository
 import com.g41us.movio.data.repository.StreamRepository
 import com.g41us.movio.playback.MovioPlayerScreen
+import com.g41us.movio.update.AppUpdater
+import androidx.compose.material3.LinearProgressIndicator
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -536,6 +538,8 @@ private fun SettingsScreen(onPlaySample: () -> Unit) {
     var checkingUpdate by remember { mutableStateOf(false) }
     var updateMessage by remember { mutableStateOf("Check GitHub for the latest Movio release.") }
     var updateDownloadUrl by remember { mutableStateOf<String?>(null) }
+    var downloadProgress by remember { mutableStateOf<Float?>(null) }
+    var downloadedApk by remember { mutableStateOf<java.io.File?>(null) }
 
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(22.dp),
@@ -581,6 +585,7 @@ private fun SettingsScreen(onPlaySample: () -> Unit) {
                             checkingUpdate = true
                             updateMessage = "Checking GitHub releases…"
                             updateDownloadUrl = null
+                            downloadedApk = null
                             val result = withContext(Dispatchers.IO) { fetchLatestMovioRelease() }
                             updateMessage = result.message
                             updateDownloadUrl = result.apkUrl
@@ -592,11 +597,42 @@ private fun SettingsScreen(onPlaySample: () -> Unit) {
                     if (checkingUpdate) CircularProgressIndicator(modifier = Modifier.width(18.dp).height(18.dp), strokeWidth = 2.dp)
                     else Text("Check for updates")
                 }
-                if (updateDownloadUrl != null) {
+                val progress = downloadProgress
+                if (progress != null) {
+                    if (progress >= 0f) {
+                        LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth(), color = MovioAccent)
+                        Text("Downloading… ${(progress * 100).toInt()}%", color = MovioMuted, fontSize = 12.sp)
+                    } else {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = MovioAccent)
+                    }
+                }
+                val apkUrl = updateDownloadUrl
+                if (apkUrl != null && progress == null) {
                     Button(onClick = {
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(updateDownloadUrl))
-                        context.startActivity(intent)
-                    }) { Text("Download update APK") }
+                        val ready = downloadedApk
+                        when {
+                            !AppUpdater.canInstall(context) -> {
+                                updateMessage = "Allow Movio to install updates, then come back and tap Update now again."
+                                AppUpdater.openInstallPermissionSettings(context)
+                            }
+                            ready != null && ready.exists() -> AppUpdater.install(context, ready)
+                            else -> scope.launch {
+                                downloadProgress = 0f
+                                try {
+                                    val apk = AppUpdater.download(context, apkUrl) { downloadProgress = it }
+                                    downloadedApk = apk
+                                    updateMessage = "Download complete. Confirm the install to finish updating."
+                                    AppUpdater.install(context, apk)
+                                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                    throw cancelled
+                                } catch (error: Exception) {
+                                    updateMessage = "Update failed: ${error.message ?: "network error"}."
+                                } finally {
+                                    downloadProgress = null
+                                }
+                            }
+                        }
+                    }) { Text(if (downloadedApk != null) "Install update" else "Update now") }
                 }
                 Text("Updates are downloaded from the official Movio GitHub Releases page and installed by Android after your confirmation.", color = MovioMuted, fontSize = 11.sp)
             }
@@ -637,7 +673,7 @@ private fun fetchLatestMovioRelease(): MovioUpdateResult {
         } ?: false
         when {
             !latestIsNewer -> MovioUpdateResult("You're running the latest version (${BuildConfig.VERSION_NAME}).")
-            apkUrl != null -> MovioUpdateResult("Movio ${tag} is available. Download the APK to update.", apkUrl)
+            apkUrl != null -> MovioUpdateResult("Movio ${tag} is available.", apkUrl)
             else -> MovioUpdateResult("Movio ${tag} is available, but this release has no APK asset. Open the releases page: $releaseUrl")
         }
     } catch (error: Exception) {
