@@ -23,8 +23,13 @@ class StreamRepository(
             supervisorScope {
                 providers.map { provider ->
                     async {
-                        runCatching { provider.resolve(item, episode) }
-                            .getOrDefault(emptyList())
+                        try {
+                            provider.resolve(item, episode)
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            emptyList()
+                        }
                     }
                 }.flatMap { it.await() }
             }.distinctBy { it.url }

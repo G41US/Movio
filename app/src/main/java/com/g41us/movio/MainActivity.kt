@@ -370,6 +370,10 @@ private fun MediaDetailsScreen(
                     streamMessage = "Select an episode first."
                     return@launch
                 }
+                if (item.mediaType != com.g41us.movio.data.model.MediaType.MOVIE && episode?.seasonNumber == null) {
+                    streamMessage = "This episode has no season number. The catalogue needs a season mapping before TV sources can search."
+                    return@launch
+                }
                 streamMessage = "Matching ${item.title} with TMDB…"
                 val matchedId = withContext(Dispatchers.IO) { TmdbMatcher.match(context, item) }
                 if (matchedId == null) {
@@ -381,10 +385,6 @@ private fun MediaDetailsScreen(
                     return@launch
                 }
                 val matchedItem = item.copy(tmdbId = matchedId)
-                if (item.mediaType != com.g41us.movio.data.model.MediaType.MOVIE && episode?.seasonNumber == null) {
-                    streamMessage = "This episode has no season number. The catalogue needs a season mapping before TV sources can search."
-                    return@launch
-                }
                 val sources = streamRepository.providerNames(matchedItem).ifEmpty { listOf("configured sources") }
                 streamMessage = "TMDB match #$matchedId. Checking ${sources.joinToString()}…"
                 streamCandidates = streamRepository.resolve(matchedItem, episode)
@@ -543,19 +543,23 @@ private fun SettingsScreen(onPlaySample: () -> Unit) {
     ) {
         Text("Settings", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
         var tmdbKey by remember { mutableStateOf(TmdbMatcher.savedApiKey(context)) }
+        var tmdbKeySaved by remember { mutableStateOf(false) }
         Surface(color = MovioSurface, shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, Color(0xFF292F3D))) {
             Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("TMDB matching", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 Text("Add your own TMDB API key so Movio can match titles that don't include a TMDB ID. The key stays on this device.", color = MovioMuted, fontSize = 12.sp)
                 OutlinedTextField(
                     value = tmdbKey,
-                    onValueChange = { tmdbKey = it },
+                    onValueChange = { tmdbKey = it; tmdbKeySaved = false },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     label = { Text("TMDB API key") }
                 )
-                Button(onClick = { TmdbMatcher.saveApiKey(context, tmdbKey) }) {
+                Button(onClick = { TmdbMatcher.saveApiKey(context, tmdbKey); tmdbKeySaved = true }) {
                     Text("Save TMDB key")
+                }
+                if (tmdbKeySaved) {
+                    Text(if (tmdbKey.isBlank()) "Key removed." else "Saved ✓", color = Color(0xFF7EE2A8), fontSize = 12.sp)
                 }
             }
         }

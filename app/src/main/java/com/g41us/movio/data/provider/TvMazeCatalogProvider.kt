@@ -81,7 +81,9 @@ class TvMazeCatalogProvider : CatalogProvider {
         val year = premiered.take(4).toIntOrNull()
         val genres = optJSONArray("genres").toStringList()
         val id = optLong("id").toString()
-        val tmdbId = optJSONObject("externals")?.optInt("tmdb")?.takeIf { it > 0 }
+        // TVMaze has no TMDB field; its IMDb ID lets TMDB match the show exactly.
+        val imdbId = optJSONObject("externals")?.optString("imdb")
+            ?.takeIf { it.matches(Regex("tt\\d+")) }
         return MediaItem(
             id = "tvmaze-$id",
             title = optString("name").ifBlank { "Untitled show" },
@@ -93,7 +95,7 @@ class TvMazeCatalogProvider : CatalogProvider {
             mediaType = MediaType.SERIES,
             providerId = this@TvMazeCatalogProvider.id,
             providerItemId = id,
-            tmdbId = tmdbId
+            imdbId = imdbId
         )
     }
 

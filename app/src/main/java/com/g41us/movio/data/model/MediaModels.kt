@@ -18,6 +18,8 @@ data class MediaItem(
     val providerItemId: String,
     /** TMDB identifier used only when a configured stream API requires it. */
     val tmdbId: Int? = null,
+    /** IMDb identifier (tt…), used for an exact TMDB lookup when tmdbId is missing. */
+    val imdbId: String? = null,
 )
 
 enum class MediaType {
