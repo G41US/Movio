@@ -61,10 +61,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.g41us.movio.data.model.Episode
 import com.g41us.movio.data.model.MediaItem
 import com.g41us.movio.data.model.StreamCandidate
 import com.g41us.movio.data.provider.DemoPlaybackProvider
 import com.g41us.movio.data.repository.CatalogRepository
+import com.g41us.movio.data.repository.StreamRepository
 import com.g41us.movio.playback.MovioPlayerScreen
 import kotlinx.coroutines.launch
 
@@ -73,6 +75,7 @@ private val MovioSurface = Color(0xFF151923)
 private val MovioAccent = Color(0xFF8B5CF6)
 private val MovioMuted = Color(0xFF9AA3B2)
 private val catalogRepository = CatalogRepository()
+private val streamRepository = StreamRepository()
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -121,7 +124,8 @@ private fun MovioApp() {
             MediaDetailsScreen(
                 item = selectedMedia!!,
                 onBack = { selectedMedia = null },
-                onPlaySample = { playback = DemoPlaybackProvider.sample() }
+                onPlaySample = { playback = DemoPlaybackProvider.sample() },
+                onPlayStream = { candidate -> playback = candidate }
             )
         } else {
             Column {
@@ -305,11 +309,41 @@ private fun SearchScreen(onSelect: (MediaItem) -> Unit) {
 }
 
 @Composable
-private fun MediaDetailsScreen(item: MediaItem, onBack: () -> Unit, onPlaySample: () -> Unit) {
+private fun MediaDetailsScreen(
+    item: MediaItem,
+    onBack: () -> Unit,
+    onPlaySample: () -> Unit,
+    onPlayStream: (StreamCandidate) -> Unit
+) {
     var summary by remember(item.id) { mutableStateOf(item.overview) }
     var cast by remember(item.id) { mutableStateOf<List<String>>(emptyList()) }
-    var episodes by remember(item.id) { mutableStateOf<List<com.g41us.movio.data.model.Episode>>(emptyList()) }
+    var episodes by remember(item.id) { mutableStateOf<List<Episode>>(emptyList()) }
     var loading by remember(item.id) { mutableStateOf(true) }
+    var resolvingStreams by remember(item.id) { mutableStateOf(false) }
+    var streamCandidates by remember(item.id) { mutableStateOf<List<StreamCandidate>>(emptyList()) }
+    var streamMessage by remember(item.id) { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
+
+    fun resolveStreams(episode: Episode? = null) {
+        scope.launch {
+            resolvingStreams = true
+            streamCandidates = emptyList()
+            streamMessage = if (item.tmdbId == null) {
+                "This catalogue result has no TMDB ID, so the configured movie sources cannot look it up yet."
+            } else {
+                "Checking configured sources…"
+            }
+            if (item.tmdbId != null) {
+                streamCandidates = streamRepository.resolve(item, episode)
+                streamMessage = if (streamCandidates.isEmpty()) {
+                    "No direct playable source was returned. This can mean the provider is unavailable, the title is not indexed, or its response needs a provider-specific resolver."
+                } else {
+                    "Choose a source to play."
+                }
+            }
+            resolvingStreams = false
+        }
+    }
 
     LaunchedEffect(item.id) {
         val details = catalogRepository.details(item)
@@ -334,6 +368,13 @@ private fun MediaDetailsScreen(item: MediaItem, onBack: () -> Unit, onPlaySample
             Text(cast.joinToString(" · "), color = MovioMuted, fontSize = 12.sp)
         }
         Spacer(Modifier.height(20.dp))
+        if (item.mediaType == com.g41us.movio.data.model.MediaType.MOVIE) {
+            Button(
+                onClick = { resolveStreams() },
+                enabled = !resolvingStreams,
+                colors = ButtonDefaults.buttonColors(containerColor = MovioAccent)
+            ) { Text(if (resolvingStreams) "Finding sources…" else "Find available streams") }
+        }
         Text("Episodes", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold)
         when {
             loading -> CircularProgressIndicator(color = MovioAccent, modifier = Modifier.padding(12.dp))
@@ -342,8 +383,29 @@ private fun MediaDetailsScreen(item: MediaItem, onBack: () -> Unit, onPlaySample
                 Text(
                     "${episode.number}. ${episode.title}",
                     color = Color.White,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 7.dp)
+                    modifier = Modifier.fillMaxWidth()
+                        .clickable { resolveStreams(episode) }
+                        .focusable()
+                        .padding(vertical = 10.dp)
                 )
+            }
+        }
+        if (item.mediaType != com.g41us.movio.data.model.MediaType.MOVIE && episodes.isNotEmpty()) {
+            Text("Select an episode to check its available streams.", color = MovioMuted, fontSize = 12.sp)
+        }
+        if (resolvingStreams) {
+            CircularProgressIndicator(color = MovioAccent, modifier = Modifier.padding(12.dp))
+        }
+        if (streamMessage.isNotBlank()) {
+            Text(streamMessage, color = MovioMuted, fontSize = 12.sp, modifier = Modifier.padding(vertical = 8.dp))
+        }
+        streamCandidates.forEachIndexed { index, candidate ->
+            Button(
+                onClick = { onPlayStream(candidate) },
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = MovioSurface)
+            ) {
+                Text("${candidate.qualityLabel ?: candidate.format.name} · Source ${index + 1}")
             }
         }
         Spacer(Modifier.height(18.dp))
