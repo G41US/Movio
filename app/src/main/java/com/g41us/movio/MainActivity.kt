@@ -16,12 +16,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -89,7 +87,8 @@ private fun MovioApp() {
     var selected by remember { mutableStateOf(Destination.HOME) }
     val config = LocalConfiguration.current
     val wide = config.screenWidthDp >= 800
-    val isTv = remember { isTelevision(LocalContext.current) }
+    val context = LocalContext.current
+    val isTv = remember(context) { isTelevision(context) }
 
     Surface(modifier = Modifier.fillMaxSize(), color = MovioBackground) {
         Column {
@@ -170,8 +169,7 @@ private fun HomeScreen(largeLayout: Boolean) {
                 modifier = Modifier.align(Alignment.BottomStart).padding(if (largeLayout) 34.dp else 22.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text("YOUR NEXT
-FAVOURITE STORY", color = Color.White, fontSize = if (largeLayout) 38.sp else 29.sp, fontWeight = FontWeight.Black, lineHeight = 39.sp)
+                Text("YOUR NEXT\nFAVOURITE STORY", color = Color.White, fontSize = if (largeLayout) 38.sp else 29.sp, fontWeight = FontWeight.Black, lineHeight = 39.sp)
                 Text("Movies, series and more — all in one place.", color = Color(0xFFD5D0E2), fontSize = 14.sp)
                 Button(
                     onClick = { },
