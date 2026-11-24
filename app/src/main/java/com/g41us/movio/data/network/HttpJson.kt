@@ -6,28 +6,27 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 internal object HttpJson {
-    fun getObject(url: String): JSONObject = open(url).use { connection ->
-        connection.inputStream.bufferedReader().use { JSONObject(it.readText()) }
-    }
+    fun getObject(url: String): JSONObject = request(url, ::JSONObject)
 
-    fun getArray(url: String): JSONArray = open(url).use { connection ->
-        connection.inputStream.bufferedReader().use { JSONArray(it.readText()) }
-    }
+    fun getArray(url: String): JSONArray = request(url, ::JSONArray)
 
-    private fun open(address: String): HttpURLConnection {
+    private fun <T> request(address: String, parse: (String) -> T): T {
         val connection = URL(address).openConnection() as HttpURLConnection
-        connection.requestMethod = "GET"
-        connection.connectTimeout = 12_000
-        connection.readTimeout = 15_000
-        connection.setRequestProperty("Accept", "application/json")
-        connection.setRequestProperty("User-Agent", "Movio-Android/0.1.0 (catalogue client)")
-        connection.connect()
-        val status = connection.responseCode
-        if (status !in 200..299) {
-            val message = connection.errorStream?.bufferedReader()?.use { it.readText() }
+        try {
+            connection.requestMethod = "GET"
+            connection.connectTimeout = 12_000
+            connection.readTimeout = 15_000
+            connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty("User-Agent", "Movio-Android/0.1.0 (catalogue client)")
+            val status = connection.responseCode
+            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+            val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+            if (status !in 200..299) {
+                throw IllegalStateException("Catalogue request failed ($status): ${body.take(160)}")
+            }
+            return parse(body)
+        } finally {
             connection.disconnect()
-            throw IllegalStateException("Catalogue request failed ($status): ${message.orEmpty().take(160)}")
         }
-        return connection
     }
 }
