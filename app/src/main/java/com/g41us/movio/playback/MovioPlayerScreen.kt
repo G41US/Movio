@@ -4,8 +4,6 @@ import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -15,7 +13,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.unit.dp
 import androidx.media3.common.MediaItem as PlayerMediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.datasource.DefaultDataSource
@@ -36,10 +33,10 @@ fun MovioPlayerScreen(
 
     LaunchedEffect(player, candidate.url) {
         val itemBuilder = PlayerMediaItem.Builder().setUri(candidate.url)
-        if (candidate.format == StreamFormat.HLS) {
-            itemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
-        } else if (candidate.mimeType != null) {
-            itemBuilder.setMimeType(candidate.mimeType)
+        when (candidate.format) {
+            StreamFormat.HLS -> itemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
+            StreamFormat.DASH -> itemBuilder.setMimeType(MimeTypes.APPLICATION_MPD)
+            else -> candidate.mimeType?.let(itemBuilder::setMimeType)
         }
         player.setMediaItem(itemBuilder.build())
         player.prepare()
