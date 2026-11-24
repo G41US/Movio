@@ -81,6 +81,7 @@ import com.g41us.movio.data.repository.CatalogRepository
 import com.g41us.movio.data.repository.StreamRepository
 import com.g41us.movio.data.repository.ProviderDiagnostic
 import com.g41us.movio.playback.MovioPlayerScreen
+import com.g41us.movio.playback.MovioEmbedScreen
 import com.g41us.movio.update.AppUpdater
 import androidx.compose.material3.LinearProgressIndicator
 import kotlinx.coroutines.launch
@@ -124,6 +125,7 @@ private fun MovioApp() {
     var selected by remember { mutableStateOf(Destination.HOME) }
     var selectedMedia by remember { mutableStateOf<MediaItem?>(null) }
     var playback by remember { mutableStateOf<StreamCandidate?>(null) }
+    var embedPlayback by remember { mutableStateOf<Pair<String, String>?>(null) }
     val config = LocalConfiguration.current
     val wide = config.screenWidthDp >= 800
     val context = LocalContext.current
@@ -133,7 +135,18 @@ private fun MovioApp() {
         // Android 15+ draws edge-to-edge; keep every screen clear of the status bar,
         // gesture bar and display cutout.
         Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-        if (playback != null) {
+        if (embedPlayback != null) {
+            Column(Modifier.fillMaxSize()) {
+                Row(
+                    Modifier.fillMaxWidth().background(MovioSurface).padding(horizontal = 18.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("‹  Back", color = Color.White, modifier = Modifier.clickable { embedPlayback = null }.focusable().padding(8.dp))
+                    Text(embedPlayback!!.second, color = Color.White, fontWeight = FontWeight.Bold)
+                }
+                MovioEmbedScreen(url = embedPlayback!!.first, modifier = Modifier.weight(1f))
+            }
+        } else if (playback != null) {
             Column(Modifier.fillMaxSize()) {
                 Row(
                     Modifier.fillMaxWidth().background(MovioSurface).padding(horizontal = 18.dp, vertical = 10.dp),
@@ -149,7 +162,8 @@ private fun MovioApp() {
                 item = selectedMedia!!,
                 onBack = { selectedMedia = null },
                 onPlaySample = { playback = DemoPlaybackProvider.sample() },
-                onPlayStream = { candidate -> playback = candidate }
+                onPlayStream = { candidate -> playback = candidate },
+                onOpenEmbed = { url, provider -> embedPlayback = url to provider }
             )
         } else {
             Column(Modifier.fillMaxSize()) {
@@ -352,7 +366,8 @@ private fun MediaDetailsScreen(
     item: MediaItem,
     onBack: () -> Unit,
     onPlaySample: () -> Unit,
-    onPlayStream: (StreamCandidate) -> Unit
+    onPlayStream: (StreamCandidate) -> Unit,
+    onOpenEmbed: (String, String) -> Unit
 ) {
     var summary by remember(item.id) { mutableStateOf(item.overview) }
     var cast by remember(item.id) { mutableStateOf<List<String>>(emptyList()) }
@@ -491,6 +506,36 @@ private fun MediaDetailsScreen(
                     fontSize = 13.sp,
                     modifier = Modifier.padding(12.dp)
                 )
+            }
+        }
+        val matchedTmdbId = item.tmdbId
+        if (matchedTmdbId != null && matchedTmdbId > 0 &&
+            item.mediaType != com.g41us.movio.data.model.MediaType.MOVIE &&
+            episodes.isNotEmpty()
+        ) {
+            val selectedEpisode = episodes.firstOrNull { it.seasonNumber != null }
+            if (selectedEpisode != null) {
+                Spacer(Modifier.height(10.dp))
+                Text("Embedded player options", color = Color.White, fontWeight = FontWeight.Bold)
+                Text(
+                    "These open the provider's own web player. Availability and playback are controlled by that provider.",
+                    color = MovioMuted,
+                    fontSize = 12.sp
+                )
+                Button(
+                    onClick = {
+                        val url = "https://vixsrc.to/tv/$matchedTmdbId/${selectedEpisode.seasonNumber}/${selectedEpisode.number}"
+                        onOpenEmbed(url, "VixSrc")
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MovioSurface)
+                ) { Text("Open VixSrc embedded player") }
+                Button(
+                    onClick = {
+                        val url = "https://vidrock.to/tv/$matchedTmdbId/${selectedEpisode.seasonNumber}/${selectedEpisode.number}"
+                        onOpenEmbed(url, "VidRock")
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MovioSurface)
+                ) { Text("Open VidRock embedded player") }
             }
         }
         if (providerDiagnostics.isNotEmpty()) {
