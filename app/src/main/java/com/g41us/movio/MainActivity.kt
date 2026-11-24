@@ -79,6 +79,7 @@ import com.g41us.movio.data.provider.DemoPlaybackProvider
 import com.g41us.movio.data.provider.TmdbMatcher
 import com.g41us.movio.data.repository.CatalogRepository
 import com.g41us.movio.data.repository.StreamRepository
+import com.g41us.movio.data.repository.ProviderDiagnostic
 import com.g41us.movio.playback.MovioPlayerScreen
 import com.g41us.movio.update.AppUpdater
 import androidx.compose.material3.LinearProgressIndicator
@@ -359,6 +360,7 @@ private fun MediaDetailsScreen(
     var loading by remember(item.id) { mutableStateOf(true) }
     var resolvingStreams by remember(item.id) { mutableStateOf(false) }
     var streamCandidates by remember(item.id) { mutableStateOf<List<StreamCandidate>>(emptyList()) }
+    var providerDiagnostics by remember(item.id) { mutableStateOf<List<ProviderDiagnostic>>(emptyList()) }
     var streamMessage by remember(item.id) { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -367,6 +369,7 @@ private fun MediaDetailsScreen(
         scope.launch {
             resolvingStreams = true
             streamCandidates = emptyList()
+            providerDiagnostics = emptyList()
             try {
                 if (item.mediaType != com.g41us.movio.data.model.MediaType.MOVIE && episode == null) {
                     streamMessage = "Select an episode first."
@@ -389,7 +392,9 @@ private fun MediaDetailsScreen(
                 val matchedItem = item.copy(tmdbId = matchedId)
                 val sources = streamRepository.providerNames(matchedItem).ifEmpty { listOf("configured sources") }
                 streamMessage = "TMDB match #$matchedId. Checking ${sources.joinToString()}…"
-                streamCandidates = streamRepository.resolve(matchedItem, episode)
+                val resolution = streamRepository.resolveDetailed(matchedItem, episode)
+                streamCandidates = resolution.candidates
+                providerDiagnostics = resolution.diagnostics
                 streamMessage = if (streamCandidates.isEmpty()) {
                     "No direct source was returned. Providers may be unavailable or may not list this title."
                 } else {
@@ -485,6 +490,23 @@ private fun MediaDetailsScreen(
                     color = if (streamMessage.startsWith("Source lookup failed") || streamMessage.startsWith("Playback lookup stopped")) Color(0xFFFFC4A8) else Color(0xFFE3D9FF),
                     fontSize = 13.sp,
                     modifier = Modifier.padding(12.dp)
+                )
+            }
+        }
+        if (providerDiagnostics.isNotEmpty()) {
+            Spacer(Modifier.height(6.dp))
+            Text("Provider diagnostics", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            providerDiagnostics.forEach { diagnostic ->
+                val detail = when {
+                    diagnostic.sourceCount > 0 -> "${diagnostic.sourceCount} source(s) returned"
+                    diagnostic.error != null -> "Failed: ${diagnostic.error}"
+                    else -> "No direct source returned"
+                }
+                Text(
+                    "${diagnostic.providerName}: $detail",
+                    color = if (diagnostic.error != null) Color(0xFFFFC4A8) else MovioMuted,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(vertical = 2.dp)
                 )
             }
         }
