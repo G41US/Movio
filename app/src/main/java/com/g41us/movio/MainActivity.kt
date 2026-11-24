@@ -76,6 +76,7 @@ import com.g41us.movio.data.model.Episode
 import com.g41us.movio.data.model.MediaItem
 import com.g41us.movio.data.model.StreamCandidate
 import com.g41us.movio.data.provider.DemoPlaybackProvider
+import com.g41us.movio.data.provider.TmdbMatcher
 import com.g41us.movio.data.repository.CatalogRepository
 import com.g41us.movio.data.repository.StreamRepository
 import com.g41us.movio.playback.MovioPlayerScreen
@@ -358,34 +359,39 @@ private fun MediaDetailsScreen(
     var streamCandidates by remember(item.id) { mutableStateOf<List<StreamCandidate>>(emptyList()) }
     var streamMessage by remember(item.id) { mutableStateOf("") }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     fun resolveStreams(episode: Episode? = null) {
         scope.launch {
             resolvingStreams = true
             streamCandidates = emptyList()
-            streamMessage = when {
-                item.tmdbId == null ->
-                    "Playback lookup stopped: this title has no TMDB ID. We need to match it to TMDB before these sources can search."
-                item.mediaType != com.g41us.movio.data.model.MediaType.MOVIE && episode == null ->
-                    "Select an episode first."
-                episode != null && episode.seasonNumber == null ->
-                    "Playback lookup stopped: this episode has no season number, so the TV source URL cannot be built."
-                else -> {
-                    val sources = streamRepository.providerNames(item).ifEmpty { listOf("configured sources") }
-                    "Checking ${sources.joinToString()} for ${episode?.let { "S${it.seasonNumber} E${it.number}" } ?: "this movie"}…"
-                }
-            }
             try {
-                if (item.tmdbId != null &&
-                    (item.mediaType == com.g41us.movio.data.model.MediaType.MOVIE ||
-                        (episode != null && episode.seasonNumber != null))
-                ) {
-                    streamCandidates = streamRepository.resolve(item, episode)
-                    streamMessage = if (streamCandidates.isEmpty()) {
-                        "No direct stream found. The providers may be unavailable, may not list this title, or may require a supported provider-specific response."
+                if (item.mediaType != com.g41us.movio.data.model.MediaType.MOVIE && episode == null) {
+                    streamMessage = "Select an episode first."
+                    return@launch
+                }
+                streamMessage = "Matching ${item.title} with TMDB…"
+                val matchedId = withContext(Dispatchers.IO) { TmdbMatcher.match(context, item) }
+                if (matchedId == null) {
+                    streamMessage = if (TmdbMatcher.savedApiKey(context).isBlank()) {
+                        "TMDB matching needs an API key. Add your TMDB API key in Settings, then press Play again."
                     } else {
-                        "Found ${streamCandidates.size} source(s). Choose one below."
+                        "TMDB could not confidently match this title. Check the title/year and try again."
                     }
+                    return@launch
+                }
+                val matchedItem = item.copy(tmdbId = matchedId)
+                if (item.mediaType != com.g41us.movio.data.model.MediaType.MOVIE && episode?.seasonNumber == null) {
+                    streamMessage = "This episode has no season number. The catalogue needs a season mapping before TV sources can search."
+                    return@launch
+                }
+                val sources = streamRepository.providerNames(matchedItem).ifEmpty { listOf("configured sources") }
+                streamMessage = "TMDB match #$matchedId. Checking ${sources.joinToString()}…"
+                streamCandidates = streamRepository.resolve(matchedItem, episode)
+                streamMessage = if (streamCandidates.isEmpty()) {
+                    "No direct source was returned. Providers may be unavailable or may not list this title."
+                } else {
+                    "Found ${streamCandidates.size} source(s). Choose one below."
                 }
             } catch (error: kotlinx.coroutines.CancellationException) {
                 throw error
@@ -536,6 +542,23 @@ private fun SettingsScreen(onPlaySample: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Text("Settings", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+        var tmdbKey by remember { mutableStateOf(TmdbMatcher.savedApiKey(context)) }
+        Surface(color = MovioSurface, shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, Color(0xFF292F3D))) {
+            Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("TMDB matching", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text("Add your own TMDB API key so Movio can match titles that don't include a TMDB ID. The key stays on this device.", color = MovioMuted, fontSize = 12.sp)
+                OutlinedTextField(
+                    value = tmdbKey,
+                    onValueChange = { tmdbKey = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("TMDB API key") }
+                )
+                Button(onClick = { TmdbMatcher.saveApiKey(context, tmdbKey) }) {
+                    Text("Save TMDB key")
+                }
+            }
+        }
         Surface(color = MovioSurface, shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, Color(0xFF292F3D))) {
             Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Playback diagnostics", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
