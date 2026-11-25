@@ -227,11 +227,24 @@ class PlayerActivity : ComponentActivity() {
             } catch (_: Exception) { 0L }
         }
 
-        exo = ExoPlayer.Builder(this).build().apply {
+        // Our audio tap (for lining up subtitles) goes first in the audio chain.
+        val renderers = object : androidx.media3.exoplayer.DefaultRenderersFactory(this) {
+            override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): androidx.media3.exoplayer.audio.AudioSink? =
+                androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context)
+                    .setAudioProcessors(arrayOf<androidx.media3.common.audio.AudioProcessor>(androidx.media3.exoplayer.audio.TeeAudioProcessor(speech)))
+                    .build()
+        }.setEnableDecoderFallback(true)
+        // Start as soon as ~1 s is buffered instead of 2.5 s.
+        val load = androidx.media3.exoplayer.DefaultLoadControl.Builder().setBufferDurationsMs(15_000, 50_000, 1_000, 2_000).build()
+        exo = ExoPlayer.Builder(this, renderers).setLoadControl(load).build().apply {
             playWhenReady = true
             addListener(object : Player.Listener {
                 override fun onPlaybackStateChanged(state: Int) { if (state == Player.STATE_READY) onReady() }
                 override fun onPlayerError(error: PlaybackException) { onStreamFailed() }
+                override fun onPositionDiscontinuity(old: Player.PositionInfo, new: Player.PositionInfo, reason: Int) {
+                    if (reason == Player.DISCONTINUITY_REASON_SEEK || reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT) speech.seeked(new.positionMs)
+                }
+                override fun onTracksChanged(tracks: androidx.media3.common.Tracks) { pickOwnSubtitle(tracks) }
             })
         }
 
@@ -248,9 +261,22 @@ class PlayerActivity : ComponentActivity() {
         // drops lines that are ads baked into subtitle files ("Visit xyz.ru to watch…").
         exo.addListener(object : Player.Listener {
             override fun onCues(cueGroup: androidx.media3.common.text.CueGroup) {
-                playerView.subtitleView?.setCues(cueGroup.cues.filterNot { c -> c.text?.let { SubAd.containsMatchIn(it) } == true })
+                // Movio draws external subtitles itself (so their timing can be fixed live); stream ones pass through.
+                if (ownCues != null) { shownCues = null; renderOwnSubs() }
+                else playerView.subtitleView?.setCues(cueGroup.cues.filterNot { c -> c.text?.let { SubAd.containsMatchIn(it) } == true })
             }
         })
+        lifecycleScope.launch { while (true) { kotlinx.coroutines.delay(100); speech.clock = exo.currentPosition; renderOwnSubs() } }
+        lifecycleScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(30_000)
+                val cues = ownCues ?: continue
+                if (phase != Phase.NATIVE || !exo.isPlaying) continue
+                val key = ownKey
+                val fit = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { SubAligner.align(cues, speech, ownFit) } ?: continue
+                if (key == ownKey) { ownFit = fit; Toast.makeText(this@PlayerActivity, "Subtitles synced", Toast.LENGTH_SHORT).show() }
+            }
+        }
         applySubtitleStyle()
         fullscreen =FrameLayout(this).apply { visibility = View.GONE; setBackgroundColor(android.graphics.Color.BLACK) }
         val overlay = ComposeView(this)
@@ -270,7 +296,8 @@ class PlayerActivity : ComponentActivity() {
         if (off != null) playOffline(off) else {
             val t = title
             val perTitle = t?.let { store.sourceFor(it) }
-            start(Sources.index(perTitle ?: prefs.getString("source2", null)), automatic = true)
+            // Per-title pick, then the one you chose, then whichever source has been fastest lately.
+            start(Sources.index(perTitle ?: prefs.getString("source2", null) ?: fastest().firstOrNull()?.let { Sources.all[it].name }), automatic = true)
         }
         lifecycleScope.launch { while (true) { refreshDownloadLabel(); kotlinx.coroutines.delay(2000) } }
 
@@ -379,7 +406,7 @@ class PlayerActivity : ComponentActivity() {
                     Row(
                         Modifier.fillMaxWidth().padding(vertical = 3.dp)
                             .then(if (selected) androidx.compose.ui.Modifier.focusRequester(pick) else androidx.compose.ui.Modifier)
-                            .playerGlow(RoundedCornerShape(12.dp)).clip(RoundedCornerShape(12.dp))
+                            .playerGlow(RoundedCornerShape(12.dp), grow = false).clip(RoundedCornerShape(12.dp))
                             .background(if (selected) Violet.copy(alpha = .28f) else Color.Transparent)
                             .border(1.dp, if (selected) Violet.copy(alpha = .6f) else Color.Transparent, RoundedCornerShape(12.dp))
                             .clickable { sourcesOpen = false; start(i, automatic = false) }
@@ -414,6 +441,7 @@ class PlayerActivity : ComponentActivity() {
         auto = automatic
         if (!automatic) { autoTried = 0; prefs.edit().putString("source2", Sources.all[index].name).apply() }
         sourceIndex = index
+        startedAt = SystemClock.uptimeMillis()
         attempt++
         val segKey = "$season:$episode"
         if (segKey != segmentsFor) {
@@ -461,21 +489,33 @@ class PlayerActivity : ComponentActivity() {
         webView.loadUrl(url, mapOf("Referer" to "https://braflix.at/"))
         if (source.web) { showWeb(reload = false); return }
         // Many players wait for a tap on play; tap the middle for the viewer.
-        listOf(5_000L, 9_000L, 13_000L).forEach { d -> main.postDelayed({ if (token == attempt && phase == Phase.FINDING && trying == null) tapCentre() }, d) }
-        main.postDelayed({ if (token == attempt && phase == Phase.FINDING && trying == null) sourceFailed() }, 18_000)
+        listOf(2_500L, 5_000L, 8_000L).forEach { d -> main.postDelayed({ if (token == attempt && phase == Phase.FINDING && trying == null) tapCentre() }, d) }
+        main.postDelayed({ if (token == attempt && phase == Phase.FINDING && trying == null) sourceFailed() }, 12_000)
     }
 
     /** This source couldn't play: try the next one, or show its page when it was picked by hand. */
     private fun sourceFailed() {
         failedSources.add(sourceIndex)
+        score(sourceIndex, 30_000)
         if (auto && autoTried < 5) {
             autoTried++
-            val next = Sources.fallbackOrder.firstOrNull { it !in failedSources }
+            val next = fastest().firstOrNull { it !in failedSources }
             if (next != null) { start(next, automatic = true); return }
         }
         if (source.direct) { phase = Phase.FAILED; return }
         showWeb(reload = false)
     }
+
+    private var startedAt = 0L
+
+    /** Average time each source takes to start (failures count as slow), so the quickest are tried first. */
+    private fun score(i: Int, ms: Long) {
+        val k = "speed:${Sources.all[i].name}"
+        val old = prefs.getLong(k, -1L)
+        prefs.edit().putLong(k, if (old < 0) ms else (old * 2 + ms) / 3).apply()
+    }
+
+    private fun fastest(): List<Int> = Sources.fallbackOrder.sortedBy { prefs.getLong("speed:${Sources.all[it].name}", 12_000L) }
 
     private fun tapCentre() {
         val x = webView.width / 2f; val y = webView.height / 2f
@@ -513,7 +553,7 @@ class PlayerActivity : ComponentActivity() {
         status = "Almost ready"
         val token = attempt
         lifecycleScope.launch {
-            kotlinx.coroutines.withTimeoutOrNull(4_000) { subtitleJob?.join() }
+            kotlinx.coroutines.withTimeoutOrNull(1_200) { subtitleJob?.join() }
             if (token == attempt && trying == next) play(next)
         }
     }
@@ -532,6 +572,7 @@ class PlayerActivity : ComponentActivity() {
         val subs = (subtitleTracks + pageTracks).map { t ->
             val local = shiftedSubs[t.url]
             MediaItem.SubtitleConfiguration.Builder(if (local != null) android.net.Uri.fromFile(java.io.File(local)) else android.net.Uri.parse(t.url))
+                .setId(t.url)
                 .setMimeType(if (t.srt) MimeTypes.APPLICATION_SUBRIP else MimeTypes.TEXT_VTT)
                 .setLanguage(t.lang.takeIf { it != "und" }).setLabel(t.label)
                 .build()
@@ -540,6 +581,8 @@ class PlayerActivity : ComponentActivity() {
             .setMimeType(if (s.hls) MimeTypes.APPLICATION_M3U8 else null)
             .setSubtitleConfigurations(subs)
             .build()
+        if (s.url != speechUrl) { speechUrl = s.url; speech.reset() }
+        speech.seeked(0)
         exo.setMediaSource(DefaultMediaSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(this, http)).createMediaSource(item))
         exo.prepare()
         lastHeaders = headers
@@ -567,6 +610,7 @@ class PlayerActivity : ComponentActivity() {
             return
         }
         phase = Phase.NATIVE
+        score(sourceIndex, SystemClock.uptimeMillis() - startedAt)
         playerView.visibility = View.VISIBLE
         store.position(posKey())?.let { (p, dur) -> if (p > 30_000 && (dur <= 0 || p < dur - 60_000)) { exo.seekTo(p); resumedAt = p; main.postDelayed({ resumedAt = 0L }, 7000) } }
         exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon().setPreferredTextLanguage("en").build()
@@ -634,6 +678,8 @@ class PlayerActivity : ComponentActivity() {
                 .setMimeType(MimeTypes.TEXT_VTT).setLanguage("en").setLabel("English").build()
         }
         val item = d.request.toMediaItem().buildUpon().setSubtitleConfigurations(listOfNotNull(sub)).build()
+        if (s.url != speechUrl) { speechUrl = s.url; speech.reset() }
+        speech.seeked(0)
         exo.setMediaSource(DefaultMediaSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(this, Downloads.offlineFactory(this))).createMediaSource(item))
         exo.prepare()
         previewSource = { DefaultMediaSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(this, Downloads.offlineFactory(this))).createMediaSource(d.request.toMediaItem()) }
@@ -690,22 +736,46 @@ class PlayerActivity : ComponentActivity() {
         playerView.subtitleView?.setBottomPaddingFraction(if (controlsVisible && phase == Phase.NATIVE) .24f else SubtitleView.DEFAULT_BOTTOM_PADDING_FRACTION)
     }
 
-    /** Re-times the external subtitles by [ms] and reloads them in place. */
+    /** Manual timing on top of the automatic sync; applies instantly, no reload. */
     private fun shiftSubtitles(ms: Long) {
         subOffsetState = ms
-        val s = trying ?: return
-        val tracks = subtitleTracks
-        if (tracks.isEmpty()) { Toast.makeText(this, "Timing works on Movio's subtitles; pick one in CC", Toast.LENGTH_SHORT).show(); return }
+        if (ownCues == null) Toast.makeText(this, "Timing works on Movio's subtitles; pick one in CC", Toast.LENGTH_SHORT).show()
+        shownCues = null
+    }
+
+    // ---------- Movio's own subtitle drawing (external subtitles) ----------
+
+    private val speech = SpeechTrack()
+    private var speechUrl: String? = null
+    private var ownCues: List<SubCue>? = null
+    private var ownKey: String? = null
+    private var ownFit = SubAligner.Fit(1.0, 0)
+    private var shownCues: List<SubCue>? = null
+    private val allSubs get() = subtitleTracks + pageSubs.filter { u -> subtitleTracks.none { it.url == u } }.take(4).mapIndexed { i, u -> Subtitle("Source ${i + 1}", "und", u) }
+
+    /** When the selected subtitle is one Movio added, load its lines so we can time them ourselves. */
+    private fun pickOwnSubtitle(tracks: androidx.media3.common.Tracks) {
+        val g = tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_TEXT && it.isSelected }
+        val f = g?.let { gr -> (0 until gr.length).firstOrNull { gr.isTrackSelected(it) }?.let { gr.getTrackFormat(it) } }
+        val sub = f?.let { fmt -> allSubs.firstOrNull { s -> fmt.id?.endsWith(s.url) == true } ?: allSubs.firstOrNull { it.label == fmt.label } }
+        if (sub == null) { ownCues = null; ownKey = null; shownCues = null; return }
+        if (sub.url == ownKey) return
+        ownKey = sub.url; ownCues = null; ownFit = SubAligner.Fit(1.0, 0); shownCues = null
         lifecycleScope.launch {
-            val dir = java.io.File(cacheDir, "subs").apply { mkdirs() }
-            shiftedSubs.clear()
-            tracks.forEach { t -> SubtitleSync.shifted(dir, t, lastHeaders, ms)?.let { shiftedSubs[t.url] = it } }
-            val pos = exo.currentPosition
-            val lang = exo.trackSelectionParameters.preferredTextLanguages.firstOrNull()
-            play(s)
-            exo.seekTo(pos)
-            if (lang != null) exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon().setPreferredTextLanguage(lang).build()
+            val cues = SubLoad.cues(java.io.File(cacheDir, "subs").apply { mkdirs() }, sub, lastHeaders)
+            if (ownKey == sub.url && cues.isNotEmpty()) { ownCues = cues; renderOwnSubs() }
         }
+    }
+
+    private fun renderOwnSubs() {
+        val cues = ownCues ?: return
+        val view = playerView.subtitleView ?: return
+        val off = exo.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
+        val t = ((exo.currentPosition - subOffsetState - ownFit.offset) / ownFit.scale).toLong()
+        val now = if (off) emptyList() else cues.filter { t >= it.start && t < it.end && !SubAd.containsMatchIn(it.text) }
+        if (now == shownCues) return
+        shownCues = now
+        view.setCues(now.map { androidx.media3.common.text.Cue.Builder().setText(it.text).build() })
     }
 
     // ---------- Seek preview: a tiny muted second player at the lowest quality ----------

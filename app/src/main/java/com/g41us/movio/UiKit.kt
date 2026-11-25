@@ -87,6 +87,14 @@ fun Modifier.shimmer(shape: RoundedCornerShape = RoundedCornerShape(14.dp)): Mod
  */
 fun Modifier.tappable(onClick: () -> Unit): Modifier = tappableCard(null, onClick)
 
+/** For full-width rows: a soft fill on focus, no growing (so nothing spills past the edges). */
+fun Modifier.tappableRow(onClick: () -> Unit): Modifier = composed {
+    var focused by remember { mutableStateOf(false) }
+    this.onFocusChanged { focused = it.hasFocus }.clip(RoundedCornerShape(14.dp))
+        .background(if (focused) Color.White.copy(alpha = .1f) else Color.Transparent)
+        .clickable(interactionSource = null, indication = null, onClick = onClick)
+}
+
 fun Modifier.tappableCard(shape: Shape?, onClick: () -> Unit): Modifier = composed {
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()

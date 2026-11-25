@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -235,7 +236,7 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
     BackHandler(enabled = tv && visible && sheet == null && !locked) { onVisible(false) }
     fun seekBy(ms: Long) {
         player.seekTo((player.currentPosition + ms).coerceIn(0, if (duration > 0) duration else Long.MAX_VALUE))
-        hint = if (ms > 0) "+${ms / 1000}s" else "−${-ms / 1000}s"
+        hint = (if (ms > 0) "+" else "−") + if (kotlin.math.abs(ms) >= 60_000) "${kotlin.math.abs(ms) / 60_000} min" else "${kotlin.math.abs(ms) / 1000}s"
         touch()
     }
 
@@ -360,26 +361,13 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(clock(if (dragging) (dragValue * duration).toLong() else position), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                             style = TextStyle(fontFamily = Jakarta, shadow = shade))
-                        Slider(
+                        SeekLine(
                             value = if (dragging) dragValue else if (duration > 0) position.toFloat() / duration else 0f,
-                            onValueChange = { dragging = true; dragValue = it; touch(); host.preview((it * duration).toLong()) },
-                            // Only seek after a real drag: the remote's key-up also lands here and used to seek to 0:00.
-                            onValueChangeFinished = { if (dragging) player.seekTo((dragValue * duration).toLong()); dragging = false; host.preview(null) },
-                            colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Violet, inactiveTrackColor = Color.White.copy(alpha = .3f)),
-                            modifier = Modifier.weight(1f).padding(horizontal = 12.dp).playerGlow(RoundedCornerShape(10.dp))
-                                // Remote: Left/Right on the bar skip 10 s instead of nudging 1 %.
-                                .onPreviewKeyEvent { e ->
-                                    val dpad = e.key == Key.DirectionLeft || e.key == Key.DirectionRight || e.key == Key.DirectionUp || e.key == Key.DirectionDown
-                                    // Swallow key-ups too so the slider never acts on its own.
-                                    if (e.type != KeyEventType.KeyDown) dpad
-                                    else when (e.key) {
-                                        Key.DirectionLeft -> { seekBy(-10_000); true }
-                                        Key.DirectionRight -> { seekBy(10_000); true }
-                                        Key.DirectionUp -> { focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Up); true }
-                                        Key.DirectionDown -> { focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Down); true }
-                                        else -> false
-                                    }
-                                },
+                            onDrag = { if (duration > 0) { dragging = true; dragValue = it; touch(); host.preview((it * duration).toLong()) } },
+                            onDone = { if (dragging) player.seekTo((dragValue * duration).toLong()); dragging = false; host.preview(null) },
+                            // On the bar the remote jumps a minute, like VLC; the ±10 buttons stay 10 s.
+                            onStep = { dir -> seekBy(dir * 60_000L) },
+                            modifier = Modifier.weight(1f).padding(horizontal = 14.dp),
                         )
                         Text("−" + clock(duration - position), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                             style = TextStyle(fontFamily = Jakarta, shadow = shade))
@@ -453,7 +441,7 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
                             val current = e.number == host.episode
                             androidx.compose.foundation.layout.Row(
                                 Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (current) Color.White.copy(alpha = .1f) else Color.Transparent)
-                                    .playerGlow(RoundedCornerShape(12.dp)).clickable { sheet = null; host.playEpisode(e.number) }.padding(6.dp),
+                                    .playerGlow(RoundedCornerShape(12.dp), grow = false).clickable { sheet = null; host.playEpisode(e.number) }.padding(6.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Box(Modifier.width(110.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp)).background(Panel)) {
@@ -514,6 +502,45 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
     }
 }
 
+/** Thin seek line: only the line itself reacts; a small thumb, thicker when the remote is on it. */
+@Composable
+private fun SeekLine(value: Float, onDrag: (Float) -> Unit, onDone: () -> Unit, onStep: (Int) -> Unit, modifier: Modifier) {
+    var focused by remember { mutableStateOf(false) }
+    val fm = androidx.compose.ui.platform.LocalFocusManager.current
+    val line by androidx.compose.animation.core.animateDpAsState(if (focused) 6.dp else 4.dp, label = "line")
+    val knob by androidx.compose.animation.core.animateDpAsState(if (focused) 18.dp else 12.dp, label = "knob")
+    val v = value.coerceIn(0f, 1f)
+    androidx.compose.foundation.layout.BoxWithConstraints(
+        modifier.height(26.dp)
+            .onFocusChanged { focused = it.isFocused }
+            .onPreviewKeyEvent { e ->
+                val dpad = e.key == Key.DirectionLeft || e.key == Key.DirectionRight || e.key == Key.DirectionUp || e.key == Key.DirectionDown
+                if (e.type != KeyEventType.KeyDown) dpad
+                else when (e.key) {
+                    Key.DirectionLeft -> { onStep(-1); true }
+                    Key.DirectionRight -> { onStep(1); true }
+                    Key.DirectionUp -> { fm.moveFocus(androidx.compose.ui.focus.FocusDirection.Up); true }
+                    Key.DirectionDown -> { fm.moveFocus(androidx.compose.ui.focus.FocusDirection.Down); true }
+                    else -> false
+                }
+            }
+            .focusable()
+            .pointerInput(Unit) { detectTapGestures { o -> onDrag((o.x / size.width).coerceIn(0f, 1f)); onDone() } }
+            .pointerInput(Unit) {
+                androidx.compose.foundation.gestures.detectHorizontalDragGestures(
+                    onDragStart = { o -> onDrag((o.x / size.width).coerceIn(0f, 1f)) },
+                    onDragEnd = onDone, onDragCancel = onDone,
+                ) { c, _ -> onDrag((c.position.x / size.width).coerceIn(0f, 1f)); c.consume() }
+            },
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        val w = maxWidth
+        Box(Modifier.fillMaxWidth().height(line).clip(CircleShape).background(Color.White.copy(alpha = .28f)))
+        Box(Modifier.fillMaxWidth(v).height(line).clip(CircleShape).background(Brand))
+        Box(Modifier.offset(x = w * v - knob / 2).size(knob).clip(CircleShape).background(Color.White))
+    }
+}
+
 @Composable
 private fun SubtitlePreview(host: PlayerHost) {
     val color = SubColors[host.subColor]
@@ -546,13 +573,13 @@ private fun Pick(label: String, selected: Boolean, onClick: () -> Unit) {
 @Composable
 private fun SettingRow(title: String, value: String, icon: Int, onClick: () -> Unit) {
     androidx.compose.foundation.layout.Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).playerGlow(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(horizontal = 6.dp, vertical = 13.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).playerGlow(RoundedCornerShape(12.dp), grow = false).clickable(onClick = onClick).padding(horizontal = 10.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(painterResource(icon), null, tint = Soft, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(14.dp))
-        Text(title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, style = jakarta(), modifier = Modifier.weight(1f))
-        Text(value, color = Muted, fontSize = 13.sp, style = jakarta(), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp).width(130.dp),
+        Text(title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, style = jakarta(), maxLines = 1, softWrap = false)
+        Text(value, color = Muted, fontSize = 13.sp, style = jakarta(), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(start = 12.dp),
             textAlign = androidx.compose.ui.text.style.TextAlign.End)
     }
 }
@@ -578,7 +605,7 @@ private fun Options(choices: List<Choice>, onPicked: () -> Unit) {
         androidx.compose.foundation.layout.Row(
             Modifier.fillMaxWidth().padding(vertical = 2.dp).clip(RoundedCornerShape(12.dp))
                 .background(if (c.selected) Color.White.copy(alpha = .1f) else Color.Transparent)
-                .playerGlow(RoundedCornerShape(12.dp)).clickable { c.apply(); onPicked() }
+                .playerGlow(RoundedCornerShape(12.dp), grow = false).clickable { c.apply(); onPicked() }
                 .padding(horizontal = 12.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -641,9 +668,10 @@ private fun choices(player: Player, sheet: Sheet): List<Choice> {
 }
 
 /** TV focus without hard outlines: a soft light behind the control and a slight lift. */
-fun Modifier.playerGlow(shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(12.dp)): Modifier = composed {
+fun Modifier.playerGlow(shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(12.dp), grow: Boolean = true): Modifier = composed {
     var focused by remember { mutableStateOf(false) }
-    val lift by androidx.compose.animation.core.animateFloatAsState(if (focused) 1.1f else 1f, label = "lift")
+    // Full-width rows never grow, so they can't spill out of their panel.
+    val lift by androidx.compose.animation.core.animateFloatAsState(if (focused && grow) 1.1f else 1f, label = "lift")
     this.onFocusChanged { focused = it.isFocused || it.hasFocus }
         .graphicsLayer { scaleX = lift; scaleY = lift }
         .background(if (focused) Color.White.copy(alpha = .22f) else Color.Transparent, shape)

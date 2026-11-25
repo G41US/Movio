@@ -358,7 +358,7 @@ private fun EpisodeList(show: Title, season: Int, last: Progress?, onPlay: (Int)
                 val current = last?.season == season && last.episode == e.number
                 var focused by remember { mutableStateOf(false) }
                 Row(Modifier.fillMaxWidth().padding(vertical = 4.dp).onFocusChanged { focused = it.hasFocus }.clip(RoundedCornerShape(16.dp))
-                    .background(if (focused) Color.White.copy(alpha = .1f) else Color.Transparent).tappable { onPlay(e.number) }.padding(vertical = 6.dp, horizontal = if (wide) 8.dp else 0.dp),
+                    .background(if (focused) Color.White.copy(alpha = .1f) else Color.Transparent).tappableRow { onPlay(e.number) }.padding(vertical = 6.dp, horizontal = if (wide) 8.dp else 0.dp),
                     verticalAlignment = Alignment.Top) {
                     Box(Modifier.width(if (wide) 220.dp else 132.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)).background(Panel).border(if (current) 1.5.dp else 1.dp, if (current) Violet else Edge, RoundedCornerShape(12.dp))) {
                         NetImage(Tmdb.img(e.still ?: show.backdrop, "w300"), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
@@ -524,7 +524,7 @@ fun PersonScreen(person: Person, onOpen: (Title) -> Unit) {
                 if (d != null && d.bio.isNotBlank()) {
                     Spacer(Modifier.height(12.dp))
                     Text(d.bio, fontSize = 14.sp, lineHeight = 20.sp, color = Soft, style = jakarta(), maxLines = if (more) 40 else 4,
-                        overflow = TextOverflow.Ellipsis, modifier = Modifier.tappable { more = !more })
+                        overflow = TextOverflow.Ellipsis, modifier = Modifier.tappableRow { more = !more })
                 }
                 Spacer(Modifier.height(6.dp))
                 SectionTitle("Known for")
@@ -576,7 +576,7 @@ fun DownloadsScreen(onPlay: (DownloadInfo, String) -> Unit) {
             val info = DownloadInfo.from(d.request.data) ?: return@items
             val done = d.state == androidx.media3.exoplayer.offline.Download.STATE_COMPLETED
             val failed = d.state == androidx.media3.exoplayer.offline.Download.STATE_FAILED
-            Row(Modifier.fillMaxWidth().padding(vertical = 7.dp).tappable { if (done) onPlay(info, d.request.id) }, verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(vertical = 7.dp).tappableRow { if (done) onPlay(info, d.request.id) }, verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.width(132.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)).background(Panel)) {
                     NetImage(Tmdb.img(info.title.backdrop ?: info.title.poster, "w300"), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                     if (done) Box(Modifier.align(Alignment.Center).size(32.dp).clip(RoundedCornerShape(50)).background(Ink.copy(alpha = .65f)), contentAlignment = Alignment.Center) {
