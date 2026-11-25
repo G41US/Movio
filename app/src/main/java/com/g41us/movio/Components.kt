@@ -42,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -328,7 +329,7 @@ fun Hero(items: List<Title>, saved: (Title) -> Boolean, onPlay: (Title) -> Unit,
     LaunchedEffect(items) { while (items.size > 1) { delay(7000); index = (index + 1) % items.size } }
     val wide = LocalWide.current
     val heroH = if (wide) (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * .82f).dp else 560.dp
-    Box(Modifier.fillMaxWidth().height(heroH)) {
+    Box(Modifier.fillMaxWidth().height(heroH).clipToBounds()) {
         AnimatedContent(items[index], transitionSpec = { fadeIn(tween(700)) togetherWith fadeOut(tween(700)) }, label = "hero") { t ->
             Box(Modifier.fillMaxSize()) {
                 AsyncImage(

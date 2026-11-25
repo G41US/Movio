@@ -68,6 +68,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
@@ -303,7 +304,7 @@ class PlayerActivity : ComponentActivity() {
                         GhostButton("Sources", R.drawable.ic_servers) { sourcesOpen = true }
                     }
                 }
-                Phase.FINDING, Phase.FAILED -> Box(Modifier.fillMaxSize().background(Ink)) {
+                Phase.FINDING, Phase.FAILED -> Box(Modifier.fillMaxSize().background(Ink).clipToBounds()) {
                     if (art != null) coil.compose.AsyncImage(Tmdb.img(art, "w1280"), null, contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                         modifier = Modifier.fillMaxSize().kenBurns())
                     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Ink.copy(alpha = .55f), .5f to Ink.copy(alpha = .7f), 1f to Ink)))

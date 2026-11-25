@@ -45,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
@@ -224,12 +225,12 @@ fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPerson:
         item(key = "top") {
             val d = (state as? Load.Done)?.value
             val t = d?.title ?: title
-            Box(Modifier.fillMaxWidth().height(500.dp)) {
+            Box(Modifier.fillMaxWidth().height(500.dp).clipToBounds()) {
                 AsyncImage(Tmdb.img(t.poster, "w780"), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().kenBurns())
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Ink.copy(alpha = .4f), .35f to Color.Transparent, .7f to Ink.copy(alpha = .7f), 1f to Ink)))
                 Column(Modifier.align(Alignment.BottomStart).padding(horizontal = Gutter).enterUp()) {
                     if (d?.logo != null) AsyncImage(Tmdb.img(d.logo, "w500"), t.name, contentScale = ContentScale.Fit,
-                        alignment = Alignment.BottomStart, modifier = Modifier.fillMaxWidth(.75f).height(90.dp))
+                        alignment = Alignment.BottomStart, modifier = Modifier.width(260.dp).height(84.dp))
                     else Text(t.name, fontSize = 32.sp, lineHeight = 36.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-1).sp, color = Color.White, style = jakarta())
                     Spacer(Modifier.height(10.dp))
                     Meta(t, d?.runtime?.let { if (it >= 60) "${it / 60}h ${it % 60}m" else "${it}m" })
