@@ -79,7 +79,7 @@ fun GlassIcon(icon: Int, active: Boolean = false, size: Dp = 42.dp, onClick: () 
     Box(
         Modifier.size(size).clip(CircleShape)
             .background(if (active) Brand else Brush.linearGradient(listOf(Glass, Glass)))
-            .border(1.dp, if (active) Color.Transparent else Hairline, CircleShape)
+            .border(1.dp, if (active) Color.Transparent else Edge, CircleShape)
             .focusGlow(CircleShape)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
@@ -189,29 +189,38 @@ fun SectionTitle(text: String, caption: String? = null) {
 
 @Composable
 fun PrimaryButton(text: String, icon: Int, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val tv = LocalWide.current
+    var focused by remember { mutableStateOf(false) }
+    val lit = !tv || focused
     Row(
-        modifier.clip(RoundedCornerShape(14.dp)).background(Color.White).tappable(onClick)
+        modifier.onFocusChanged { focused = it.hasFocus }.clip(RoundedCornerShape(14.dp))
+            .background(if (lit) Color.White else Color.White.copy(alpha = .14f)).tappable(onClick)
             .padding(horizontal = 22.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center,
     ) {
-        Icon(painterResource(icon), null, tint = Ink, modifier = Modifier.size(20.dp))
+        Icon(painterResource(icon), null, tint = if (lit) Ink else Color.White, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(8.dp))
-        Text(text, color = Ink, fontWeight = FontWeight.Bold, fontSize = 16.sp, letterSpacing = (-0.1).sp, style = jakarta(), maxLines = 1)
+        Text(text, color = if (lit) Ink else Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp, letterSpacing = (-0.1).sp, style = jakarta(), maxLines = 1)
     }
 }
 
 @Composable
 fun GhostButton(text: String, icon: Int?, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    val lit = LocalWide.current && focused
+    val ink = if (lit) Ink else Color.White
     Row(
-        modifier.clip(RoundedCornerShape(14.dp)).background(Glass).border(1.dp, Hairline, RoundedCornerShape(14.dp))
+        modifier.onFocusChanged { focused = it.hasFocus }.clip(RoundedCornerShape(14.dp))
+            .background(if (lit) Color.White else if (LocalWide.current) Color.White.copy(alpha = .14f) else Glass)
+            .border(1.dp, Edge, RoundedCornerShape(14.dp))
             .tappable(onClick).padding(horizontal = 18.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center,
     ) {
         if (icon != null) {
-            Icon(painterResource(icon), null, tint = Color.White, modifier = Modifier.size(20.dp))
+            Icon(painterResource(icon), null, tint = ink, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(8.dp))
         }
-        Text(text, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, style = jakarta(), maxLines = 1)
+        Text(text, color = ink, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, style = jakarta(), maxLines = 1)
     }
 }
 
@@ -223,7 +232,7 @@ fun Chip(label: String, active: Boolean, onClick: () -> Unit) {
         color = if (active) Color.White else Soft,
         modifier = Modifier.clip(RoundedCornerShape(50))
             .background(if (active) Brand else Brush.linearGradient(listOf(Glass, Glass)))
-            .border(1.dp, if (active) Color.Transparent else Hairline, RoundedCornerShape(50))
+            .border(1.dp, if (active) Color.Transparent else Edge, RoundedCornerShape(50))
             .focusGlow(RoundedCornerShape(50))
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 9.dp),
@@ -254,7 +263,7 @@ fun Meta(t: Title, extra: String? = null) {
 
 @Composable
 fun Poster(t: Title, modifier: Modifier = Modifier) {
-    Box(modifier.aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp)).background(Panel).border(1.dp, Hairline, RoundedCornerShape(12.dp))) {
+    Box(modifier.aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp)).background(Panel).border(1.dp, Edge, RoundedCornerShape(12.dp))) {
         NetImage(Tmdb.img(t.poster, if (LocalWide.current) "w500" else "w342"), t.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
     }
 }
@@ -265,7 +274,7 @@ fun PosterCard(t: Title, width: Dp, onClick: () -> Unit) {
         // TV: artwork only; the name appears under the poster you're on.
         var focused by remember { mutableStateOf(false) }
         Column(Modifier.width(width)) {
-            Box(Modifier.onFocusChanged { focused = it.hasFocus }.tappable(onClick)) { Poster(t, Modifier.fillMaxWidth()) }
+            Box(Modifier.onFocusChanged { focused = it.hasFocus }.tappableCard(RoundedCornerShape(12.dp), onClick)) { Poster(t, Modifier.fillMaxWidth()) }
             Spacer(Modifier.height(10.dp))
             Text(if (focused) t.name else "", fontSize = 15.sp, lineHeight = 19.sp, fontWeight = FontWeight.SemiBold, color = Color.White, style = jakarta(),
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -284,30 +293,35 @@ fun PosterCard(t: Title, width: Dp, onClick: () -> Unit) {
 @Composable
 fun PosterRow(row: Row, onOpen: (Title) -> Unit) {
     SectionTitle(row.name)
-    LazyRow(contentPadding = PaddingValues(horizontal = Gutter), horizontalArrangement = Arrangement.spacedBy(if (row.ranked) 4.dp else 12.dp)) {
+    LazyRow(contentPadding = PaddingValues(horizontal = Gutter), horizontalArrangement = Arrangement.spacedBy(if (row.ranked) 4.dp else if (LocalWide.current) 16.dp else 12.dp)) {
         itemsIndexed(row.items, key = { _, t -> t.key }) { i, t ->
-            if (row.ranked) RankedCard(i + 1, t) { onOpen(t) } else PosterCard(t, if (LocalWide.current) 210.dp else 118.dp) { onOpen(t) }
+            if (row.ranked) RankedCard(i + 1, t) { onOpen(t) } else PosterCard(t, if (LocalWide.current) 176.dp else 118.dp) { onOpen(t) }
         }
     }
 }
 
-/** Top 10 card: a big chrome numeral tucked under the poster. */
+/** Top 10 card: a big, heavy chrome numeral tucked under the poster. */
 @Composable
 fun RankedCard(rank: Int, t: Title, onClick: () -> Unit) {
-    Row(Modifier.tappable(onClick), verticalAlignment = Alignment.Bottom) {
-        Text(
-            rank.toString(), fontSize = if (LocalWide.current) 200.sp else 120.sp, lineHeight = if (LocalWide.current) 200.sp else 120.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-10).sp,
-            style = jakarta(Brush.verticalGradient(0f to Color.White, .45f to Color(0xFFDCD6F5), .8f to Color(0xFF6E6891), 1f to Color(0xFF221F35))),
-            modifier = Modifier.offset(x = 14.dp, y = 18.dp),
-        )
-        Poster(t, Modifier.width(if (LocalWide.current) 200.dp else 112.dp))
+    val wide = LocalWide.current
+    var focused by remember { mutableStateOf(false) }
+    Row(Modifier.onFocusChanged { focused = it.hasFocus }.clickable(interactionSource = null, indication = null, onClick = onClick), verticalAlignment = Alignment.Bottom) {
+        val size = if (wide) 176.sp else 120.sp
+        val chrome = Brush.verticalGradient(0f to Color.White, .55f to Color(0xFFE4DEFF), 1f to Color(0xFF8F86C2))
+        Box(Modifier.offset(x = 14.dp, y = 16.dp)) {
+            // A stroke of the same chrome under the fill makes the digits heavier than the font allows.
+            Text(rank.toString(), fontSize = size, lineHeight = size, fontWeight = FontWeight.Black, letterSpacing = (-8).sp,
+                style = jakarta(chrome).copy(drawStyle = androidx.compose.ui.graphics.drawscope.Stroke(width = if (wide) 14f else 9f, join = androidx.compose.ui.graphics.StrokeJoin.Round)))
+            Text(rank.toString(), fontSize = size, lineHeight = size, fontWeight = FontWeight.Black, letterSpacing = (-8).sp, style = jakarta(chrome))
+        }
+        Poster(t, Modifier.width(if (wide) 168.dp else 112.dp).lift(focused, RoundedCornerShape(12.dp)))
     }
 }
 
 @Composable
 fun ContinueCard(p: Progress, progress: Float? = null, onClick: () -> Unit) {
-    Column(Modifier.width(if (LocalWide.current) 360.dp else 220.dp).tappable(onClick)) {
-        Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(14.dp)).background(Panel).border(1.dp, Hairline, RoundedCornerShape(14.dp))) {
+    Column(Modifier.width(if (LocalWide.current) 300.dp else 220.dp)) {
+        Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).tappableCard(RoundedCornerShape(14.dp), onClick).clip(RoundedCornerShape(14.dp)).background(Panel).border(1.dp, Edge, RoundedCornerShape(14.dp))) {
             NetImage(Tmdb.img(p.title.backdrop ?: p.title.poster, "w500"), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(.45f to Color.Transparent, 1f to Ink.copy(alpha = .85f))))
             Box(Modifier.align(Alignment.Center).size(44.dp).clip(CircleShape).background(Color.White.copy(alpha = .9f)), contentAlignment = Alignment.Center) {

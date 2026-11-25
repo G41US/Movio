@@ -244,8 +244,15 @@ class PlayerActivity : ComponentActivity() {
             setKeepContentOnPlayerReset(true)
             visibility = View.GONE
         }
+        // Registered after PlayerView's own listener, so this filtered set is what shows:
+        // drops lines that are ads baked into subtitle files ("Visit xyz.ru to watch…").
+        exo.addListener(object : Player.Listener {
+            override fun onCues(cueGroup: androidx.media3.common.text.CueGroup) {
+                playerView.subtitleView?.setCues(cueGroup.cues.filterNot { c -> c.text?.let { SubAd.containsMatchIn(it) } == true })
+            }
+        })
         applySubtitleStyle()
-        fullscreen = FrameLayout(this).apply { visibility = View.GONE; setBackgroundColor(android.graphics.Color.BLACK) }
+        fullscreen =FrameLayout(this).apply { visibility = View.GONE; setBackgroundColor(android.graphics.Color.BLACK) }
         val overlay = ComposeView(this)
         root.addView(webView, FrameLayout.LayoutParams(-1, -1))
         root.addView(playerView, FrameLayout.LayoutParams(-1, -1))
@@ -990,3 +997,6 @@ private fun LoadingBar() {
         Box(Modifier.offset(x = 180.dp * x).width(72.dp).height(3.dp).background(Brand, RoundedCornerShape(50)))
     }
 }
+
+/** A web address inside a subtitle line means it's an ad, not dialogue. */
+private val SubAd = Regex("(?i)(https?://|www\\.|\\b[a-z0-9-]{2,}\\.(ru|com|net|org|io|tv|to|me|xyz|cc|info|co|top|live|site|online|club|vip)\\b)")

@@ -81,13 +81,40 @@ fun Modifier.shimmer(shape: RoundedCornerShape = RoundedCornerShape(14.dp)): Mod
     )
 }
 
-/** Click that also shrinks the element slightly while a finger is down. */
-fun Modifier.tappable(onClick: () -> Unit): Modifier = composed {
+/**
+ * Click that shrinks slightly while pressed. On TV, focus lifts it; pass the artwork's [shape]
+ * to also get a soft violet glow behind it (no outlines).
+ */
+fun Modifier.tappable(onClick: () -> Unit): Modifier = tappableCard(null, onClick)
+
+fun Modifier.tappableCard(shape: Shape?, onClick: () -> Unit): Modifier = composed {
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
+    var focused by remember { mutableStateOf(false) }
     val scale = if (pressed) .96f else 1f
-    this.focusGlow().graphicsLayer { scaleX = scale; scaleY = scale }.clickable(interactionSource = source, indication = null, onClick = onClick)
+    this.onFocusChanged { focused = it.hasFocus }
+        .lift(focused, shape)
+        .graphicsLayer { scaleX = scale; scaleY = scale }
+        .clickable(interactionSource = source, indication = null, onClick = onClick)
 }
+
+/** Premium TV focus: a smooth lift, plus a soft coloured glow when a [shape] is given. */
+fun Modifier.lift(on: Boolean, shape: Shape? = null, amount: Float = 1.07f): Modifier = composed {
+    val s by androidx.compose.animation.core.animateFloatAsState(if (on) amount else 1f, tween(220, easing = EnterEase), label = "lift")
+    val g by androidx.compose.animation.core.animateFloatAsState(if (on && shape != null) 1f else 0f, tween(220), label = "glow")
+    val glow = with(LocalDensity.current) { 26.dp.toPx() }
+    this.graphicsLayer {
+        scaleX = s; scaleY = s
+        if (shape != null) {
+            this.shape = shape; clip = false
+            shadowElevation = g * glow
+            ambientShadowColor = Violet; spotShadowColor = Violet
+        }
+    }
+}
+
+/** Card/button edge: a hairline on phones, nothing on TV. */
+val Edge: Color @androidx.compose.runtime.Composable get() = if (LocalWide.current) Color.Transparent else Hairline
 
 private val EnterEase = CubicBezierEasing(.16f, 1f, .3f, 1f)
 
@@ -136,12 +163,26 @@ fun Modifier.tvFirstFocus(key: Any?): Modifier = composed {
     this.focusRequester(r)
 }
 
-/** A bright ring and slight lift on whatever the TV remote is pointing at. */
+/** What the TV remote is on: a soft light fill and a slight lift. No outlines. */
 fun Modifier.focusGlow(shape: Shape = RoundedCornerShape(14.dp)): Modifier = composed {
     var focused by remember { mutableStateOf(false) }
     this.onFocusChanged { focused = it.isFocused || it.hasFocus }
-        .graphicsLayer { val s = if (focused) 1.06f else 1f; scaleX = s; scaleY = s }
-        .border(if (focused) 2.5.dp else 0.dp, if (focused) Color.White else Color.Transparent, shape)
+        .lift(focused, amount = 1.06f)
+        .background(if (focused) Color.White.copy(alpha = .2f) else Color.Transparent, shape)
+}
+
+/** TV: scroll only as far as needed to show the focused item, instead of pinning it near the top. */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+object MinimalScroll : androidx.compose.foundation.gestures.BringIntoViewSpec {
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+        val end = offset + size
+        return when {
+            offset >= 0f && end <= containerSize -> 0f
+            size > containerSize -> offset
+            offset < 0f -> offset
+            else -> end - containerSize
+        }
+    }
 }
 
 /** The list on screen right now, so the TV remote can always scroll it. */

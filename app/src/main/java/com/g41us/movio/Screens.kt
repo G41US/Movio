@@ -52,6 +52,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -147,7 +148,7 @@ fun FeedScreen(kind: Kind?, store: Store, onOpen: (Title) -> Unit, onPlay: (Titl
                 }
                 if (kind == null && store.continueWatching.isNotEmpty()) item(key = "continue") {
                     SectionTitle("Continue watching")
-                    LazyRow(contentPadding = PaddingValues(horizontal = Gutter), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    LazyRow(contentPadding = PaddingValues(horizontal = Gutter), horizontalArrangement = Arrangement.spacedBy(if (LocalWide.current) 18.dp else 12.dp)) {
                         items(store.continueWatching, key = { it.title.key }) { p ->
                             val pos = store.position(store.posKey(p.title, p.season, p.episode))
                             ContinueCard(p, pos?.let { (a, b) -> if (b > 0) a.toFloat() / b else null }) { onPlay(p.title) }
@@ -185,7 +186,7 @@ fun SearchScreen(onOpen: (Title) -> Unit) {
         item(span = { GridItemSpan(maxLineSpan) }) {
             Row(
                 Modifier.fillMaxWidth().height(52.dp).clip(RoundedCornerShape(16.dp)).background(Glass)
-                    .border(1.dp, Hairline, RoundedCornerShape(16.dp)).padding(horizontal = 14.dp),
+                    .border(1.dp, Edge, RoundedCornerShape(16.dp)).padding(horizontal = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(painterResource(R.drawable.ic_search), null, tint = Muted, modifier = Modifier.size(20.dp))
@@ -243,6 +244,7 @@ fun MyListScreen(store: Store, onOpen: (Title) -> Unit, onDownloads: () -> Unit)
 
 // ---------- Details ----------
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPerson: (Person) -> Unit, onTrailer: (String) -> Unit, onPlay: (Title, Int, Int) -> Unit) {
     val (state, retry) = load(title.key) { Tmdb.details(title) }
@@ -251,6 +253,8 @@ fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPerson:
     var season by remember(title.key) { mutableIntStateOf(last?.season ?: 1) }
 
     val tv4 = rememberScrollState()
+    // TV: open at the top with the full hero; Play is already on screen, so don't scroll to it.
+    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides MinimalScroll) {
     ScrollList(tv4, PaddingValues(bottom = dockSpace())) {
         item(key = "top") {
             val d = (state as? Load.Done)?.value
@@ -339,6 +343,7 @@ fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPerson:
             }
         }
     }
+    }
 }
 
 @Composable
@@ -351,8 +356,11 @@ private fun EpisodeList(show: Title, season: Int, last: Progress?, onPlay: (Int)
             is Load.Failed -> Failed(retry)
             is Load.Done -> s.value.forEach { e ->
                 val current = last?.season == season && last.episode == e.number
-                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp).tappable { onPlay(e.number) }, verticalAlignment = Alignment.Top) {
-                    Box(Modifier.width(if (wide) 220.dp else 132.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)).background(Panel).border(1.dp, if (current) Violet else Hairline, RoundedCornerShape(12.dp))) {
+                var focused by remember { mutableStateOf(false) }
+                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp).onFocusChanged { focused = it.hasFocus }.clip(RoundedCornerShape(16.dp))
+                    .background(if (focused) Color.White.copy(alpha = .1f) else Color.Transparent).tappable { onPlay(e.number) }.padding(vertical = 6.dp, horizontal = if (wide) 8.dp else 0.dp),
+                    verticalAlignment = Alignment.Top) {
+                    Box(Modifier.width(if (wide) 220.dp else 132.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)).background(Panel).border(if (current) 1.5.dp else 1.dp, if (current) Violet else Edge, RoundedCornerShape(12.dp))) {
                         NetImage(Tmdb.img(e.still ?: show.backdrop, "w300"), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                         Box(Modifier.align(Alignment.Center).size(32.dp).clip(RoundedCornerShape(50)).background(Ink.copy(alpha = .65f)), contentAlignment = Alignment.Center) {
                             Icon(painterResource(R.drawable.ic_play_fill), null, tint = Color.White, modifier = Modifier.size(15.dp))

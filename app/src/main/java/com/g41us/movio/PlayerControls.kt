@@ -363,12 +363,15 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
                         Slider(
                             value = if (dragging) dragValue else if (duration > 0) position.toFloat() / duration else 0f,
                             onValueChange = { dragging = true; dragValue = it; touch(); host.preview((it * duration).toLong()) },
-                            onValueChangeFinished = { player.seekTo((dragValue * duration).toLong()); dragging = false; host.preview(null) },
+                            // Only seek after a real drag: the remote's key-up also lands here and used to seek to 0:00.
+                            onValueChangeFinished = { if (dragging) player.seekTo((dragValue * duration).toLong()); dragging = false; host.preview(null) },
                             colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Violet, inactiveTrackColor = Color.White.copy(alpha = .3f)),
                             modifier = Modifier.weight(1f).padding(horizontal = 12.dp).playerGlow(RoundedCornerShape(10.dp))
                                 // Remote: Left/Right on the bar skip 10 s instead of nudging 1 %.
                                 .onPreviewKeyEvent { e ->
-                                    if (e.type != KeyEventType.KeyDown) false
+                                    val dpad = e.key == Key.DirectionLeft || e.key == Key.DirectionRight || e.key == Key.DirectionUp || e.key == Key.DirectionDown
+                                    // Swallow key-ups too so the slider never acts on its own.
+                                    if (e.type != KeyEventType.KeyDown) dpad
                                     else when (e.key) {
                                         Key.DirectionLeft -> { seekBy(-10_000); true }
                                         Key.DirectionRight -> { seekBy(10_000); true }
