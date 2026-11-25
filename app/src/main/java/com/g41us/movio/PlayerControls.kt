@@ -22,6 +22,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -527,7 +528,7 @@ private fun SeekLine(value: Float, onDrag: (Float) -> Unit, onDone: () -> Unit, 
             .focusable()
             .pointerInput(Unit) { detectTapGestures { o -> onDrag((o.x / size.width).coerceIn(0f, 1f)); onDone() } }
             .pointerInput(Unit) {
-                androidx.compose.foundation.gestures.detectHorizontalDragGestures(
+                detectHorizontalDragGestures(
                     onDragStart = { o -> onDrag((o.x / size.width).coerceIn(0f, 1f)) },
                     onDragEnd = onDone, onDragCancel = onDone,
                 ) { c, _ -> onDrag((c.position.x / size.width).coerceIn(0f, 1f)); c.consume() }

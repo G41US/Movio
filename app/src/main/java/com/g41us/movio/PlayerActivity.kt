@@ -678,8 +678,7 @@ class PlayerActivity : ComponentActivity() {
                 .setMimeType(MimeTypes.TEXT_VTT).setLanguage("en").setLabel("English").build()
         }
         val item = d.request.toMediaItem().buildUpon().setSubtitleConfigurations(listOfNotNull(sub)).build()
-        if (s.url != speechUrl) { speechUrl = s.url; speech.reset() }
-        speech.seeked(0)
+        speechUrl = null; speech.reset(); speech.seeked(0)
         exo.setMediaSource(DefaultMediaSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(this, Downloads.offlineFactory(this))).createMediaSource(item))
         exo.prepare()
         previewSource = { DefaultMediaSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(this, Downloads.offlineFactory(this))).createMediaSource(d.request.toMediaItem()) }
