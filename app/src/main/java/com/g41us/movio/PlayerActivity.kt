@@ -779,8 +779,8 @@ class PlayerActivity : ComponentActivity() {
             fitFor[best.first.url] = best.second.fit
             if (selectSub(best.first)) { syncStatus = "Switched to a better-matching version"; return }
         }
-        val c = current ?: run { syncStatus = "Still checking…"; return }
-        if (!c.sure) { syncStatus = "Still checking…"; return }
+        val c = current ?: run { syncStatus = "Checking… (needs a few minutes of talking)"; return }
+        if (!c.sure) { syncStatus = if (ownFit == SubAligner.Fit(1.0, 0)) "Checking… (needs a few minutes of talking)" else describe(ownFit); return }
         val changed = c.fit.scale != ownFit.scale || kotlin.math.abs(c.fit.offset - ownFit.offset) >= 300
         if (changed) { ownFit = c.fit; fitFor[key] = c.fit; shownCues = null }
         syncStatus = describe(c.fit)

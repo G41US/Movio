@@ -126,28 +126,31 @@ object SubAligner {
             cnt[i + 1] = cnt[i] + if (e[i].isNaN()) 0 else 1
         }
         val step = SpeechTrack.STEP
-        fun score(s: Double, o: Long): Pair<Double, Int> {
-            var t = 0.0; var c = 0
+        // Small preference for "no change": big shifts and frame-rate fixes must earn it.
+        fun score(s: Double, o: Long): Triple<Double, Int, Int> {
+            var t = 0.0; var c = 0; var lines = 0
             for (q in cues) {
                 val a = ((q.start * s + o) / step).toInt().coerceIn(0, e.size)
                 val b = ((q.end * s + o) / step).toInt().coerceIn(0, e.size)
-                if (b > a) { t += pre[b] - pre[a]; c += cnt[b] - cnt[a] }
+                if (b > a) { t += pre[b] - pre[a]; val k = cnt[b] - cnt[a]; c += k; if (k > 0) lines++ }
             }
-            return t to c
+            return Triple(t - abs(o) / 1000.0 - (if (s == 1.0) 0.0 else 8.0), c, lines)
         }
-        var best = Fit(1.0, 0); var bestScore = Double.NEGATIVE_INFINITY; var bestCov = 0
+        var best = Fit(1.0, 0); var bestScore = Double.NEGATIVE_INFINITY; var bestCov = 0; var bestLines = 0
         val all = ArrayList<Pair<Fit, Double>>(3000)
         for (s in scales) {
             var o = -20_000L
             while (o <= 20_000L) {
-                val (v, c) = score(s, o); val f = Fit(s, o); all.add(f to v)
-                if (v > bestScore) { bestScore = v; best = f; bestCov = c }
+                val (v, c, l) = score(s, o); val f = Fit(s, o); all.add(f to v)
+                if (v > bestScore) { bestScore = v; best = f; bestCov = c; bestLines = l }
                 o += 100
             }
         }
         if (bestCov < 150) return null
         val runnerUp = all.filter { (f, _) -> abs(f.scale - best.scale) > 0.01 || abs(f.offset - best.offset) >= 2_000 }.maxOfOrNull { it.second } ?: return null
-        return Eval(best, bestScore / bestCov, bestScore - runnerUp >= 12)
+        // Tested on a real film: with these limits it never picked a wrong fix (it waits for ~40 heard lines).
+        val sure = bestLines >= 40 && bestCov >= 600 && bestScore - runnerUp >= maxOf(25.0, 0.1 * bestScore)
+        return Eval(best, bestScore / bestCov, sure)
     }
 }
 
