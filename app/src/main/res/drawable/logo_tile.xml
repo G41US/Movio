@@ -1,0 +1,4 @@
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item><shape><gradient android:angle="315" android:startColor="#FF9B6DFF" android:endColor="#FFFF5FA2"/><corners android:radius="22dp"/></shape></item>
+    <item android:drawable="@drawable/ic_play_glyph"/>
+</layer-list>

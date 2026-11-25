@@ -1,753 +1,625 @@
 package com.g41us.movio
 
-import android.app.UiModeManager
+import android.annotation.SuppressLint
+import android.app.PictureInPictureParams
+import android.content.ContentValues
 import android.content.Context
-import android.content.res.Configuration
-import android.content.Intent
-import android.net.Uri
+import android.content.pm.ActivityInfo
+import android.graphics.Bitmap
+import android.graphics.LinearGradient
+import android.graphics.Shader
+import android.os.Build
 import android.os.Bundle
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.BookmarkBorder
-import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.rounded.Bookmark
-import androidx.compose.material.icons.rounded.Home
-import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material3.NavigationBarItemDefaults
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import com.g41us.movio.data.model.Episode
-import com.g41us.movio.data.model.MediaItem
-import com.g41us.movio.data.model.StreamCandidate
-import com.g41us.movio.data.provider.DemoPlaybackProvider
-import com.g41us.movio.data.provider.TmdbMatcher
-import com.g41us.movio.data.repository.CatalogRepository
-import com.g41us.movio.data.repository.StreamRepository
-import com.g41us.movio.data.repository.ProviderDiagnostic
-import com.g41us.movio.playback.MovioPlayerScreen
-import com.g41us.movio.playback.MovioEmbedScreen
-import com.g41us.movio.update.AppUpdater
-import androidx.compose.material3.LinearProgressIndicator
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import android.os.Environment
+import android.os.Handler
+import android.os.Looper
+import android.provider.MediaStore
+import android.util.Rational
+import android.util.TypedValue
+import android.view.Gravity
+import android.view.MotionEvent
+import android.view.View
+import android.view.WindowManager
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
+import android.webkit.CookieManager
+import android.webkit.JavascriptInterface
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.ProgressBar
+import android.widget.ScrollView
+import android.widget.TextView
+import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
+import androidx.core.content.res.ResourcesCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.view.updatePadding
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
+import org.json.JSONTokener
+import java.io.File
 
-private val MovioBackground = Color(0xFF090B10)
-private val MovioSurface = Color(0xFF151923)
-private val MovioAccent = Color(0xFF8B5CF6)
-private val MovioMuted = Color(0xFF9AA3B2)
-private val catalogRepository = CatalogRepository()
-private val streamRepository = StreamRepository()
+class MainActivity : AppCompatActivity() {
 
-class MainActivity : ComponentActivity() {
+    private val host = "braflix.at"
+    private val homeUrl = "https://$host/"
+
+    private enum class Tab(val label: String, val icon: Int) {
+        HOME("Home", R.drawable.ic_home),
+        MOVIES("Movies", R.drawable.ic_movies),
+        TV("TV Shows", R.drawable.ic_tv),
+        SEARCH("Search", R.drawable.ic_search),
+    }
+
+    private lateinit var webView: WebView
+    private lateinit var swipeRefresh: SwipeRefreshLayout
+    private lateinit var fullscreenContainer: FrameLayout
+    private lateinit var progress: ProgressBar
+    private lateinit var splash: View
+    private lateinit var errorView: View
+    private lateinit var topBar: LinearLayout
+    private lateinit var dockWrap: FrameLayout
+    private lateinit var searchBar: View
+    private lateinit var searchInput: EditText
+    private lateinit var settingsView: ScrollView
+    private lateinit var settingsIcon: ImageView
+    private lateinit var backBtn: View
+    private lateinit var screenTitle: TextView
+    private lateinit var wordFlix: View
+    private lateinit var wordEr: TextView
+
+    private val dockItems = mutableMapOf<Tab, Pair<View, TextView>>()
+    private var tab = Tab.HOME
+    private var fullscreenView: View? = null
+    private var doubleBackToExitPressedOnce = false
+    private var mainFrameError = false
+    private var pendingSearch: String? = null
+    private var captureCount = 0
+    private var webViewDead = false
+    private var downloadedApk: File? = null
+    private val main = Handler(Looper.getMainLooper())
+
+    private val prefs by lazy { getSharedPreferences("movio", Context.MODE_PRIVATE) }
+    private val feelJs by lazy { assets.open("feel.js").bufferedReader().use { it.readText() } }
+    private val siteJs by lazy { assets.open("site.js").bufferedReader().use { it.readText() } }
+
+    @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
-        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        setContent {
-            MaterialTheme(colorScheme = darkColorScheme(
-                primary = MovioAccent,
-                background = MovioBackground,
-                surface = MovioSurface,
-                onBackground = Color.White,
-                onSurface = Color.White
-            )) {
-                MovioApp()
-            }
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        setContentView(R.layout.activity_main)
+
+        webView = findViewById(R.id.webview)
+        swipeRefresh = findViewById(R.id.swipeRefresh)
+        fullscreenContainer = findViewById(R.id.fullscreenContainer)
+        progress = findViewById(R.id.progress)
+        splash = findViewById(R.id.splash)
+        errorView = findViewById(R.id.errorView)
+        topBar = findViewById(R.id.topBar)
+        dockWrap = findViewById(R.id.dockWrap)
+        searchBar = findViewById(R.id.searchBar)
+        searchInput = findViewById(R.id.searchInput)
+        settingsView = findViewById(R.id.settingsView)
+        settingsIcon = findViewById(R.id.settingsIcon)
+        backBtn = findViewById(R.id.backBtn)
+        screenTitle = findViewById(R.id.screenTitle)
+        wordFlix = findViewById(R.id.wordFlix)
+        wordEr = findViewById(R.id.wordEr)
+
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
         }
+
+        gradientText(wordEr)
+        gradientText(findViewById(R.id.splashEr))
+        findViewById<View>(R.id.splashLogo).apply {
+            scaleX = .8f; scaleY = .8f; alpha = 0f
+            animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(500).start()
+        }
+
+        applyInsets()
+        buildDock()
+        setupWebView()
+        setupSearch()
+        setupSettings()
+
+        swipeRefresh.setColorSchemeResources(R.color.violet, R.color.pink)
+        swipeRefresh.setProgressBackgroundColorSchemeResource(R.color.panel)
+        swipeRefresh.setOnRefreshListener { webView.reload() }
+        swipeRefresh.setOnChildScrollUpCallback { _, _ -> webView.canScrollVertically(-1) }
+
+        findViewById<View>(R.id.retryBtn).setOnClickListener {
+            mainFrameError = false
+            errorView.visibility = View.GONE
+            webView.reload()
+        }
+        findViewById<View>(R.id.settingsBtn).setOnClickListener {
+            if (settingsView.visibility == View.VISIBLE) closeSettings() else openSettings()
+        }
+        backBtn.setOnClickListener { onBackPressedDispatcher.onBackPressed() }
+
+        if (savedInstanceState == null) webView.loadUrl(homeUrl) else webView.restoreState(savedInstanceState)
+        main.postDelayed({ hideSplash() }, 15000)
+
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                when {
+                    fullscreenView != null -> webView.webChromeClient?.onHideCustomView()
+                    settingsView.visibility == View.VISIBLE -> closeSettings()
+                    errorView.visibility == View.VISIBLE && webView.canGoBack() -> {
+                        errorView.visibility = View.GONE; mainFrameError = false; webView.goBack()
+                    }
+                    webView.canGoBack() -> webView.goBack()
+                    tab != Tab.HOME -> openTab(Tab.HOME)
+                    else -> handleExit()
+                }
+            }
+        })
     }
-}
 
-private enum class Destination(val label: String) {
-    HOME("Home"), SEARCH("Search"), LIBRARY("My List"), SETTINGS("Settings")
-}
+    // ---------- Layout ----------
 
-@Composable
-private fun MovioApp() {
-    var selected by remember { mutableStateOf(Destination.HOME) }
-    var selectedMedia by remember { mutableStateOf<MediaItem?>(null) }
-    var playback by remember { mutableStateOf<StreamCandidate?>(null) }
-    var embedPlayback by remember { mutableStateOf<Pair<String, String>?>(null) }
-    val config = LocalConfiguration.current
-    val wide = config.screenWidthDp >= 800
-    val context = LocalContext.current
-    val isTv = remember(context) { isTelevision(context) }
+    private fun dp(v: Float) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, resources.displayMetrics)
 
-    Surface(modifier = Modifier.fillMaxSize(), color = MovioBackground) {
-        // Android 15+ draws edge-to-edge; keep every screen clear of the status bar,
-        // gesture bar and display cutout.
-        Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-        if (embedPlayback != null) {
-            Column(Modifier.fillMaxSize()) {
-                Row(
-                    Modifier.fillMaxWidth().background(MovioSurface).padding(horizontal = 18.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("‹  Back", color = Color.White, modifier = Modifier.clickable { embedPlayback = null }.focusable().padding(8.dp))
-                    Text(embedPlayback!!.second, color = Color.White, fontWeight = FontWeight.Bold)
-                }
-                MovioEmbedScreen(url = embedPlayback!!.first, modifier = Modifier.weight(1f))
-            }
-        } else if (playback != null) {
-            Column(Modifier.fillMaxSize()) {
-                Row(
-                    Modifier.fillMaxWidth().background(MovioSurface).padding(horizontal = 18.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("‹  Back", color = Color.White, modifier = Modifier.clickable { playback = null }.focusable().padding(8.dp))
-                    Text("Playback test", color = Color.White, fontWeight = FontWeight.Bold)
-                }
-                MovioPlayerScreen(candidate = playback!!, modifier = Modifier.weight(1f))
-            }
-        } else if (selectedMedia != null) {
-            MediaDetailsScreen(
-                item = selectedMedia!!,
-                onBack = { selectedMedia = null },
-                onPlaySample = { playback = DemoPlaybackProvider.sample() },
-                onPlayStream = { candidate -> playback = candidate },
-                onOpenEmbed = { url, provider -> embedPlayback = url to provider }
+    private fun gradientText(tv: TextView) {
+        tv.post {
+            tv.paint.shader = LinearGradient(
+                0f, 0f, tv.width.toFloat(), 0f,
+                ContextCompat.getColor(this, R.color.violet), ContextCompat.getColor(this, R.color.pink),
+                Shader.TileMode.CLAMP
             )
-        } else {
-            Column(Modifier.fillMaxSize()) {
-                if (wide || isTv) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 36.dp, vertical = 22.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("MOVIO", color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.Black)
-                        Spacer(Modifier.width(42.dp))
-                        Destination.entries.forEach { destination ->
-                            Text(
-                                destination.label,
-                                color = if (selected == destination) Color.White else MovioMuted,
-                                modifier = Modifier.padding(horizontal = 15.dp, vertical = 12.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .clickable { selected = destination }
-                                    .focusable()
-                                    .padding(5.dp),
-                                fontWeight = if (selected == destination) FontWeight.Bold else FontWeight.Medium
-                            )
-                        }
-                    }
-                } else {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("MOVIO", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Black)
-                        Spacer(Modifier.weight(1f))
-                        Text("STREAM YOUR WAY", color = MovioMuted, fontSize = 9.sp, letterSpacing = 1.5.sp)
-                    }
-                }
-
-                // weight(1f) leaves room for the bottom tab bar; fillMaxSize screens
-                // would otherwise push it off-screen.
-                Box(Modifier.weight(1f)) {
-                    when (selected) {
-                        Destination.HOME -> HomeScreen(wide || isTv, onSearch = { selected = Destination.SEARCH })
-                        Destination.SEARCH -> SearchScreen(onSelect = { selectedMedia = it })
-                        Destination.LIBRARY -> PlaceholderScreen("My List", "Saved titles will appear here when watchlist storage is added.")
-                        Destination.SETTINGS -> SettingsScreen(onPlaySample = { playback = DemoPlaybackProvider.sample() })
-                    }
-                }
-
-                if (!wide && !isTv) {
-                    // iOS-style tab bar: outlined glyphs, filled when selected, no pill indicator.
-                    // Insets are already applied above, so the bar adds none of its own.
-                    NavigationBar(containerColor = MovioSurface, windowInsets = WindowInsets(0, 0, 0, 0)) {
-                        Destination.entries.forEach { destination ->
-                            val isSelected = selected == destination
-                            val icon = when (destination) {
-                                Destination.HOME -> if (isSelected) Icons.Rounded.Home else Icons.Outlined.Home
-                                Destination.SEARCH -> if (isSelected) Icons.Rounded.Search else Icons.Outlined.Search
-                                Destination.LIBRARY -> if (isSelected) Icons.Rounded.Bookmark else Icons.Outlined.BookmarkBorder
-                                Destination.SETTINGS -> if (isSelected) Icons.Rounded.Settings else Icons.Outlined.Settings
-                            }
-                            NavigationBarItem(
-                                selected = isSelected,
-                                onClick = { selected = destination },
-                                icon = { Icon(icon, contentDescription = destination.label) },
-                                label = { Text(destination.label, fontSize = 10.sp) },
-                                colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = MovioAccent,
-                                    selectedTextColor = MovioAccent,
-                                    unselectedIconColor = MovioMuted,
-                                    unselectedTextColor = MovioMuted,
-                                    indicatorColor = Color.Transparent
-                                )
-                            )
-                        }
-                    }
-                }
-            }
-        }
+            tv.invalidate()
         }
     }
-}
 
-@Composable
-private fun HomeScreen(largeLayout: Boolean, onSearch: () -> Unit) {
-    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
-        Box(
-            modifier = Modifier.fillMaxWidth()
-                .padding(horizontal = if (largeLayout) 36.dp else 16.dp)
-                .height(if (largeLayout) 390.dp else 300.dp)
-                .clip(RoundedCornerShape(24.dp))
-                .background(Brush.linearGradient(listOf(Color(0xFF35245D), Color(0xFF171B2B), Color(0xFF10131B))))
-        ) {
-            Column(
-                modifier = Modifier.align(Alignment.BottomStart).padding(if (largeLayout) 34.dp else 22.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text("YOUR NEXT\nFAVOURITE STORY", color = Color.White, fontSize = if (largeLayout) 38.sp else 29.sp, fontWeight = FontWeight.Black, lineHeight = 39.sp)
-                Text("Discover movies, series and anime.", color = Color(0xFFD5D0E2), fontSize = 14.sp)
-                Button(onClick = onSearch, colors = ButtonDefaults.buttonColors(containerColor = MovioAccent)) {
-                    Text("Explore catalogue")
-                }
-            }
-            Text("MOVIO", modifier = Modifier.align(Alignment.TopStart).padding(22.dp), color = Color(0xFFD8C7FF), fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+    /** Top bar sits under the status bar / camera hole, the dock above the gesture bar. */
+    private fun applyInsets() {
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.root)) { _, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            val imeOpen = insets.isVisible(WindowInsetsCompat.Type.ime())
+            val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
+            topBar.updatePadding(left = bars.left + dp(20f).toInt(), top = bars.top + dp(10f).toInt(), right = bars.right + dp(16f).toInt())
+            dockWrap.updatePadding(left = bars.left + dp(14f).toInt(), right = bars.right + dp(14f).toInt(), bottom = bars.bottom + dp(10f).toInt())
+            findViewById<View>(R.id.shell).updatePadding(bottom = if (imeOpen) ime.bottom else 0)
+            dockWrap.visibility = if (imeOpen || fullscreenView != null) View.GONE else View.VISIBLE
+            settingsView.updatePadding(bottom = bars.bottom)
+            pushDockSpace()
+            insets
         }
-        Spacer(Modifier.height(28.dp))
-        SectionTitle("Explore Movio", "Search across connected metadata providers")
-        val categories = listOf("Movies", "TV Series", "Anime", "Live TV", "Sports")
-        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(categories) { category ->
-                Box(
-                    modifier = Modifier.width(if (largeLayout) 190.dp else 145.dp)
-                        .height(92.dp).clip(RoundedCornerShape(16.dp))
-                        .background(MovioSurface).clickable(onClick = onSearch).focusable(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(category, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-                }
-            }
-        }
-        Spacer(Modifier.height(24.dp))
-        SectionTitle("Connected catalogues", "TVmaze for series · Jikan for anime")
-        Text(
-            "Catalogue entries provide metadata and episode guides. A catalogue result does not automatically include a playable video stream.",
-            modifier = Modifier.padding(horizontal = 18.dp),
-            color = MovioMuted,
-            fontSize = 13.sp
-        )
     }
-}
 
-@Composable
-private fun SearchScreen(onSelect: (MediaItem) -> Unit) {
-    var query by remember { mutableStateOf("") }
-    var results by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
-    var loading by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf("Search TV shows or anime.") }
-    val scope = rememberCoroutineScope()
+    /** Reserve exactly the dock's height at the bottom of pages so nothing hides behind it. */
+    private fun pushDockSpace() {
+        if (webViewDead) return
+        dockWrap.post {
+            val css = (dockWrap.height / resources.displayMetrics.density).toInt() + 12
+            webView.evaluateJavascript("document.documentElement.style.setProperty('--fx-dock','${css}px')", null)
+        }
+    }
 
-    Column(Modifier.fillMaxSize().padding(horizontal = 18.dp)) {
-        Text("Discover", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(12.dp))
-        OutlinedTextField(
-            value = query,
-            onValueChange = { query = it },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            label = { Text("Search titles") },
-            keyboardOptions = KeyboardOptions.Default,
-            shape = RoundedCornerShape(14.dp)
-        )
-        Spacer(Modifier.height(8.dp))
-        Button(
-            onClick = {
-                scope.launch {
-                    loading = true
-                    message = ""
-                    results = catalogRepository.search(query)
-                    message = if (results.isEmpty()) "No results found. Try another title or search again later." else ""
-                    loading = false
-                }
-            },
-            enabled = query.isNotBlank() && !loading
-        ) { Text("Search catalogue") }
-        if (loading) {
-            CircularProgressIndicator(color = MovioAccent, modifier = Modifier.padding(20.dp))
-        } else if (results.isEmpty()) {
-            Text(message, color = MovioMuted, modifier = Modifier.padding(top = 18.dp))
-        } else {
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                contentPadding = PaddingValues(vertical = 14.dp)
-            ) {
-                items(results, key = { it.id }) { item ->
-                    Surface(
-                        color = MovioSurface,
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, Color(0xFF292F3D)),
-                        modifier = Modifier.fillMaxWidth().clickable { onSelect(item) }.focusable()
-                    ) {
-                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                            Text(item.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                            Text(
-                                listOfNotNull(item.mediaType.name.lowercase().replaceFirstChar { it.uppercase() }, item.releaseYear?.toString(), item.genres.take(3).joinToString())
-                                    .joinToString("  ·  "),
-                                color = Color(0xFFC4B5FD),
-                                fontSize = 11.sp
-                            )
-                            if (item.overview.isNotBlank()) {
-                                Text(item.overview, color = MovioMuted, fontSize = 12.sp, maxLines = 3)
-                            }
-                            Text("Source: ${item.providerId}", color = MovioMuted, fontSize = 10.sp)
-                        }
-                    }
-                }
+    private fun buildDock() {
+        val dock = findViewById<LinearLayout>(R.id.dock)
+        val jakartaBold = ResourcesCompat.getFont(this, R.font.jakarta_bold)
+        Tab.values().forEach { t ->
+            val item = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
+                isClickable = true
+                setOnClickListener { openTab(t) }
+            }
+            val iconBox = FrameLayout(this).apply {
+                layoutParams = LinearLayout.LayoutParams(dp(52f).toInt(), dp(30f).toInt())
+            }
+            val pill = View(this).apply {
+                background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_dock_pill)
+                layoutParams = FrameLayout.LayoutParams(dp(50f).toInt(), dp(30f).toInt(), Gravity.CENTER)
+                scaleX = 0f; alpha = 0f
+            }
+            val icon = ImageView(this).apply {
+                setImageResource(t.icon)
+                layoutParams = FrameLayout.LayoutParams(dp(21f).toInt(), dp(21f).toInt(), Gravity.CENTER)
+                tag = "icon"
+            }
+            iconBox.addView(pill); iconBox.addView(icon)
+            val label = TextView(this).apply {
+                text = t.label
+                textSize = 10.5f
+                typeface = jakartaBold
+                maxLines = 1
+                setPadding(0, dp(3f).toInt(), 0, 0)
+            }
+            item.addView(iconBox); item.addView(label)
+            dock.addView(item)
+            dockItems[t] = pill to label
+            item.tag = icon
+        }
+        highlight(Tab.HOME)
+    }
+
+    private fun highlight(t: Tab) {
+        tab = t
+        val white = ContextCompat.getColor(this, R.color.white)
+        val muted = ContextCompat.getColor(this, R.color.muted)
+        dockItems.forEach { (k, v) ->
+            val active = k == t
+            val (pill, label) = v
+            pill.animate().scaleX(if (active) 1f else 0f).alpha(if (active) 1f else 0f).setDuration(220).start()
+            label.setTextColor(if (active) white else muted)
+            ((label.parent as View).tag as ImageView).setColorFilter(if (active) white else muted)
+        }
+    }
+
+    // ---------- Tabs ----------
+
+    private fun tabUrl(t: Tab): String = when (t) {
+        Tab.HOME -> homeUrl
+        Tab.MOVIES -> prefs.getString("movies", null) ?: "https://$host/movies/"
+        Tab.TV -> prefs.getString("tv", null) ?: "https://$host/tv-shows/"
+        Tab.SEARCH -> homeUrl
+    }
+
+    private fun openTab(t: Tab) {
+        if (webViewDead) { recreate(); return }
+        if (settingsView.visibility == View.VISIBLE) closeSettings()
+        val again = t == tab
+        highlight(t)
+        if (t == Tab.SEARCH) {
+            searchBar.visibility = View.VISIBLE
+            searchInput.requestFocus()
+            (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).showSoftInput(searchInput, 0)
+            return
+        }
+        hideSearch()
+        if (again) webView.evaluateJavascript("window.scrollTo({top:0,behavior:'smooth'})", null)
+        else webView.loadUrl(tabUrl(t))
+    }
+
+    private fun hideSearch() {
+        searchBar.visibility = View.GONE
+        (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(searchInput.windowToken, 0)
+    }
+
+    private fun setupSearch() {
+        searchInput.setOnEditorActionListener { _, action, _ ->
+            if (action == EditorInfo.IME_ACTION_SEARCH || action == EditorInfo.IME_ACTION_DONE) {
+                val q = searchInput.text.toString().trim()
+                if (q.isNotEmpty()) runSearch(q)
+                (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(searchInput.windowToken, 0)
+                true
+            } else false
+        }
+    }
+
+    private fun runSearch(q: String) {
+        if (webViewDead) { recreate(); return }
+        webView.evaluateJavascript("window.__movioSearch ? window.__movioSearch(${JSONObject.quote(q)}) : false") { r ->
+            if (r != "true") {
+                pendingSearch = q
+                webView.loadUrl(homeUrl)
             }
         }
     }
-}
 
-@Composable
-private fun MediaDetailsScreen(
-    item: MediaItem,
-    onBack: () -> Unit,
-    onPlaySample: () -> Unit,
-    onPlayStream: (StreamCandidate) -> Unit,
-    onOpenEmbed: (String, String) -> Unit
-) {
-    var summary by remember(item.id) { mutableStateOf(item.overview) }
-    var cast by remember(item.id) { mutableStateOf<List<String>>(emptyList()) }
-    var episodes by remember(item.id) { mutableStateOf<List<Episode>>(emptyList()) }
-    var loading by remember(item.id) { mutableStateOf(true) }
-    var resolvingStreams by remember(item.id) { mutableStateOf(false) }
-    var streamCandidates by remember(item.id) { mutableStateOf<List<StreamCandidate>>(emptyList()) }
-    var providerDiagnostics by remember(item.id) { mutableStateOf<List<ProviderDiagnostic>>(emptyList()) }
-    var resolvedTmdbId by remember(item.id) { mutableStateOf<Int?>(item.tmdbId) }
-    var streamMessage by remember(item.id) { mutableStateOf("") }
-    val scope = rememberCoroutineScope()
-    val context = LocalContext.current
+    /** Keep the dock in step with the page that's showing. */
+    private fun syncTab(url: String) {
+        if (settingsView.visibility == View.VISIBLE) return
+        val t = when {
+            url.trimEnd('/') == tabUrl(Tab.MOVIES).trimEnd('/') -> Tab.MOVIES
+            url.trimEnd('/') == tabUrl(Tab.TV).trimEnd('/') -> Tab.TV
+            url.trimEnd('/') == homeUrl.trimEnd('/') || url.trimEnd('/') == "https://$host" -> if (tab == Tab.SEARCH) Tab.SEARCH else Tab.HOME
+            Regex("[?&/](search|keyword|s)[=/]", RegexOption.IGNORE_CASE).containsMatchIn(url) -> Tab.SEARCH
+            else -> tab
+        }
+        if (t != tab) highlight(t)
+        if (t != Tab.SEARCH) searchBar.visibility = View.GONE
+    }
 
-    fun resolveStreams(episode: Episode? = null) {
-        scope.launch {
-            resolvingStreams = true
-            streamCandidates = emptyList()
-            providerDiagnostics = emptyList()
+    // ---------- Settings ----------
+
+    private fun openSettings() {
+        hideSearch()
+        settingsView.visibility = View.VISIBLE
+        settingsView.alpha = 0f
+        settingsView.translationY = dp(24f)
+        settingsView.animate().alpha(1f).translationY(0f).setDuration(260).start()
+        settingsIcon.setColorFilter(ContextCompat.getColor(this, R.color.white))
+        findViewById<View>(R.id.settingsBtn).background = ContextCompat.getDrawable(this, R.drawable.bg_dock_pill)
+        backBtn.visibility = View.VISIBLE
+        wordFlix.visibility = View.GONE; wordEr.visibility = View.GONE
+        screenTitle.text = "Settings"; screenTitle.visibility = View.VISIBLE
+        dockItems.values.forEach { (pill, label) ->
+            pill.animate().scaleX(0f).alpha(0f).setDuration(180).start()
+            label.setTextColor(ContextCompat.getColor(this, R.color.muted))
+            ((label.parent as View).tag as ImageView).setColorFilter(ContextCompat.getColor(this, R.color.muted))
+        }
+    }
+
+    private fun closeSettings() {
+        settingsView.visibility = View.GONE
+        settingsIcon.setColorFilter(ContextCompat.getColor(this, R.color.muted))
+        findViewById<View>(R.id.settingsBtn).background = ContextCompat.getDrawable(this, R.drawable.bg_glass_circle)
+        backBtn.visibility = View.GONE
+        screenTitle.visibility = View.GONE
+        wordFlix.visibility = View.VISIBLE; wordEr.visibility = View.VISIBLE
+        highlight(tab)
+    }
+
+    private fun setupSettings() {
+        findViewById<TextView>(R.id.versionText).text = "Version ${Updates.installedName(this)}"
+        findViewById<View>(R.id.updateBtn).setOnClickListener { onUpdateTap() }
+        findViewById<View>(R.id.clearCacheBtn).setOnClickListener {
+            webView.clearCache(true)
+            Toast.makeText(this, "Cache cleared", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun updateUi(status: String, button: String?, progressPct: Int? = null) {
+        findViewById<TextView>(R.id.updateStatus).text = status
+        val btn = findViewById<TextView>(R.id.updateBtn)
+        btn.visibility = if (button == null) View.GONE else View.VISIBLE
+        if (button != null) btn.text = button
+        val bar = findViewById<ProgressBar>(R.id.updateProgress)
+        bar.visibility = if (progressPct == null) View.GONE else View.VISIBLE
+        if (progressPct != null) { bar.isIndeterminate = progressPct < 0; bar.progress = progressPct }
+    }
+
+    private fun onUpdateTap() {
+        downloadedApk?.let { if (it.exists()) { installUpdate(it); return } }
+        updateUi("Checking for updates…", null, -1)
+        Thread {
             try {
-                if (item.mediaType != com.g41us.movio.data.model.MediaType.MOVIE && episode == null) {
-                    streamMessage = "Select an episode first."
-                    return@launch
+                val info = Updates.latest()
+                if (info == null) {
+                    main.post { updateUi("You're on the latest version.", "Check again") }
+                    return@Thread
                 }
-                if (item.mediaType != com.g41us.movio.data.model.MediaType.MOVIE && episode?.seasonNumber == null) {
-                    streamMessage = "This episode has no season number. The catalogue needs a season mapping before TV sources can search."
-                    return@launch
+                main.post { updateUi("Downloading version ${info.versionName}…", null, 0) }
+                val apk = Updates.download(this, info) { pct -> main.post { updateUi("Downloading version ${info.versionName}…", null, pct) } }
+                downloadedApk = apk
+                main.post {
+                    updateUi("Version ${info.versionName} is ready.", "Install update")
+                    installUpdate(apk)
                 }
-                streamMessage = "Matching ${item.title} with TMDB…"
-                val matchedId = withContext(Dispatchers.IO) { TmdbMatcher.match(context, item) }
-                if (matchedId == null) {
-                    streamMessage = if (TmdbMatcher.savedApiKey(context).isBlank()) {
-                        "TMDB matching needs an API key. Add your TMDB API key in Settings, then press Play again."
-                    } else {
-                        "TMDB could not confidently match this title. Check the title/year and try again."
-                    }
-                    return@launch
-                }
-                resolvedTmdbId = matchedId
-                val matchedItem = item.copy(tmdbId = matchedId)
-                val sources = streamRepository.providerNames(matchedItem).ifEmpty { listOf("configured sources") }
-                streamMessage = "TMDB match #$matchedId. Checking ${sources.joinToString()}…"
-                val resolution = streamRepository.resolveDetailed(matchedItem, episode)
-                streamCandidates = resolution.candidates
-                providerDiagnostics = resolution.diagnostics
-                streamMessage = if (streamCandidates.isEmpty()) {
-                    "No direct source was returned. Providers may be unavailable or may not list this title."
-                } else {
-                    "Found ${streamCandidates.size} source(s). Choose one below."
-                }
-            } catch (error: kotlinx.coroutines.CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                streamMessage = "Source lookup failed: ${error.message ?: error.javaClass.simpleName}"
-            } finally {
-                resolvingStreams = false
+            } catch (e: Exception) {
+                main.post { updateUi(e.message ?: "Couldn't check for updates. Try again.", "Try again") }
             }
+        }.start()
+    }
+
+    private fun installUpdate(apk: File) {
+        if (!Updates.install(this, apk)) {
+            Toast.makeText(this, "Allow Movio to install updates, then tap Install update", Toast.LENGTH_LONG).show()
         }
     }
 
-    LaunchedEffect(item.id) {
-        val details = catalogRepository.details(item)
-        if (details != null) {
-            summary = details.item.overview.ifBlank { item.overview }
-            cast = details.cast
-        }
-        episodes = catalogRepository.episodes(item)
-        loading = false
-    }
+    // ---------- WebView ----------
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)) {
-        Text("‹  Back to results", color = Color.White, modifier = Modifier.clickable(onClick = onBack).focusable().padding(vertical = 8.dp))
-        Spacer(Modifier.height(10.dp))
-        Text(item.title, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
-        Text("${item.mediaType.name}  ·  ${item.releaseYear ?: "Year unavailable"}  ·  ${item.providerId}", color = Color(0xFFC4B5FD), fontSize = 12.sp)
-        Spacer(Modifier.height(14.dp))
-        Text(summary.ifBlank { "No synopsis supplied by the metadata provider." }, color = MovioMuted)
-        if (cast.isNotEmpty()) {
-            Spacer(Modifier.height(12.dp))
-            Text("Studios / cast", color = Color.White, fontWeight = FontWeight.Bold)
-            Text(cast.joinToString(" · "), color = MovioMuted, fontSize = 12.sp)
+    @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
+    private fun setupWebView() {
+        webView.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            mediaPlaybackRequiresUserGesture = false
+            setSupportMultipleWindows(false)
+            javaScriptCanOpenWindowsAutomatically = false
+            setSupportZoom(false)
+            builtInZoomControls = false
+            displayZoomControls = false
+            userAgentString = userAgentString.replace("; wv", "").replace(Regex("Version/\\d+\\.\\d+ "), "")
         }
-        Spacer(Modifier.height(20.dp))
-        if (item.mediaType == com.g41us.movio.data.model.MediaType.MOVIE) {
-            Button(
-                onClick = { resolveStreams() },
-                enabled = !resolvingStreams,
-                colors = ButtonDefaults.buttonColors(containerColor = MovioAccent)
-            ) { Text(if (resolvingStreams) "Finding sources…" else "Find available streams") }
+        CookieManager.getInstance().setAcceptCookie(true)
+        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
+        webView.overScrollMode = View.OVER_SCROLL_NEVER
+        webView.isVerticalScrollBarEnabled = false
+        webView.isHorizontalScrollBarEnabled = false
+        webView.isHapticFeedbackEnabled = false
+        webView.setOnLongClickListener { true }
+        webView.addJavascriptInterface(Bridge(), "MovioApp")
+
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            WebViewCompat.addDocumentStartJavaScript(webView, feelJs, setOf("*"))
+            WebViewCompat.addDocumentStartJavaScript(webView, siteJs, setOf("https://$host", "https://*.$host"))
         }
-        Text("Episodes", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold)
-        when {
-            loading -> CircularProgressIndicator(color = MovioAccent, modifier = Modifier.padding(12.dp))
-            episodes.isEmpty() -> Text("No episode guide is available from this provider.", color = MovioMuted, modifier = Modifier.padding(vertical = 8.dp))
-            else -> episodes.take(30).forEach { episode ->
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            "Episode ${episode.number}",
-                            color = Color(0xFFC4B5FD),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            episode.title,
-                            color = Color.White,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                    Column(horizontalAlignment = Alignment.End) {
-                        Button(
-                            onClick = { resolveStreams(episode) },
-                            enabled = !resolvingStreams,
-                            colors = ButtonDefaults.buttonColors(containerColor = MovioAccent)
-                        ) { Text("Play") }
-                        if (resolvedTmdbId != null && episode.seasonNumber != null) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(
-                                    "VixSrc",
-                                    color = Color(0xFFC4B5FF),
-                                    modifier = Modifier.clickable {
-                                        onOpenEmbed(
-                                            "https://vixsrc.to/tv/$resolvedTmdbId/${episode.seasonNumber}/${episode.number}",
-                                            "VixSrc"
-                                        )
-                                    }.focusable().padding(5.dp)
-                                )
-                                Text(
-                                    "VidRock",
-                                    color = Color(0xFFC4B5FF),
-                                    modifier = Modifier.clickable {
-                                        onOpenEmbed(
-                                            "https://vidrock.to/tv/$resolvedTmdbId/${episode.seasonNumber}/${episode.number}",
-                                            "VidRock"
-                                        )
-                                    }.focusable().padding(5.dp)
-                                )
-                            }
+
+        webView.webViewClient = object : WebViewClient() {
+            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                progress.visibility = View.VISIBLE
+                progress.progress = 5
+            }
+
+            override fun onPageFinished(view: WebView?, url: String?) {
+                swipeRefresh.isRefreshing = false
+                progress.visibility = View.GONE
+                view?.evaluateJavascript(feelJs, null)
+                if (url != null && (Uri(url) == host || Uri(url).endsWith(".$host"))) view?.evaluateJavascript(siteJs, null)
+                if (!mainFrameError) main.postDelayed({ hideSplash() }, 350)
+                url?.let { syncTab(it) }
+                pushDockSpace()
+                pendingSearch?.let { q ->
+                    main.postDelayed({
+                        webView.evaluateJavascript("window.__movioSearch ? window.__movioSearch(${JSONObject.quote(q)}) : false") { r ->
+                            if (r == "true") pendingSearch = null
                         }
-                    }
+                    }, 600)
+                }
+                CookieManager.getInstance().flush()
+            }
+
+            override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
+                if (request?.isForMainFrame == true) {
+                    mainFrameError = true
+                    errorView.visibility = View.VISIBLE
+                    hideSplash()
                 }
             }
-        }
-        if (item.mediaType != com.g41us.movio.data.model.MediaType.MOVIE && episodes.isNotEmpty()) {
-            Text("Tap Play beside an episode to find a playable source. Choose a source below when one is found.", color = MovioMuted, fontSize = 12.sp)
-        }
-        if (resolvingStreams) {
-            CircularProgressIndicator(color = MovioAccent, modifier = Modifier.padding(12.dp))
-        }
-        if (streamMessage.isNotBlank()) {
-            Surface(
-                color = Color(0xFF202638),
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
-            ) {
-                Text(
-                    streamMessage,
-                    color = if (streamMessage.startsWith("Source lookup failed") || streamMessage.startsWith("Playback lookup stopped")) Color(0xFFFFC4A8) else Color(0xFFE3D9FF),
-                    fontSize = 13.sp,
-                    modifier = Modifier.padding(12.dp)
-                )
-            }
-        }
-        if (providerDiagnostics.isNotEmpty()) {
-            Spacer(Modifier.height(6.dp))
-            Text("Provider diagnostics", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            providerDiagnostics.forEach { diagnostic ->
-                val detail = when {
-                    diagnostic.sourceCount > 0 -> "${diagnostic.sourceCount} source(s) returned"
-                    diagnostic.error != null -> "Failed: ${diagnostic.error}"
-                    else -> "No direct source returned"
-                }
-                Text(
-                    "${diagnostic.providerName}: $detail",
-                    color = if (diagnostic.error != null) Color(0xFFFFC4A8) else MovioMuted,
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(vertical = 2.dp)
-                )
-            }
-        }
-        streamCandidates.forEachIndexed { index, candidate ->
-            Button(
-                onClick = { onPlayStream(candidate) },
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = MovioSurface)
-            ) {
-                Text("${candidate.qualityLabel ?: candidate.format.name} · Source ${index + 1}")
-            }
-        }
-        Spacer(Modifier.height(18.dp))
-        Text(
-            "Catalogue metadata and playback sources are separate. A title is playable only when a configured source returns a direct stream URL supported by the player.",
-            color = MovioMuted,
-            fontSize = 12.sp
-        )
-        Spacer(Modifier.height(10.dp))
-        Button(onClick = onPlaySample, colors = ButtonDefaults.buttonColors(containerColor = MovioAccent)) {
-            Text("Test video player with sample clip")
-        }
-    }
-}
 
-@Composable
-private fun SectionTitle(title: String, subtitle: String) {
-    Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)) {
-        Text(title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-        Text(subtitle, color = MovioMuted, fontSize = 12.sp)
-    }
-}
-
-@Composable
-private fun PlaceholderScreen(title: String, message: String) {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(title, color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(10.dp))
-        Text(message, color = MovioMuted)
-    }
-}
-
-@Composable
-private fun SettingsScreen(onPlaySample: () -> Unit) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var checkingUpdate by remember { mutableStateOf(false) }
-    var updateMessage by remember { mutableStateOf("Check GitHub for the latest Movio release.") }
-    var updateDownloadUrl by remember { mutableStateOf<String?>(null) }
-    var downloadProgress by remember { mutableStateOf<Float?>(null) }
-    var downloadedApk by remember { mutableStateOf<java.io.File?>(null) }
-
-    Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(22.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        Text("Settings", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
-        var tmdbKey by remember { mutableStateOf(TmdbMatcher.savedApiKey(context)) }
-        var tmdbKeySaved by remember { mutableStateOf(false) }
-        Surface(color = MovioSurface, shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, Color(0xFF292F3D))) {
-            Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("TMDB matching", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Text("Add your own TMDB API key so Movio can match titles that don't include a TMDB ID. The key stays on this device.", color = MovioMuted, fontSize = 12.sp)
-                OutlinedTextField(
-                    value = tmdbKey,
-                    onValueChange = { tmdbKey = it; tmdbKeySaved = false },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    label = { Text("TMDB API key") }
-                )
-                Button(onClick = { TmdbMatcher.saveApiKey(context, tmdbKey); tmdbKeySaved = true }) {
-                    Text("Save TMDB key")
-                }
-                if (tmdbKeySaved) {
-                    Text(if (tmdbKey.isBlank()) "Key removed." else "Saved ✓", color = Color(0xFF7EE2A8), fontSize = 12.sp)
-                }
+            // If the page engine crashes, keep the app open and offer a retry.
+            override fun onRenderProcessGone(view: WebView?, detail: android.webkit.RenderProcessGoneDetail?): Boolean {
+                (view?.parent as? android.view.ViewGroup)?.removeView(view)
+                view?.destroy()
+                webViewDead = true
+                mainFrameError = true
+                errorView.visibility = View.VISIBLE
+                findViewById<View>(R.id.retryBtn).setOnClickListener { recreate() }
+                hideSplash()
+                return true
             }
-        }
-        Surface(color = MovioSurface, shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, Color(0xFF292F3D))) {
-            Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Playback diagnostics", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Text("Play a public sample MP4 to verify the Media3 player and device decoding pipeline.", color = MovioMuted, fontSize = 13.sp)
-                Button(onClick = onPlaySample) { Text("Test video playback") }
-            }
-        }
-        Surface(color = MovioSurface, shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, Color(0xFF292F3D))) {
-            Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("App updates", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Text("Installed version  •  ${BuildConfig.VERSION_NAME}", color = Color(0xFFC4B5FD), fontSize = 12.sp)
-                Text(updateMessage, color = MovioMuted, fontSize = 13.sp)
-                Button(
-                    onClick = {
-                        scope.launch {
-                            checkingUpdate = true
-                            updateMessage = "Checking GitHub releases…"
-                            updateDownloadUrl = null
-                            downloadedApk = null
-                            val result = withContext(Dispatchers.IO) { fetchLatestMovioRelease() }
-                            updateMessage = result.message
-                            updateDownloadUrl = result.apkUrl
-                            checkingUpdate = false
+
+            // App fonts for the site, served from the APK with CORS so the page may use them.
+            override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
+                val u = request?.url ?: return null
+                if (u.host == "appassets.androidplatform.net" && u.path?.startsWith("/fonts/") == true) {
+                    return try {
+                        WebResourceResponse("font/ttf", null, assets.open("fonts/" + u.lastPathSegment)).apply {
+                            responseHeaders = mapOf("Access-Control-Allow-Origin" to "*", "Cache-Control" to "max-age=31536000")
                         }
-                    },
-                    enabled = !checkingUpdate
-                ) {
-                    if (checkingUpdate) CircularProgressIndicator(modifier = Modifier.width(18.dp).height(18.dp), strokeWidth = 2.dp)
-                    else Text("Check for updates")
+                    } catch (_: Exception) { null }
                 }
-                val progress = downloadProgress
-                if (progress != null) {
-                    if (progress >= 0f) {
-                        LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth(), color = MovioAccent)
-                        Text("Downloading… ${(progress * 100).toInt()}%", color = MovioMuted, fontSize = 12.sp)
-                    } else {
-                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = MovioAccent)
-                    }
-                }
-                val apkUrl = updateDownloadUrl
-                if (apkUrl != null && progress == null) {
-                    Button(onClick = {
-                        val ready = downloadedApk
-                        when {
-                            !AppUpdater.canInstall(context) -> {
-                                updateMessage = "Allow Movio to install updates, then come back and tap Update now again."
-                                AppUpdater.openInstallPermissionSettings(context)
-                            }
-                            ready != null && ready.exists() -> AppUpdater.install(context, ready)
-                            else -> scope.launch {
-                                downloadProgress = 0f
-                                try {
-                                    val apk = AppUpdater.download(context, apkUrl) { downloadProgress = it }
-                                    downloadedApk = apk
-                                    updateMessage = "Download complete. Confirm the install to finish updating."
-                                    AppUpdater.install(context, apk)
-                                } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                                    throw cancelled
-                                } catch (error: Exception) {
-                                    updateMessage = "Update failed: ${error.message ?: "network error"}."
-                                } finally {
-                                    downloadProgress = null
-                                }
-                            }
-                        }
-                    }) { Text(if (downloadedApk != null) "Install update" else "Update now") }
-                }
-                Text("Updates are downloaded from the official Movio GitHub Releases page and installed by Android after your confirmation.", color = MovioMuted, fontSize = 11.sp)
+                return null
+            }
+
+            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                val h = request?.url?.host.orEmpty()
+                return !(h == host || h.endsWith(".$host"))
             }
         }
-        Text("About Movio", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-        Text("Built for Android phones and Android TV.", color = MovioMuted)
-    }
-}
 
-private data class MovioUpdateResult(val message: String, val apkUrl: String? = null)
+        webView.webChromeClient = object : WebChromeClient() {
+            override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                progress.progress = newProgress
+                if (newProgress >= 100) progress.visibility = View.GONE
+            }
 
-private fun fetchLatestMovioRelease(): MovioUpdateResult {
-    val connection = (URL("https://api.github.com/repos/G41US/Movio/releases/latest").openConnection() as HttpURLConnection)
-    return try {
-        connection.connectTimeout = 10_000
-        connection.readTimeout = 10_000
-        connection.setRequestProperty("Accept", "application/vnd.github+json")
-        connection.setRequestProperty("User-Agent", "Movio-Android/${BuildConfig.VERSION_NAME}")
-        val responseCode = connection.responseCode
-        if (responseCode == 404) return MovioUpdateResult("No published release is available yet.")
-        if (responseCode !in 200..299) return MovioUpdateResult("GitHub check failed (HTTP $responseCode). Try again later.")
-        val body = connection.inputStream.bufferedReader().use { it.readText() }
-        val release = JSONObject(body)
-        val tag = release.optString("tag_name", "").removePrefix("v")
-        val releaseUrl = release.optString("html_url", "https://github.com/G41US/Movio/releases")
-        val apkUrl = release.optJSONArray("assets")
-            ?.let { assets -> (0 until assets.length()).map { assets.getJSONObject(it) } }
-            ?.firstOrNull { it.optString("name").endsWith(".apk", ignoreCase = true) }
-            ?.optString("browser_download_url")
-            ?.takeIf { it.startsWith("https://") }
-        if (tag.isBlank()) return MovioUpdateResult("The latest GitHub release has no version tag.")
-        val latestParts = tag.split(".").map { it.toIntOrNull() ?: 0 }
-        val currentParts = BuildConfig.VERSION_NAME.split(".").map { it.toIntOrNull() ?: 0 }
-        val latestIsNewer = (0 until maxOf(latestParts.size, currentParts.size)).firstNotNullOfOrNull { index ->
-            val latest = latestParts.getOrElse(index) { 0 }
-            val current = currentParts.getOrElse(index) { 0 }
-            if (latest != current) latest > current else null
-        } ?: false
-        when {
-            !latestIsNewer -> MovioUpdateResult("You're running the latest version (${BuildConfig.VERSION_NAME}).")
-            apkUrl != null -> MovioUpdateResult("Movio ${tag} is available.", apkUrl)
-            else -> MovioUpdateResult("Movio ${tag} is available, but this release has no APK asset. Open the releases page: $releaseUrl")
+            override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
+                if (fullscreenView != null) return
+                fullscreenView = view
+                fullscreenContainer.addView(view)
+                fullscreenContainer.visibility = View.VISIBLE
+                setVideoFullscreen(true)
+            }
+
+            override fun onHideCustomView() {
+                if (fullscreenView == null) return
+                fullscreenContainer.removeView(fullscreenView)
+                fullscreenView = null
+                fullscreenContainer.visibility = View.GONE
+                setVideoFullscreen(false)
+            }
         }
-    } catch (error: Exception) {
-        MovioUpdateResult("Couldn't check for updates: ${error.message ?: "network error"}.")
-    } finally {
-        connection.disconnect()
     }
-}
 
-private fun isTelevision(context: Context): Boolean {
-    val uiMode = context.getSystemService(Context.UI_MODE_SERVICE) as UiModeManager
-    return uiMode.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION ||
-        context.packageManager.hasSystemFeature("android.software.leanback")
+    @Suppress("FunctionName")
+    private fun Uri(url: String): String = android.net.Uri.parse(url).host.orEmpty()
+
+    inner class Bridge {
+        /** Movies / TV page addresses found on the site, so the dock opens the right pages. */
+        @JavascriptInterface
+        fun links(json: String) {
+            try {
+                val o = JSONObject(json)
+                val e = prefs.edit()
+                listOf("movies", "tv").forEach { k ->
+                    val v = o.optString(k)
+                    val h = Uri(v)
+                    if (v.startsWith("https://") && (h == host || h.endsWith(".$host"))) e.putString(k, v)
+                }
+                e.apply()
+            } catch (_: Exception) { }
+        }
+    }
+
+    private fun setVideoFullscreen(on: Boolean) {
+        val controller = WindowInsetsControllerCompat(window, window.decorView)
+        if (on) {
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                window.attributes = window.attributes.apply {
+                    layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                }
+            }
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            dockWrap.visibility = View.GONE
+        } else {
+            controller.show(WindowInsetsCompat.Type.systemBars())
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            dockWrap.visibility = View.VISIBLE
+        }
+        ViewCompat.requestApplyInsets(findViewById(R.id.root))
+    }
+
+    private fun hideSplash() {
+        if (splash.visibility != View.VISIBLE) return
+        splash.animate().alpha(0f).setDuration(300).withEndAction { splash.visibility = View.GONE }.start()
+    }
+
+    // Hidden tool: tap with 3 fingers to save the page's code to Downloads/MovioCapture
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (ev.actionMasked == MotionEvent.ACTION_POINTER_DOWN && ev.pointerCount == 3) capturePage()
+        return super.dispatchTouchEvent(ev)
+    }
+
+    private fun capturePage() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        val url = webView.url.orEmpty()
+        webView.evaluateJavascript("document.documentElement.outerHTML") { raw ->
+            try {
+                val html = JSONTokener(raw).nextValue() as? String ?: return@evaluateJavascript
+                captureCount++
+                val name = "page-${System.currentTimeMillis() / 1000}-$captureCount.html"
+                val values = ContentValues().apply {
+                    put(MediaStore.Downloads.DISPLAY_NAME, name)
+                    put(MediaStore.Downloads.MIME_TYPE, "text/html")
+                    put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/MovioCapture")
+                }
+                val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return@evaluateJavascript
+                contentResolver.openOutputStream(uri)?.use { it.write("<!-- URL: $url -->\n$html".toByteArray()) }
+                Toast.makeText(this, "Saved $name", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(this, "Save failed: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        CookieManager.getInstance().flush()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        if (!webViewDead) webView.saveState(outState)
+    }
+
+    private fun handleExit() {
+        if (doubleBackToExitPressedOnce) { finish(); return }
+        doubleBackToExitPressedOnce = true
+        Toast.makeText(this, "Press back again to exit", Toast.LENGTH_SHORT).show()
+        main.postDelayed({ doubleBackToExitPressedOnce = false }, 2000)
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && fullscreenView != null) {
+            enterPictureInPictureMode(PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build())
+        }
+    }
 }
