@@ -22,4 +22,9 @@
     if (!(e.target.closest && e.target.closest('input,textarea'))) e.preventDefault();
   }, true);
   window.open = function () { return null; };
+  // Links that try to open a new tab or window are ad redirects here.
+  document.addEventListener('click', function (e) {
+    var a = e.target.closest && e.target.closest('a[target=_blank], a[target=_new]');
+    if (a) { e.preventDefault(); e.stopPropagation(); }
+  }, true);
 })();

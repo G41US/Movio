@@ -1,4 +1,11 @@
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item><shape><gradient android:angle="315" android:startColor="#FF9B6DFF" android:endColor="#FFFF5FA2"/><corners android:radius="22dp"/></shape></item>
-    <item android:drawable="@drawable/ic_play_glyph"/>
-</layer-list>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="48dp" android:height="48dp" android:viewportWidth="48" android:viewportHeight="48">
+    <path android:pathData="M11,0 H37 A11,11 0 0 1 48,11 V37 A11,11 0 0 1 37,48 H11 A11,11 0 0 1 0,37 V11 A11,11 0 0 1 11,0 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear" android:startX="0" android:startY="0" android:endX="48" android:endY="48"
+                android:startColor="#FF9B6DFF" android:endColor="#FFFF5FA2"/>
+        </aapt:attr>
+    </path>
+    <path android:fillColor="#FFFFFFFF" android:pathData="M19,15.6 C19,14.4 20.3,13.7 21.3,14.3 L33.2,22.7 C34.1,23.3 34.1,24.7 33.2,25.3 L21.3,33.7 C20.3,34.3 19,33.6 19,32.4 Z"/>
+</vector>
