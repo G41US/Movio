@@ -156,6 +156,8 @@ class PlayerActivity : ComponentActivity() {
     private var autoTried = 0
     private var resolveJob: Job? = null
     private var subtitleTracks: List<Subtitle> = emptyList()
+    private var subtitleJob: Job? = null
+    private val pageSubs = linkedSetOf<String>()
     @Volatile private var pageHost = ""
 
     private val source get() = Sources.all[sourceIndex]
@@ -338,8 +340,16 @@ class PlayerActivity : ComponentActivity() {
         sourceIndex = index
         attempt++
         val token = attempt
-        candidates.clear(); rejected.clear(); trying = null; subtitleTracks = emptyList()
+        candidates.clear(); rejected.clear(); trying = null; subtitleTracks = emptyList(); pageSubs.clear()
         resolveJob?.cancel()
+        subtitleJob?.cancel()
+        if (!source.direct) subtitleJob = lifecycleScope.launch {
+            val found = Subtitles.find(kind, id, season, episode)
+            if (token != attempt || found.isEmpty()) return@launch
+            subtitleTracks = found
+            // Stream already playing without them: reload in place so the subtitles show up.
+            if (phase == Phase.NATIVE) trying?.let { s -> val pos = exo.currentPosition; play(s); exo.seekTo(pos) }
+        }
         exo.stop(); exo.clearMediaItems()
         playerView.visibility = View.GONE
         phase = Phase.FINDING
@@ -420,7 +430,11 @@ class PlayerActivity : ComponentActivity() {
         val next = candidates.sortedByDescending { it.hls }.firstOrNull { it.url !in rejected } ?: run { trying = null; return }
         trying = next
         status = "Starting ${source.name}"
-        play(next)
+        val token = attempt
+        lifecycleScope.launch {
+            kotlinx.coroutines.withTimeoutOrNull(4_000) { subtitleJob?.join() }
+            if (token == attempt && trying == next) play(next)
+        }
     }
 
     private fun play(s: Stream) {
@@ -433,10 +447,11 @@ class PlayerActivity : ComponentActivity() {
             .setDefaultRequestProperties(headers)
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(15_000).setReadTimeoutMs(20_000)
-        val subs = subtitleTracks.map { t ->
+        val pageTracks = pageSubs.filter { u -> subtitleTracks.none { it.url == u } }.take(4).mapIndexed { i, u -> Subtitle("Source ${i + 1}", "und", u) }
+        val subs = (subtitleTracks + pageTracks).map { t ->
             MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(t.url))
-                .setMimeType(if (t.url.endsWith(".srt", true)) MimeTypes.APPLICATION_SUBRIP else MimeTypes.TEXT_VTT)
-                .setLanguage(t.lang).setLabel(t.label)
+                .setMimeType(if (t.srt) MimeTypes.APPLICATION_SUBRIP else MimeTypes.TEXT_VTT)
+                .setLanguage(t.lang.takeIf { it != "und" }).setLabel(t.label)
                 .build()
         }
         val item = MediaItem.Builder().setUri(s.url)
@@ -592,6 +607,7 @@ class PlayerActivity : ComponentActivity() {
                 if (!sameSite(host, pageHost) && AdBlock.blocks(host)) return empty
                 val u = uri.toString()
                 val path = (uri.path ?: "").lowercase()
+                if ((path.endsWith(".vtt") || path.endsWith(".srt")) && !AdBlock.blocks(host)) main.post { if (phase == Phase.FINDING) pageSubs.add(u) }
                 if (u.contains(".m3u8", ignoreCase = true) || Regex("/(stream|master|playlist|manifest)(\\.\\w+)?$").containsMatchIn(path) ||
                     (path.contains("/hls/") && !Regex("\\.(ts|m4s|mp4|aac|key|jpg|jpeg|png|webp|gif|vtt|js|css)$").containsMatchIn(path))) {
                     val headers = request.requestHeaders.orEmpty()

@@ -9,7 +9,7 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 
-data class Subtitle(val label: String, val lang: String, val url: String)
+data class Subtitle(val label: String, val lang: String, val url: String, val srt: Boolean = url.endsWith(".srt"))
 data class Playable(val url: String, val subtitles: List<Subtitle>, val headers: Map<String, String>)
 
 /**

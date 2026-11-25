@@ -75,6 +75,7 @@ jobs:
           MOVIO_KEY_ALIAS: ${{ secrets.MOVIO_KEY_ALIAS }}
           MOVIO_KEY_PASSWORD: ${{ secrets.MOVIO_KEY_PASSWORD }}
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          WYZIE_API_KEY: ${{ secrets.WYZIE_API_KEY }}
         run: gradle --no-daemon assembleRelease
 
       - name: Verify signature

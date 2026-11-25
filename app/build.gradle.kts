@@ -22,6 +22,8 @@ android {
         val local = Properties().apply { rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use(::load) }
         val tmdb = System.getenv("TMDB_API_KEY") ?: local.getProperty("tmdb.key") ?: ""
         buildConfigField("String", "TMDB_KEY", "\"$tmdb\"")
+        val wyzie = System.getenv("WYZIE_API_KEY") ?: local.getProperty("wyzie.key") ?: ""
+        buildConfigField("String", "WYZIE_KEY", "\"$wyzie\"")
     }
 
     // One fixed key for every release so updates install over each other.
