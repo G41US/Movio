@@ -29,6 +29,9 @@ import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.focus.focusRequester
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -145,6 +148,10 @@ class PlayerActivity : ComponentActivity() {
     private var webBar by mutableStateOf(true)
     private var pip by mutableStateOf(false)
     private var sourcesOpen by mutableStateOf(false)
+    private val tvDevice by lazy {
+        packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK) ||
+            getSystemService(android.app.UiModeManager::class.java)?.currentModeType == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
+    }
     private var sourceIndex by mutableIntStateOf(0)
     private var status by mutableStateOf("Loading")
     private val failedSources = mutableSetOf<Int>()
@@ -245,7 +252,7 @@ class PlayerActivity : ComponentActivity() {
         root.addView(fullscreen, FrameLayout.LayoutParams(-1, -1))
         root.addView(overlay, FrameLayout.LayoutParams(-1, -1))
         setContentView(root)
-        overlay.setContent { Overlay() }
+        overlay.setContent { androidx.compose.runtime.CompositionLocalProvider(LocalTv provides tvDevice) { Overlay() } }
 
         setupWebView()
         val off = offlineId
@@ -284,7 +291,7 @@ class PlayerActivity : ComponentActivity() {
                         Text("Resumed at ${clock(resumedAt)}", color = Soft, fontSize = 13.sp, style = jakarta())
                         Spacer(Modifier.width(10.dp))
                         Text("Start over", color = Ink, fontSize = 13.sp, fontWeight = FontWeight.Bold, style = jakarta(),
-                            modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(Color.White).clickable { exo.seekTo(0); resumedAt = 0L; store.savePosition(posKey(), 0, exo.duration.coerceAtLeast(1)) }
+                            modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(Color.White).focusGlow(RoundedCornerShape(8.dp)).clickable { exo.seekTo(0); resumedAt = 0L; store.savePosition(posKey(), 0, exo.duration.coerceAtLeast(1)) }
                                 .padding(horizontal = 12.dp, vertical = 7.dp))
                     }
                 }
@@ -351,11 +358,17 @@ class PlayerActivity : ComponentActivity() {
             Spacer(Modifier.height(4.dp))
             Text("If one doesn't play, try another.", color = Muted, fontSize = 12.sp, style = jakarta())
             Spacer(Modifier.height(10.dp))
-            LazyColumn {
+            val list = androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex = (sourceIndex - 2).coerceAtLeast(0))
+            val pick = remember { androidx.compose.ui.focus.FocusRequester() }
+            // Remote: start on the source that's playing now.
+            LaunchedEffect(Unit) { if (tvDevice) { kotlinx.coroutines.delay(250); runCatching { pick.requestFocus() } } }
+            LazyColumn(state = list) {
                 itemsIndexed(Sources.all) { i, s ->
                     val selected = i == sourceIndex
                     Row(
-                        Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(12.dp))
+                        Modifier.fillMaxWidth().padding(vertical = 3.dp)
+                            .then(if (selected) androidx.compose.ui.Modifier.focusRequester(pick) else androidx.compose.ui.Modifier)
+                            .focusGlow(RoundedCornerShape(12.dp)).clip(RoundedCornerShape(12.dp))
                             .background(if (selected) Violet.copy(alpha = .28f) else Color.Transparent)
                             .border(1.dp, if (selected) Violet.copy(alpha = .6f) else Color.Transparent, RoundedCornerShape(12.dp))
                             .clickable { sourcesOpen = false; start(i, automatic = false) }
@@ -772,18 +785,13 @@ class PlayerActivity : ComponentActivity() {
         override fun setSubOffset(ms: Long) = shiftSubtitles(ms)
     }
 
-    /** TV remote: left/right seek and select shows the controls while they're hidden. */
+    /** Media keys work anywhere in the player; the arrows and OK are handled by the controls. */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.action == KeyEvent.ACTION_DOWN && phase == Phase.NATIVE && !sourcesOpen) {
             when (event.keyCode) {
                 KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_SPACE -> { if (exo.isPlaying) exo.pause() else exo.play(); controlsVisible = true; return true }
                 KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { exo.seekTo(exo.currentPosition + 10_000); return true }
                 KeyEvent.KEYCODE_MEDIA_REWIND -> { exo.seekTo((exo.currentPosition - 10_000).coerceAtLeast(0)); return true }
-            }
-            if (!controlsVisible) when (event.keyCode) {
-                KeyEvent.KEYCODE_DPAD_LEFT -> { exo.seekTo((exo.currentPosition - 10_000).coerceAtLeast(0)); return true }
-                KeyEvent.KEYCODE_DPAD_RIGHT -> { exo.seekTo(exo.currentPosition + 10_000); return true }
-                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> { controlsVisible = true; return true }
             }
         }
         return super.dispatchKeyEvent(event)

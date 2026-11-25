@@ -11,6 +11,16 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
+import androidx.activity.compose.BackHandler
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -135,9 +145,9 @@ fun clock(ms: Long): String {
 private val shade = Shadow(Color.Black.copy(alpha = .6f), Offset(0f, 2f), 8f)
 
 @Composable
-private fun Plain(icon: Int, label: String?, size: Dp = 24.dp, onClick: () -> Unit) {
+private fun Plain(icon: Int, label: String?, size: Dp = 24.dp, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Row(
-        Modifier.clip(RoundedCornerShape(12.dp)).focusGlow(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(horizontal = 10.dp, vertical = 8.dp),
+        modifier.clip(RoundedCornerShape(12.dp)).focusGlow(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(painterResource(icon), label, tint = Color.White, modifier = Modifier.size(size))
@@ -170,6 +180,12 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
     var countdownDismissed by remember(host.episode) { mutableStateOf(false) }
     var autoSkipped by remember(host.episode) { mutableStateOf(setOf<Segment>()) }
     var active by remember { mutableStateOf<Segment?>(null) }
+    // TV remote: where focus goes, so there's always something selected.
+    val tv = LocalTv.current
+    val rootFocus = remember { FocusRequester() }
+    val playFocus = remember { FocusRequester() }
+    val sheetFocus = remember { FocusRequester() }
+    var focusInside by remember { mutableStateOf(false) }
 
     LaunchedEffect(player) {
         while (true) {
@@ -203,6 +219,16 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
     LaunchedEffect(gauge) { if (gauge != null) { delay(900); gauge = null } }
 
     fun touch() { lastTouch = System.currentTimeMillis() }
+    fun focusPlay() { if (tv) scope.launch { delay(60); runCatching { playFocus.requestFocus() } } }
+    LaunchedEffect(Unit) { if (tv) runCatching { rootFocus.requestFocus() } }
+    LaunchedEffect(visible) { if (tv && !visible) runCatching { rootFocus.requestFocus() } }
+    LaunchedEffect(sheet) {
+        if (!tv) return@LaunchedEffect
+        if (sheet != null) { delay(220); runCatching { sheetFocus.requestFocus() } } else if (visible) runCatching { playFocus.requestFocus() }
+    }
+    // Back closes a panel first, then the controls, then leaves the player.
+    BackHandler(enabled = sheet != null) { sheet = null }
+    BackHandler(enabled = tv && visible && sheet == null && !locked) { onVisible(false) }
     fun seekBy(ms: Long) {
         player.seekTo((player.currentPosition + ms).coerceIn(0, if (duration > 0) duration else Long.MAX_VALUE))
         hint = if (ms > 0) "+${ms / 1000}s" else "−${-ms / 1000}s"
@@ -211,6 +237,27 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
 
     Box(
         Modifier.fillMaxSize()
+            .focusRequester(rootFocus)
+            .focusable()
+            .onPreviewKeyEvent { e ->
+                if (!tv || e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                touch()
+                if (sheet != null) return@onPreviewKeyEvent false
+                val center = e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter
+                val arrow = e.key == Key.DirectionUp || e.key == Key.DirectionDown || e.key == Key.DirectionLeft || e.key == Key.DirectionRight
+                val skipTo = active?.takeIf { !host.autoSkip }?.endMs
+                when {
+                    // Controls hidden: OK takes Up next / Skip intro if showing, Left/Right skip 10 s, anything else shows the controls.
+                    !visible && center && countdown >= 0 -> { countdownDismissed = true; host.next(); true }
+                    !visible && center && skipTo != null -> { player.seekTo(skipTo); true }
+                    !visible && e.key == Key.DirectionLeft -> { seekBy(-10_000); true }
+                    !visible && e.key == Key.DirectionRight -> { seekBy(10_000); true }
+                    !visible && (center || arrow) -> { onVisible(true); focusPlay(); true }
+                    // Controls showing but nothing selected yet: start on Play/Pause.
+                    visible && !focusInside && (center || arrow) -> { focusPlay(); true }
+                    else -> false
+                }
+            }
             .pointerInput(locked, visible, sheet) {
                 if (locked) { detectTapGestures(onTap = { onVisible(!visible) }); return@pointerInput }
                 var job: Job? = null
@@ -262,7 +309,7 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
             }
         } else AnimatedVisibility(visible, enter = fadeIn(), exit = fadeOut()) {
             Box(
-                Modifier.fillMaxSize().background(
+                Modifier.fillMaxSize().onFocusChanged { focusInside = it.hasFocus }.background(
                     Brush.verticalGradient(0f to Color.Black.copy(alpha = .8f), .22f to Color.Black.copy(alpha = .25f), .5f to Color.Black.copy(alpha = .15f),
                         .78f to Color.Black.copy(alpha = .3f), 1f to Color.Black.copy(alpha = .88f))
                 ),
@@ -283,7 +330,7 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
                 Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(64.dp)) {
                     SeekIcon(R.drawable.ic_back10) { seekBy(-10_000) }
                     Box(
-                        Modifier.size(76.dp).clip(CircleShape).focusGlow(CircleShape).clickable { if (player.isPlaying) player.pause() else player.play(); touch() },
+                        Modifier.size(76.dp).focusRequester(playFocus).clip(CircleShape).focusGlow(CircleShape).clickable { if (player.isPlaying) player.pause() else player.play(); touch() },
                         contentAlignment = Alignment.Center,
                     ) { Icon(painterResource(if (playing) R.drawable.ic_pause else R.drawable.ic_play_fill), null, tint = Color.White, modifier = Modifier.size(54.dp)) }
                     SeekIcon(R.drawable.ic_fwd10) { seekBy(10_000) }
@@ -314,13 +361,18 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
                             onValueChange = { dragging = true; dragValue = it; touch(); host.preview((it * duration).toLong()) },
                             onValueChangeFinished = { player.seekTo((dragValue * duration).toLong()); dragging = false; host.preview(null) },
                             colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Violet, inactiveTrackColor = Color.White.copy(alpha = .3f)),
-                            modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
+                            modifier = Modifier.weight(1f).padding(horizontal = 12.dp).focusGlow(RoundedCornerShape(10.dp))
+                                // Remote: Left/Right on the bar skip 10 s instead of nudging 1 %.
+                                .onPreviewKeyEvent { e ->
+                                    if (e.type != KeyEventType.KeyDown) false
+                                    else when (e.key) { Key.DirectionLeft -> { seekBy(-10_000); true }; Key.DirectionRight -> { seekBy(10_000); true }; else -> false }
+                                },
                         )
                         Text("−" + clock(duration - position), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                             style = TextStyle(fontFamily = Jakarta, shadow = shade))
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                        Plain(R.drawable.ic_lock, "Lock") { locked = true; sheet = null; touch() }
+                        if (!tv) Plain(R.drawable.ic_lock, "Lock") { locked = true; sheet = null; touch() }
                         if (host.isTv && host.episodes.isNotEmpty()) Plain(R.drawable.ic_list, "Episodes") { sheet = Sheet.EPISODES; touch() }
                         Plain(R.drawable.ic_cc, "Subtitles") { sheet = Sheet.SUBTITLES; touch() }
                         if (host.isTv && host.hasNext) Plain(R.drawable.ic_next, "Next episode") { host.next() }
@@ -350,9 +402,9 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Play in ${countdown.coerceAtLeast(0)}", color = Ink, fontSize = 14.sp, fontWeight = FontWeight.Bold, style = jakarta(),
-                        modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(Color.White).clickable { countdownDismissed = true; host.next() }.padding(horizontal = 16.dp, vertical = 10.dp))
+                        modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(Color.White).focusGlow(RoundedCornerShape(10.dp)).clickable { countdownDismissed = true; host.next() }.padding(horizontal = 16.dp, vertical = 10.dp))
                     Text("Cancel", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, style = jakarta(),
-                        modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable { countdownDismissed = true }.padding(horizontal = 12.dp, vertical = 10.dp))
+                        modifier = Modifier.clip(RoundedCornerShape(10.dp)).focusGlow(RoundedCornerShape(10.dp)).clickable { countdownDismissed = true }.padding(horizontal = 12.dp, vertical = 10.dp))
                 }
             }
         }
@@ -370,7 +422,7 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
                         Sheet.SETTINGS -> "Settings"; Sheet.QUALITY -> "Quality"; Sheet.SPEED -> "Speed"
                         Sheet.SUBTITLES -> "Subtitles"; Sheet.STYLE -> "Subtitle style"; Sheet.EPISODES -> "Season ${host.season}"
                     }, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, style = jakarta(), modifier = Modifier.weight(1f))
-                    Plain(R.drawable.ic_close, null, 20.dp) { sheet = null }
+                    Plain(R.drawable.ic_close, null, 20.dp, Modifier.focusRequester(sheetFocus)) { sheet = null }
                 }
                 Spacer(Modifier.height(10.dp))
                 when (p) {

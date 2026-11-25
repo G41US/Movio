@@ -48,6 +48,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
@@ -331,7 +333,9 @@ fun ContinueCard(p: Progress, progress: Float? = null, onClick: () -> Unit) {
 fun Hero(items: List<Title>, saved: (Title) -> Boolean, onPlay: (Title) -> Unit, onOpen: (Title) -> Unit, onToggle: (Title) -> Unit) {
     if (items.isEmpty()) return
     var index by remember(items) { mutableIntStateOf(0) }
-    LaunchedEffect(items) { while (items.size > 1) { delay(7000); index = (index + 1) % items.size } }
+    // Holds still while the remote is on its buttons, so Play plays what you're looking at.
+    var paused by remember { mutableStateOf(false) }
+    LaunchedEffect(items, paused) { while (items.size > 1 && !paused) { delay(7000); index = (index + 1) % items.size } }
     val wide = LocalWide.current
     val heroH = if (wide) (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * .66f).dp.coerceAtLeast(400.dp) else 560.dp
     Box(Modifier.fillMaxWidth().height(heroH).clipToBounds()) {
@@ -367,7 +371,7 @@ fun Hero(items: List<Title>, saved: (Title) -> Boolean, onPlay: (Title) -> Unit,
                 Text(t.overview, fontSize = 14.sp, lineHeight = 20.sp, color = Soft, style = jakarta(), maxLines = 3, overflow = TextOverflow.Ellipsis)
             }
             Spacer(Modifier.height(18.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.onFocusChanged { paused = it.hasFocus }, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 PrimaryButton("Play", R.drawable.ic_play_fill, Modifier.weight(1f)) { onPlay(t) }
                 GhostButton(if (saved(t)) "Saved" else "My List", if (saved(t)) R.drawable.ic_check else R.drawable.ic_plus) { onToggle(t) }
                 GlassIcon(R.drawable.ic_info, size = 50.dp) { onOpen(t) }

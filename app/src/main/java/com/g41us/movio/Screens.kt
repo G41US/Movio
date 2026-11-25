@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.layout.layout
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -251,12 +253,20 @@ fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPerson:
         item(key = "top") {
             val d = (state as? Load.Done)?.value
             val t = d?.title ?: title
-            Box(Modifier.fillMaxWidth().height(500.dp).clipToBounds()) {
+            val wide = LocalWide.current
+            val artH = if (wide) (LocalConfiguration.current.screenHeightDp * .62f).dp.coerceAtLeast(360.dp) else 500.dp
+            Box(Modifier.fillMaxWidth().height(artH).clipToBounds()) {
                 // Art without printed titles; while details load, show nothing rather than a poster with text.
-                val image = when { d == null -> null; d.cleanPoster != null -> Tmdb.img(d.cleanPoster, "w780"); else -> Tmdb.img(t.backdrop ?: t.poster, "w1280") }
+                val image = when {
+                    d == null -> null
+                    wide && t.backdrop != null -> Tmdb.img(t.backdrop, "w1280")
+                    d.cleanPoster != null -> Tmdb.img(d.cleanPoster, "w780")
+                    else -> Tmdb.img(t.backdrop ?: t.poster, "w1280")
+                }
                 if (image != null) AsyncImage(image, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().kenBurns())
+                if (wide) Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Ink.copy(alpha = .85f), .6f to Color.Transparent)))
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Ink.copy(alpha = .4f), .35f to Color.Transparent, .7f to Ink.copy(alpha = .7f), 1f to Ink)))
-                Column(Modifier.align(Alignment.BottomStart).padding(horizontal = Gutter).enterUp()) {
+                Column(Modifier.align(Alignment.BottomStart).padding(horizontal = if (wide) 48.dp else Gutter).enterUp()) {
                     if (d?.logo != null) AsyncImage(Tmdb.img(d.logo, "w500"), t.name, contentScale = ContentScale.Fit,
                         alignment = Alignment.BottomStart, modifier = Modifier.width(260.dp).height(84.dp))
                     else Text(t.name, fontSize = 32.sp, lineHeight = 36.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-1).sp, color = Color.White, style = jakarta())
@@ -272,20 +282,27 @@ fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPerson:
                 val d = s.value
                 val t = d.title
                 item(key = "actions") {
-                    Column(Modifier.padding(horizontal = Gutter).padding(top = 18.dp)) {
+                    val wide = LocalWide.current
+                    Column(Modifier.padding(horizontal = if (wide) 48.dp else Gutter).padding(top = 18.dp).then(if (wide) Modifier.widthIn(max = 720.dp) else Modifier)) {
                         val label = when {
                             t.kind == Kind.TV && last != null -> "Resume S${last.season} E${last.episode}"
                             t.kind == Kind.TV -> "Play S1 E1"
                             else -> "Play"
                         }
-                        PrimaryButton(label, R.drawable.ic_play_fill, Modifier.fillMaxWidth().tvFirstFocus(t.key)) {
-                            onPlay(t, last?.season ?: 1, last?.episode ?: 1)
-                        }
-                        Spacer(Modifier.height(10.dp))
                         val saved = store.inList(t)
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            GhostButton(if (saved) "In My List" else "My List", if (saved) R.drawable.ic_check else R.drawable.ic_plus, Modifier.weight(1f)) { store.toggle(t) }
-                            if (d.trailer != null) GhostButton("Trailer", R.drawable.ic_trailer, Modifier.weight(1f)) { onTrailer(d.trailer) }
+                        if (wide) Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            PrimaryButton(label, R.drawable.ic_play_fill, Modifier.widthIn(min = 220.dp).tvFirstFocus(t.key)) { onPlay(t, last?.season ?: 1, last?.episode ?: 1) }
+                            GhostButton(if (saved) "In My List" else "My List", if (saved) R.drawable.ic_check else R.drawable.ic_plus) { store.toggle(t) }
+                            if (d.trailer != null) GhostButton("Trailer", R.drawable.ic_trailer) { onTrailer(d.trailer) }
+                        } else {
+                            PrimaryButton(label, R.drawable.ic_play_fill, Modifier.fillMaxWidth().tvFirstFocus(t.key)) {
+                                onPlay(t, last?.season ?: 1, last?.episode ?: 1)
+                            }
+                            Spacer(Modifier.height(10.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                GhostButton(if (saved) "In My List" else "My List", if (saved) R.drawable.ic_check else R.drawable.ic_plus, Modifier.weight(1f)) { store.toggle(t) }
+                                if (d.trailer != null) GhostButton("Trailer", R.drawable.ic_trailer, Modifier.weight(1f)) { onTrailer(d.trailer) }
+                            }
                         }
                         if (d.genres.isNotEmpty()) {
                             Spacer(Modifier.height(16.dp))
@@ -325,7 +342,8 @@ fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPerson:
 @Composable
 private fun EpisodeList(show: Title, season: Int, last: Progress?, onPlay: (Int) -> Unit) {
     val (state, retry) = load(show.id to season) { Tmdb.episodes(show.id, season) }
-    Column(Modifier.padding(horizontal = Gutter)) {
+    val wide = LocalWide.current
+    Column(Modifier.padding(horizontal = if (wide) 48.dp else Gutter).then(if (wide) Modifier.widthIn(max = 900.dp) else Modifier)) {
         when (val s = state) {
             Load.Loading -> repeat(3) { Box(Modifier.padding(vertical = 6.dp).fillMaxWidth().height(78.dp).shimmer()) }
             is Load.Failed -> Failed(retry)
@@ -366,7 +384,7 @@ sealed interface UpdateState {
 @Composable
 fun SettingsScreen(version: String, update: UpdateState, blocked: Int, store: Store, onDownloads: () -> Unit, onAlerts: (Boolean) -> Unit, onUpdate: () -> Unit, onClearCache: () -> Unit) {
     val tv5 = rememberScrollState()
-    ScrollList(tv5, PaddingValues(start = Gutter, end = Gutter, top = barSpace(), bottom = dockSpace())) {
+    ScrollList(tv5, PaddingValues(start = Gutter, end = Gutter, top = barSpace(), bottom = dockSpace()), narrow = true) {
         item {
             Card {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -536,7 +554,7 @@ fun DownloadsScreen(onPlay: (DownloadInfo, String) -> Unit) {
     var items by remember { mutableStateOf(Downloads.all(context)) }
     LaunchedEffect(Unit) { while (true) { items = Downloads.all(context); delay(1000) } }
     val tv7 = rememberScrollState()
-    ScrollList(tv7, PaddingValues(start = Gutter, end = Gutter, top = barSpace(), bottom = dockSpace())) {
+    ScrollList(tv7, PaddingValues(start = Gutter, end = Gutter, top = barSpace(), bottom = dockSpace()), narrow = true) {
         if (items.isEmpty()) item { Message("No downloads yet", "Tap Download in the player to save a movie or episode for offline viewing.") }
         items(items, key = { it.request.id }) { d ->
             val info = DownloadInfo.from(d.request.data) ?: return@items
@@ -576,12 +594,14 @@ fun DownloadsScreen(onPlay: (DownloadInfo, String) -> Unit) {
  * so the TV remote can always find the next thing below and the page follows it.
  */
 @Composable
-private fun ScrollList(state: androidx.compose.foundation.ScrollState, padding: PaddingValues, content: @Composable ListShim.() -> Unit) {
+private fun ScrollList(state: androidx.compose.foundation.ScrollState, padding: PaddingValues, narrow: Boolean = false, content: @Composable ListShim.() -> Unit) {
     val bar = LocalTopBar.current
     Column(Modifier.fillMaxSize().verticalScroll(state).dpadScroll(state)) {
         // On TV the top bar is part of the page (not floating over it), so Down from the tabs reaches the content.
         Box {
-            Column(Modifier.padding(padding)) { ListShim.content() }
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+                Column(Modifier.then(if (narrow && LocalWide.current) Modifier.widthIn(max = 760.dp) else Modifier).padding(padding)) { ListShim.content() }
+            }
             bar?.invoke()
         }
     }
