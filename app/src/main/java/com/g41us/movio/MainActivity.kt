@@ -104,12 +104,13 @@ fun App(openRequest: androidx.compose.runtime.MutableState<Title?>) {
     var apk by remember { mutableStateOf<File?>(null) }
     var splash by remember { mutableStateOf(true) }
     val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
-    LaunchedEffect(Unit) {
-        delay(1100); splash = false
+    LaunchedEffect(splash) {
+        if (splash) return@LaunchedEffect
         if (Build.VERSION.SDK_INT >= 33 && store.alerts &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
         ) askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
+    LaunchedEffect(stack.size) { if (stack.isNotEmpty()) Boot.ready = true }
     // No internet at launch: go straight to Downloads.
     LaunchedEffect(Unit) {
         val cm = context.getSystemService(android.net.ConnectivityManager::class.java)
@@ -198,11 +199,7 @@ fun App(openRequest: androidx.compose.runtime.MutableState<Title?>) {
             )
             if (!wide) Dock(if (top == null) tab else null, { t -> stack.clear(); tab = t }, Modifier.align(Alignment.BottomCenter))
 
-            AnimatedVisibility(splash, enter = fadeIn(), exit = fadeOut(tween(400))) {
-                Box(Modifier.fillMaxSize().background(Ink), contentAlignment = Alignment.Center) {
-                    Box(Modifier.enterUp()) { Logo(30) }
-                }
-            }
+            if (splash) Splash { splash = false }
         }
     }
 }

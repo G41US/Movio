@@ -107,6 +107,7 @@ fun FeedScreen(kind: Kind?, store: Store, onOpen: (Title) -> Unit, onPlay: (Titl
             rows.take(1) + byw + rows.drop(1)
         }
     }
+    LaunchedEffect(state) { if (state !is Load.Loading) Boot.ready = true }
     // Get the titles you're most likely to play ready ahead of time.
     LaunchedEffect(Unit) { store.continueWatching.take(3).forEach { Prefetch.title(it.title, it.season, it.episode) } }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = dockSpace())) {

@@ -48,6 +48,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -59,9 +61,10 @@ import kotlinx.coroutines.delay
 // ---------- Brand ----------
 
 @Composable
-fun Logo(size: Int = 20) {
+fun Logo(size: Int = 20, anchor: Boolean = false) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Image(painterResource(R.drawable.logo_tile), null, Modifier.size((size * 1.5).dp))
+        Image(painterResource(R.drawable.logo_tile), null, Modifier.size((size * 1.5).dp)
+            .then(if (anchor) Modifier.onGloballyPositioned { Boot.logo = it.boundsInRoot() } else Modifier))
         Spacer(Modifier.width(10.dp))
         Text("MOV", fontSize = size.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp, color = Color.White, style = jakarta())
         Text("IO", fontSize = size.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp, style = jakarta(Brand))
@@ -96,7 +99,7 @@ fun TopBar(title: String? = null, onBack: (() -> Unit)? = null, settingsActive: 
         }
         Box(Modifier.weight(1f)) {
             if (title != null && !(LocalWide.current && onTab != null)) Text(title, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, style = jakarta())
-            else Logo()
+            else Logo(anchor = true)
         }
         if (LocalWide.current && onTab != null) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
