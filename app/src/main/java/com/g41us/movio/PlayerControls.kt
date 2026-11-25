@@ -454,7 +454,7 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Box(Modifier.width(110.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp)).background(Panel)) {
-                                    AsyncImage(Tmdb.img(e.still, "w300"), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                                    NetImage(Tmdb.img(e.still, "w300"), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                                 }
                                 Spacer(Modifier.width(12.dp))
                                 Column(Modifier.weight(1f)) {

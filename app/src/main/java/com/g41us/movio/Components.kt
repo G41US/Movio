@@ -255,7 +255,7 @@ fun Meta(t: Title, extra: String? = null) {
 @Composable
 fun Poster(t: Title, modifier: Modifier = Modifier) {
     Box(modifier.aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp)).background(Panel).border(1.dp, Hairline, RoundedCornerShape(12.dp))) {
-        AsyncImage(Tmdb.img(t.poster, if (LocalWide.current) "w500" else "w342"), t.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        NetImage(Tmdb.img(t.poster, if (LocalWide.current) "w500" else "w342"), t.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
     }
 }
 
@@ -308,7 +308,7 @@ fun RankedCard(rank: Int, t: Title, onClick: () -> Unit) {
 fun ContinueCard(p: Progress, progress: Float? = null, onClick: () -> Unit) {
     Column(Modifier.width(if (LocalWide.current) 360.dp else 220.dp).tappable(onClick)) {
         Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(14.dp)).background(Panel).border(1.dp, Hairline, RoundedCornerShape(14.dp))) {
-            AsyncImage(Tmdb.img(p.title.backdrop ?: p.title.poster, "w500"), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            NetImage(Tmdb.img(p.title.backdrop ?: p.title.poster, "w500"), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(.45f to Color.Transparent, 1f to Ink.copy(alpha = .85f))))
             Box(Modifier.align(Alignment.Center).size(44.dp).clip(CircleShape).background(Color.White.copy(alpha = .9f)), contentAlignment = Alignment.Center) {
                 Icon(painterResource(R.drawable.ic_play_fill), null, tint = Ink, modifier = Modifier.size(20.dp))
@@ -338,7 +338,8 @@ fun Hero(items: List<Title>, saved: (Title) -> Boolean, onPlay: (Title) -> Unit,
     val wide = LocalWide.current
     val heroH = if (wide) (screenDp().height * .72f).coerceAtLeast(380.dp) else 560.dp
     Box(Modifier.fillMaxWidth().height(heroH).clipToBounds()) {
-        val arts = remember(items) { androidx.compose.runtime.mutableStateMapOf<String, Art>() }
+        val pre = LocalPreload.current
+        val arts = remember(items) { androidx.compose.runtime.mutableStateMapOf<String, Art>().apply { items.forEach { t -> (pre["art:${t.key}"] as? Art)?.let { put(t.key, it) } } } }
         LaunchedEffect(items) { items.forEach { t -> if (t.key !in arts) arts[t.key] = Tmdb.art(t) } }
         AnimatedContent(items[index], transitionSpec = { fadeIn(tween(700)) togetherWith fadeOut(tween(700)) }, label = "hero") { t ->
             Box(Modifier.fillMaxSize()) {
@@ -348,7 +349,7 @@ fun Hero(items: List<Title>, saved: (Title) -> Boolean, onPlay: (Title) -> Unit,
                     art == null -> null
                     else -> Tmdb.img(art.image, if (art.wide) "w1280" else "w780")
                 }
-                if (image != null) AsyncImage(image, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().kenBurns())
+                if (image != null) NetImage(image, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().kenBurns())
                 if (wide) Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Ink.copy(alpha = .85f), .55f to Color.Transparent)))
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Ink.copy(alpha = .35f), .3f to Color.Transparent, .62f to Ink.copy(alpha = .55f), 1f to Ink)))
             }
@@ -357,7 +358,7 @@ fun Hero(items: List<Title>, saved: (Title) -> Boolean, onPlay: (Title) -> Unit,
         Column(Modifier.align(Alignment.BottomStart).padding(start = if (wide) 48.dp else Gutter, end = Gutter, bottom = 18.dp)
             .then(if (wide) Modifier.width(560.dp) else Modifier).enterUp()) {
             val logo = arts[t.key]?.logo
-            if (logo != null) AsyncImage(Tmdb.img(logo, "w500"), t.name, contentScale = ContentScale.Fit, alignment = Alignment.BottomStart,
+            if (logo != null) NetImage(Tmdb.img(logo, "w500"), t.name, contentScale = ContentScale.Fit, alignment = Alignment.BottomStart,
                 modifier = Modifier.width(260.dp).height(84.dp))
             else Text(t.name, fontSize = if (wide) 40.sp else 34.sp, lineHeight = if (wide) 44.sp else 38.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-1).sp, color = Color.White,
                 style = jakarta(), maxLines = 2, overflow = TextOverflow.Ellipsis)

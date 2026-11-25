@@ -88,8 +88,10 @@ private sealed interface Load<out T> {
 @Composable
 private fun <T> load(key: Any?, block: suspend () -> T): Pair<Load<T>, () -> Unit> {
     var attempt by remember { mutableIntStateOf(0) }
-    var state by remember(key) { mutableStateOf<Load<T>>(Load.Loading) }
+    @Suppress("UNCHECKED_CAST") val pre = LocalPreload.current[key] as T?
+    var state by remember(key) { mutableStateOf<Load<T>>(if (pre != null) Load.Done(pre) else Load.Loading) }
     LaunchedEffect(key, attempt) {
+        if (pre != null && attempt == 0) return@LaunchedEffect
         state = Load.Loading
         state = try { Load.Done(block()) } catch (e: Exception) { Load.Failed(e.message ?: "Something went wrong") }
     }
@@ -263,11 +265,11 @@ fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPerson:
                     d.cleanPoster != null -> Tmdb.img(d.cleanPoster, "w780")
                     else -> Tmdb.img(t.backdrop ?: t.poster, "w1280")
                 }
-                if (image != null) AsyncImage(image, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().kenBurns())
+                if (image != null) NetImage(image, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().kenBurns())
                 if (wide) Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Ink.copy(alpha = .85f), .6f to Color.Transparent)))
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Ink.copy(alpha = .4f), .35f to Color.Transparent, .7f to Ink.copy(alpha = .7f), 1f to Ink)))
                 Column(Modifier.align(Alignment.BottomStart).padding(horizontal = if (wide) 48.dp else Gutter).enterUp()) {
-                    if (d?.logo != null) AsyncImage(Tmdb.img(d.logo, "w500"), t.name, contentScale = ContentScale.Fit,
+                    if (d?.logo != null) NetImage(Tmdb.img(d.logo, "w500"), t.name, contentScale = ContentScale.Fit,
                         alignment = Alignment.BottomStart, modifier = Modifier.width(260.dp).height(84.dp))
                     else Text(t.name, fontSize = 32.sp, lineHeight = 36.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-1).sp, color = Color.White, style = jakarta())
                     Spacer(Modifier.height(10.dp))
@@ -306,7 +308,7 @@ fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPerson:
                         }
                         if (d.genres.isNotEmpty()) {
                             Spacer(Modifier.height(16.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { d.genres.take(3).forEach { Badge(it.uppercase()) } }
+                            Badge(d.genres.take(3).joinToString("  ·  ") { it.uppercase() })
                         }
                         if (d.tagline.isNotBlank()) {
                             Spacer(Modifier.height(16.dp))
@@ -351,7 +353,7 @@ private fun EpisodeList(show: Title, season: Int, last: Progress?, onPlay: (Int)
                 val current = last?.season == season && last.episode == e.number
                 Row(Modifier.fillMaxWidth().padding(vertical = 8.dp).tappable { onPlay(e.number) }, verticalAlignment = Alignment.Top) {
                     Box(Modifier.width(if (wide) 220.dp else 132.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)).background(Panel).border(1.dp, if (current) Violet else Hairline, RoundedCornerShape(12.dp))) {
-                        AsyncImage(Tmdb.img(e.still ?: show.backdrop, "w300"), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                        NetImage(Tmdb.img(e.still ?: show.backdrop, "w300"), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                         Box(Modifier.align(Alignment.Center).size(32.dp).clip(RoundedCornerShape(50)).background(Ink.copy(alpha = .65f)), contentAlignment = Alignment.Center) {
                             Icon(painterResource(R.drawable.ic_play_fill), null, tint = Color.White, modifier = Modifier.size(15.dp))
                         }
@@ -476,7 +478,7 @@ fun Avatar(p: Person, size: Dp) {
     Box(Modifier.size(size).clip(androidx.compose.foundation.shape.CircleShape).background(Brush.linearGradient(listOf(Violet.copy(alpha = .5f), Pink.copy(alpha = .4f)))), contentAlignment = Alignment.Center) {
         Text(p.name.split(" ").mapNotNull { it.firstOrNull()?.uppercase() }.take(2).joinToString(""), color = Color.White,
             fontSize = (size.value * .32f).sp, fontWeight = FontWeight.Bold, style = jakarta())
-        if (p.photo != null) AsyncImage(Tmdb.img(p.photo, "w185"), p.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        if (p.photo != null) NetImage(Tmdb.img(p.photo, "w185"), p.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
     }
 }
 
@@ -567,7 +569,7 @@ fun DownloadsScreen(onPlay: (DownloadInfo, String) -> Unit) {
             val failed = d.state == androidx.media3.exoplayer.offline.Download.STATE_FAILED
             Row(Modifier.fillMaxWidth().padding(vertical = 7.dp).tappable { if (done) onPlay(info, d.request.id) }, verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.width(132.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)).background(Panel)) {
-                    AsyncImage(Tmdb.img(info.title.backdrop ?: info.title.poster, "w300"), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                    NetImage(Tmdb.img(info.title.backdrop ?: info.title.poster, "w300"), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                     if (done) Box(Modifier.align(Alignment.Center).size(32.dp).clip(RoundedCornerShape(50)).background(Ink.copy(alpha = .65f)), contentAlignment = Alignment.Center) {
                         Icon(painterResource(R.drawable.ic_play_fill), null, tint = Color.White, modifier = Modifier.size(15.dp))
                     }

@@ -93,7 +93,7 @@ private val EnterEase = CubicBezierEasing(.16f, 1f, .3f, 1f)
 
 /** Fades and lifts content in the first time it appears; [order] staggers neighbours. */
 fun Modifier.enterUp(order: Int = 0): Modifier = composed {
-    if (LocalInspectionMode.current) return@composed this
+    if (LocalInspectionMode.current || LocalPreload.current.isNotEmpty()) return@composed this
     val progress = remember { Animatable(0f) }
     val lift = with(LocalDensity.current) { 36.dp.toPx() }
     LaunchedEffect(Unit) { progress.animateTo(1f, tween(800, delayMillis = 90 * order.coerceAtMost(6), easing = EnterEase)) }
@@ -102,7 +102,7 @@ fun Modifier.enterUp(order: Int = 0): Modifier = composed {
 
 /** Slow push-in on hero artwork. */
 fun Modifier.kenBurns(): Modifier = composed {
-    if (LocalInspectionMode.current) return@composed this
+    if (LocalInspectionMode.current || LocalPreload.current.isNotEmpty()) return@composed this
     val zoom by rememberInfiniteTransition(label = "kb").animateFloat(
         initialValue = 1f, targetValue = 1.1f,
         animationSpec = infiniteRepeatable(tween(16_000, easing = LinearEasing), RepeatMode.Reverse), label = "zoom",
@@ -116,6 +116,8 @@ fun rating(r: Double) = if (r <= 0) null else String.format("%.1f", r)
 val LocalWide = compositionLocalOf { false }
 /** Running on a TV (remote control, no touch). */
 val LocalTv = compositionLocalOf { false }
+/** Screenshots: data handed in up front, and entrance animations already finished. */
+val LocalPreload = compositionLocalOf<Map<Any?, Any?>> { emptyMap() }
 
 /** Visible screen size in the current (possibly TV-scaled) dp. */
 @androidx.compose.runtime.Composable
@@ -185,4 +187,19 @@ fun Modifier.dpadScroll(state: androidx.compose.foundation.gestures.ScrollableSt
         val dir = if (down) androidx.compose.ui.focus.FocusDirection.Down else androidx.compose.ui.focus.FocusDirection.Up
         if (focus.moveFocus(dir)) true else TvScroll.nudge(down)
     }
+}
+
+/** Screenshots: images supplied directly instead of loaded from the network. */
+val LocalImageOverride = compositionLocalOf<((String) -> androidx.compose.ui.graphics.painter.Painter?)?> { null }
+
+/** Network image (Coil), with a hook for screenshots. */
+@androidx.compose.runtime.Composable
+fun NetImage(
+    model: String?, contentDescription: String?, modifier: Modifier = Modifier,
+    contentScale: androidx.compose.ui.layout.ContentScale = androidx.compose.ui.layout.ContentScale.Fit,
+    alignment: androidx.compose.ui.Alignment = androidx.compose.ui.Alignment.Center,
+) {
+    val painter = model?.let { LocalImageOverride.current?.invoke(it) }
+    if (painter != null) androidx.compose.foundation.Image(painter, contentDescription, modifier, alignment, contentScale)
+    else coil.compose.AsyncImage(model, contentDescription, modifier, alignment = alignment, contentScale = contentScale)
 }

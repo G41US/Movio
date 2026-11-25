@@ -207,6 +207,8 @@ object Tmdb {
         val similar = recs.ifEmpty { parseList(o.optJSONObject("similar")?.optJSONArray("results"), t.kind) }
         val logo = o.optJSONObject("images")?.optJSONArray("logos")?.let { a ->
             (0 until a.length()).map { a.getJSONObject(it) }
+                // SVG logos can't be drawn by the image loader; take the first PNG in English (or language-free).
+                .filter { it.optString("file_path").endsWith(".png", true) }
                 .firstOrNull { it.optString("iso_639_1") == "en" || it.isNull("iso_639_1") }
                 ?.optString("file_path")
         }

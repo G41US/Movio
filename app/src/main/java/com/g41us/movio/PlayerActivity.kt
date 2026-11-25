@@ -316,7 +316,7 @@ class PlayerActivity : ComponentActivity() {
                     }
                 }
                 Phase.FINDING, Phase.FAILED -> Box(Modifier.fillMaxSize().background(Ink).clipToBounds()) {
-                    if (art != null) coil.compose.AsyncImage(Tmdb.img(art, "w1280"), null, contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    if (art != null) NetImage(Tmdb.img(art, "w1280"), null, contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                         modifier = Modifier.fillMaxSize().kenBurns())
                     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Ink.copy(alpha = .55f), .5f to Ink.copy(alpha = .7f), 1f to Ink)))
                 Column(
