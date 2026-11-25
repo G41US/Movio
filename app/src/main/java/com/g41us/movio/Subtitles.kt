@@ -14,7 +14,15 @@ import java.util.Locale
 object Subtitles {
     private val wanted = listOf("en", "fr", "es", "pt", "ar", "de", "it", "yo", "ha", "ig")
 
+    private val found = java.util.concurrent.ConcurrentHashMap<String, List<Subtitle>>()
+
     suspend fun find(kind: Kind, id: Int, season: Int, episode: Int): List<Subtitle> = withContext(Dispatchers.IO) {
+        val key = "${kind.api}:$id:$season:$episode"
+        found[key]?.let { return@withContext it }
+        lookup(kind, id, season, episode).also { if (it.isNotEmpty()) found[key] = it }
+    }
+
+    private suspend fun lookup(kind: Kind, id: Int, season: Int, episode: Int): List<Subtitle> = withContext(Dispatchers.IO) {
         val wyzie = if (BuildConfig.WYZIE_KEY.isNotBlank()) try { wyzie(kind, id, season, episode) } catch (_: Exception) { emptyList() } else emptyList()
         wyzie.ifEmpty {
             try { Source.resolve(kind, id, season, episode).subtitles } catch (_: Exception) { emptyList() }

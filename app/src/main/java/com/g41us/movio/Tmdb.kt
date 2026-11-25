@@ -72,19 +72,38 @@ object Tmdb {
 
     fun img(path: String?, size: String = "w500"): String? = path?.let { "https://image.tmdb.org/t/p/$size$it" }
 
+    /** Where catalogue responses are kept on the phone (set at app start). */
+    @Volatile var diskDir: java.io.File? = null
+    private const val FRESH_MS = 6 * 60 * 60 * 1000L
+
+    /**
+     * Catalogue request with a disk cache: anything fetched in the last 6 hours opens instantly,
+     * and with no internet the last saved copy is used however old it is.
+     */
     private suspend fun get(path: String, params: Map<String, String> = emptyMap()): JSONObject = withContext(Dispatchers.IO) {
         val q = (params + ("api_key" to BuildConfig.TMDB_KEY)).entries
             .joinToString("&") { "${it.key}=${URLEncoder.encode(it.value, "UTF-8")}" }
         val url = "$API$path?$q"
         cache[url]?.let { return@withContext it }
-        if (BuildConfig.TMDB_KEY.isBlank()) throw IOException("Catalog key missing")
-        val conn = URL(url).openConnection() as HttpURLConnection
+        val file = diskDir?.let { java.io.File(it, Integer.toHexString(url.hashCode()) + ".json") }
+        if (file != null && file.exists() && System.currentTimeMillis() - file.lastModified() < FRESH_MS) {
+            try { return@withContext JSONObject(file.readText()).also { cache[url] = it } } catch (_: Exception) { }
+        }
         try {
-            conn.connectTimeout = 12_000
-            conn.readTimeout = 15_000
-            if (conn.responseCode !in 200..299) throw IOException("Catalog error ${conn.responseCode}")
-            JSONObject(conn.inputStream.bufferedReader().use { it.readText() }).also { cache[url] = it }
-        } finally { conn.disconnect() }
+            if (BuildConfig.TMDB_KEY.isBlank()) throw IOException("Catalog key missing")
+            val conn = URL(url).openConnection() as HttpURLConnection
+            try {
+                conn.connectTimeout = 12_000
+                conn.readTimeout = 15_000
+                if (conn.responseCode !in 200..299) throw IOException("Catalog error ${conn.responseCode}")
+                val text = conn.inputStream.bufferedReader().use { it.readText() }
+                try { file?.writeText(text) } catch (_: Exception) { }
+                JSONObject(text).also { cache[url] = it }
+            } finally { conn.disconnect() }
+        } catch (e: IOException) {
+            // Offline: fall back to the last saved copy.
+            if (file != null && file.exists()) JSONObject(file.readText()).also { cache[url] = it } else throw e
+        }
     }
 
     private fun parse(o: JSONObject, fallback: Kind?): Title? {
@@ -113,6 +132,15 @@ object Tmdb {
 
     suspend fun list(path: String, kind: Kind?, params: Map<String, String> = emptyMap()): List<Title> =
         parseList(get(path, params).optJSONArray("results"), kind)
+
+    /** "Because you watched" rows from recent titles' recommendations. */
+    suspend fun becauseYouWatched(recent: List<Title>, exclude: Set<String>): List<Row> =
+        recent.distinctBy { it.key }.take(3).mapNotNull { t ->
+            try {
+                val recs = details(t).similar.filter { it.key !in exclude }
+                if (recs.size >= 4) Row("Because you watched ${t.name}", recs) else null
+            } catch (_: Exception) { null }
+        }
 
     suspend fun home(): List<Row> = listOf(
         Row("Trending this week", list("trending/all/week", null)),

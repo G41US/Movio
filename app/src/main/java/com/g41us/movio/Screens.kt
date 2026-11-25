@@ -96,9 +96,19 @@ private fun Failed(retry: () -> Unit) =
 // ---------- Home / Movies / TV ----------
 
 @Composable
-fun FeedScreen(kind: Kind?, store: Store, onOpen: (Title) -> Unit, onPlay: (Title) -> Unit) {
+fun FeedScreen(kind: Kind?, store: Store, onOpen: (Title) -> Unit, onPlay: (Title) -> Unit, onDownloads: () -> Unit = {}) {
     var genre by remember(kind) { mutableStateOf<Genre?>(null) }
-    val (state, retry) = load(kind to genre) { if (kind == null) Tmdb.home() else Tmdb.browse(kind, genre) }
+    val (state, retry) = load(kind to genre) {
+        if (kind != null) Tmdb.browse(kind, genre) else {
+            val rows = Tmdb.home()
+            val watched = store.continueWatching.map { it.title.key }.toSet()
+            val byw = Tmdb.becauseYouWatched(store.continueWatching.map { it.title } + store.myList, watched)
+            // Personal rows right after the first row.
+            rows.take(1) + byw + rows.drop(1)
+        }
+    }
+    // Get the titles you're most likely to play ready ahead of time.
+    LaunchedEffect(Unit) { store.continueWatching.take(3).forEach { Prefetch.title(it.title, it.season, it.episode) } }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = dockSpace())) {
         when (val s = state) {
             Load.Loading -> {
@@ -107,7 +117,8 @@ fun FeedScreen(kind: Kind?, store: Store, onOpen: (Title) -> Unit, onPlay: (Titl
             }
             is Load.Failed -> {
                 item { Spacer(Modifier.height(barSpace())) }
-                item { Failed(retry) }
+                item { Message("You're offline", "Connect to the internet to browse, or watch something you've downloaded.", "Open Downloads", onDownloads) }
+                item { Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { GhostButton("Try again", R.drawable.ic_refresh, onClick = retry) } }
             }
             is Load.Done -> {
                 val rows = s.value
@@ -219,6 +230,7 @@ fun MyListScreen(store: Store, onOpen: (Title) -> Unit, onDownloads: () -> Unit)
 fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPerson: (Person) -> Unit, onTrailer: (String) -> Unit, onPlay: (Title, Int, Int) -> Unit) {
     val (state, retry) = load(title.key) { Tmdb.details(title) }
     val last = store.lastEpisode(title)
+    LaunchedEffect(title.key) { Prefetch.title(title, last?.season ?: 1, last?.episode ?: 1) }
     var season by remember(title.key) { mutableIntStateOf(last?.season ?: 1) }
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = dockSpace())) {

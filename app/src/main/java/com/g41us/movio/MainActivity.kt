@@ -65,6 +65,9 @@ class MainActivity : ComponentActivity() {
         )
         super.onCreate(savedInstanceState)
         AdBlock.warm(this)
+        Tmdb.diskDir = File(filesDir, "tmdb").apply { mkdirs() }
+        // Load the browser engine now, so the first Play doesn't pay for it.
+        window.decorView.post { try { android.webkit.WebView(this).destroy() } catch (_: Exception) { } }
         Coil.setImageLoader(
             ImageLoader.Builder(this).crossfade(true)
                 .diskCache { DiskCache.Builder().directory(cacheDir.resolve("images")).maxSizePercent(.04).build() }
@@ -106,6 +109,12 @@ fun App(openRequest: androidx.compose.runtime.MutableState<Title?>) {
         if (Build.VERSION.SDK_INT >= 33 && store.alerts &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
         ) askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+    // No internet at launch: go straight to Downloads.
+    LaunchedEffect(Unit) {
+        val cm = context.getSystemService(android.net.ConnectivityManager::class.java)
+        val online = cm?.getNetworkCapabilities(cm.activeNetwork)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+        if (!online && Downloads.all(context).isNotEmpty()) stack.add(Screen.Downloads)
     }
     LaunchedEffect(openRequest.value) { openRequest.value?.let { stack.add(Screen.Details(it)); openRequest.value = null } }
 
@@ -164,9 +173,9 @@ fun App(openRequest: androidx.compose.runtime.MutableState<Title?>) {
                         WebStorage.getInstance().deleteAllData()
                         Toast.makeText(context, "Cache cleared", Toast.LENGTH_SHORT).show()
                     }
-                    Tab.HOME -> FeedScreen(null, store, ::open, ::play)
-                    Tab.MOVIES -> FeedScreen(Kind.MOVIE, store, ::open, ::play)
-                    Tab.TV -> FeedScreen(Kind.TV, store, ::open, ::play)
+                    Tab.HOME -> FeedScreen(null, store, ::open, ::play) { stack.add(Screen.Downloads) }
+                    Tab.MOVIES -> FeedScreen(Kind.MOVIE, store, ::open, ::play) { stack.add(Screen.Downloads) }
+                    Tab.TV -> FeedScreen(Kind.TV, store, ::open, ::play) { stack.add(Screen.Downloads) }
                     Tab.SEARCH -> SearchScreen(::open)
                     Tab.LIST -> MyListScreen(store, ::open) { stack.add(Screen.Downloads) }
                     else -> {}
