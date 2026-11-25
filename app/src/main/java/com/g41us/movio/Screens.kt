@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.LazyRow
@@ -112,8 +114,8 @@ fun FeedScreen(kind: Kind?, store: Store, onOpen: (Title) -> Unit, onPlay: (Titl
     LaunchedEffect(state) { if (state !is Load.Loading) Boot.ready = true }
     // Get the titles you're most likely to play ready ahead of time.
     LaunchedEffect(Unit) { store.continueWatching.take(3).forEach { Prefetch.title(it.title, it.season, it.episode) } }
-    val tv1 = rememberLazyListState()
-    LazyColumn(Modifier.fillMaxSize().dpadScroll(tv1), state = tv1, contentPadding = PaddingValues(bottom = dockSpace())) {
+    val tv1 = rememberScrollState()
+    ScrollList(tv1, PaddingValues(bottom = dockSpace())) {
         when (val s = state) {
             Load.Loading -> {
                 item { HeroSkeleton() }
@@ -239,8 +241,8 @@ fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPerson:
     LaunchedEffect(title.key) { Prefetch.title(title, last?.season ?: 1, last?.episode ?: 1) }
     var season by remember(title.key) { mutableIntStateOf(last?.season ?: 1) }
 
-    val tv4 = rememberLazyListState()
-    LazyColumn(Modifier.fillMaxSize().dpadScroll(tv4), state = tv4, contentPadding = PaddingValues(bottom = dockSpace())) {
+    val tv4 = rememberScrollState()
+    ScrollList(tv4, PaddingValues(bottom = dockSpace())) {
         item(key = "top") {
             val d = (state as? Load.Done)?.value
             val t = d?.title ?: title
@@ -271,7 +273,7 @@ fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPerson:
                             t.kind == Kind.TV -> "Play S1 E1"
                             else -> "Play"
                         }
-                        PrimaryButton(label, R.drawable.ic_play_fill, Modifier.fillMaxWidth()) {
+                        PrimaryButton(label, R.drawable.ic_play_fill, Modifier.fillMaxWidth().tvFirstFocus(t.key)) {
                             onPlay(t, last?.season ?: 1, last?.episode ?: 1)
                         }
                         Spacer(Modifier.height(10.dp))
@@ -358,8 +360,8 @@ sealed interface UpdateState {
 
 @Composable
 fun SettingsScreen(version: String, update: UpdateState, blocked: Int, store: Store, onDownloads: () -> Unit, onAlerts: (Boolean) -> Unit, onUpdate: () -> Unit, onClearCache: () -> Unit) {
-    val tv5 = rememberLazyListState()
-    LazyColumn(Modifier.fillMaxSize().dpadScroll(tv5), state = tv5, contentPadding = PaddingValues(start = Gutter, end = Gutter, top = barSpace(), bottom = dockSpace())) {
+    val tv5 = rememberScrollState()
+    ScrollList(tv5, PaddingValues(start = Gutter, end = Gutter, top = barSpace(), bottom = dockSpace())) {
         item {
             Card {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -526,8 +528,8 @@ fun DownloadsScreen(onPlay: (DownloadInfo, String) -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var items by remember { mutableStateOf(Downloads.all(context)) }
     LaunchedEffect(Unit) { while (true) { items = Downloads.all(context); delay(1000) } }
-    val tv7 = rememberLazyListState()
-    LazyColumn(Modifier.fillMaxSize().dpadScroll(tv7), state = tv7, contentPadding = PaddingValues(start = Gutter, end = Gutter, top = barSpace(), bottom = dockSpace())) {
+    val tv7 = rememberScrollState()
+    ScrollList(tv7, PaddingValues(start = Gutter, end = Gutter, top = barSpace(), bottom = dockSpace())) {
         if (items.isEmpty()) item { Message("No downloads yet", "Tap Download in the player to save a movie or episode for offline viewing.") }
         items(items, key = { it.request.id }) { d ->
             val info = DownloadInfo.from(d.request.data) ?: return@items
@@ -559,5 +561,22 @@ fun DownloadsScreen(onPlay: (DownloadInfo, String) -> Unit) {
                 GlassIcon(R.drawable.ic_close, size = 34.dp) { Downloads.remove(context, d.request.id) }
             }
         }
+    }
+}
+
+/**
+ * A plain scrolling page that takes LazyColumn-style item {} calls. Every row exists at once,
+ * so the TV remote can always find the next thing below and the page follows it.
+ */
+@Composable
+private fun ScrollList(state: androidx.compose.foundation.ScrollState, padding: PaddingValues, content: @Composable ListShim.() -> Unit) {
+    Column(Modifier.fillMaxSize().verticalScroll(state).dpadScroll(state).padding(padding)) { ListShim.content() }
+}
+
+private object ListShim {
+    @Composable fun item(key: Any? = null, content: @Composable () -> Unit) { androidx.compose.runtime.key(key) { content() } }
+    @Composable fun items(count: Int, content: @Composable (Int) -> Unit) { repeat(count) { content(it) } }
+    @Composable fun <T> items(list: List<T>, key: ((T) -> Any)? = null, content: @Composable (T) -> Unit) {
+        list.forEach { androidx.compose.runtime.key(key?.invoke(it)) { content(it) } }
     }
 }

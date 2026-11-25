@@ -168,7 +168,7 @@ fun App(openRequest: androidx.compose.runtime.MutableState<Title?>) {
         }
     }
 
-    CompositionLocalProvider(LocalWide provides wide) {
+    CompositionLocalProvider(LocalWide provides wide, LocalTv provides isTv) {
         Box(Modifier.fillMaxSize().background(Ink)) {
             AnimatedContent(top ?: tab, transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(160)) }, label = "screen") { s ->
                 when (s) {

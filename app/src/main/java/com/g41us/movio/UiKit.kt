@@ -18,6 +18,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.key
@@ -112,6 +113,16 @@ fun rating(r: Double) = if (r <= 0) null else String.format("%.1f", r)
 
 /** True on TVs and other wide screens: tabs move to the top and the dock goes away. */
 val LocalWide = compositionLocalOf { false }
+/** Running on a TV (remote control, no touch). */
+val LocalTv = compositionLocalOf { false }
+
+/** On TV, puts the remote on this element when the page opens so there's always a starting point. */
+fun Modifier.tvFirstFocus(key: Any?): Modifier = composed {
+    if (!LocalTv.current) return@composed this
+    val r = remember { androidx.compose.ui.focus.FocusRequester() }
+    androidx.compose.runtime.LaunchedEffect(key) { kotlinx.coroutines.delay(120); runCatching { r.requestFocus() } }
+    this.focusRequester(r)
+}
 
 /** A bright ring and slight lift on whatever the TV remote is pointing at. */
 fun Modifier.focusGlow(shape: Shape = RoundedCornerShape(14.dp)): Modifier = composed {

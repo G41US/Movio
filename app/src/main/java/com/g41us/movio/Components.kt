@@ -368,7 +368,7 @@ fun Hero(items: List<Title>, saved: (Title) -> Boolean, onPlay: (Title) -> Unit,
             }
             Spacer(Modifier.height(18.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                PrimaryButton("Play", R.drawable.ic_play_fill, Modifier.weight(1f)) { onPlay(t) }
+                PrimaryButton("Play", R.drawable.ic_play_fill, Modifier.weight(1f).tvFirstFocus(items)) { onPlay(t) }
                 GhostButton(if (saved(t)) "Saved" else "My List", if (saved(t)) R.drawable.ic_check else R.drawable.ic_plus) { onToggle(t) }
                 GlassIcon(R.drawable.ic_info, size = 50.dp) { onOpen(t) }
             }
