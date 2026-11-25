@@ -24,19 +24,23 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -44,26 +48,32 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
-import androidx.lifecycle.lifecycleScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
@@ -77,18 +87,21 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import java.io.ByteArrayInputStream
 
 /**
- * Plays a title in Movio's own player. The title's page loads out of sight; the video stream it
- * requests is caught and handed to ExoPlayer with the page's headers, so the site's player and its
- * ads never show. If no stream can be caught, the page itself is shown as a fallback ("web player").
+ * Plays a title in Movio's own player from one of many sources. Movio's direct source asks the
+ * stream service by TMDB id; any other source's page loads out of sight and the stream its player
+ * requests is caught and played natively, so the source's player and its ads never show. If a
+ * source can't be caught, Movio moves to the next one, and finally shows the source's page.
  */
 @OptIn(UnstableApi::class)
 class PlayerActivity : ComponentActivity() {
 
     companion object {
-        private const val HOST = "braflix.at"
         fun start(context: Context, t: Title, season: Int, episode: Int) {
             Store.get(context).watched(t, season, episode)
             context.startActivity(
@@ -97,8 +110,6 @@ class PlayerActivity : ComponentActivity() {
                     .putExtra("s", season).putExtra("e", episode)
             )
         }
-        fun url(id: Int, kind: Kind, s: Int, e: Int) =
-            if (kind == Kind.TV) "https://$HOST/watch/$id?s=$s&e=$e" else "https://$HOST/watch/$id"
     }
 
     private enum class Phase { FINDING, NATIVE, WEB, FAILED }
@@ -112,14 +123,20 @@ class PlayerActivity : ComponentActivity() {
     private var customView: View? = null
     private val main = Handler(Looper.getMainLooper())
     private val feelJs by lazy { assets.open("feel.js").bufferedReader().use { it.readText() } }
+    private val sniffJs by lazy { assets.open("sniff.js").bufferedReader().use { it.readText() } }
     private val playerJs by lazy { assets.open("player.js").bufferedReader().use { it.readText() } }
     private val store by lazy { Store.get(this) }
+    private val prefs by lazy { getSharedPreferences("movio_player", MODE_PRIVATE) }
 
     private var phase by mutableStateOf(Phase.FINDING)
     private var label by mutableStateOf("")
     private var fill by mutableStateOf(false)
     private var webBar by mutableStateOf(true)
     private var pip by mutableStateOf(false)
+    private var sourcesOpen by mutableStateOf(false)
+    private var sourceIndex by mutableIntStateOf(0)
+    private var status by mutableStateOf("Getting your stream ready")
+    private val failedSources = mutableSetOf<Int>()
 
     private var id = 0
     private var kind = Kind.MOVIE
@@ -128,14 +145,18 @@ class PlayerActivity : ComponentActivity() {
     private var episode = 1
     private var title: Title? = null
 
-    // Stream capture state for the current page.
+    // Per-attempt state.
     private val candidates = mutableListOf<Stream>()
     private val rejected = mutableSetOf<String>()
-    private val subtitles = linkedSetOf<String>()
     private var trying: Stream? = null
-    private var pageToken = 0
+    private var attempt = 0
+    private var auto = true
+    private var autoTried = 0
     private var resolveJob: Job? = null
-    private var direct = true
+    private var subtitleTracks: List<Subtitle> = emptyList()
+    @Volatile private var pageHost = ""
+
+    private val source get() = Sources.all[sourceIndex]
 
     @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -183,99 +204,175 @@ class PlayerActivity : ComponentActivity() {
         root.addView(fullscreen, FrameLayout.LayoutParams(-1, -1))
         root.addView(overlay, FrameLayout.LayoutParams(-1, -1))
         setContentView(root)
-
-        overlay.setContent {
-            if (!pip) Box(Modifier.fillMaxSize()) {
-                when (phase) {
-                    Phase.NATIVE -> PlayerControls(
-                        exo, label, showNext = kind == Kind.TV, fill = fill,
-                        onFill = { fill = !fill; playerView.resizeMode = if (fill) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT },
-                        onBack = { finish() }, onNext = { nextEpisode() }, onWeb = { showWeb(manual = true) },
-                    )
-                    Phase.WEB -> AnimatedVisibility(webBar, enter = fadeIn(), exit = fadeOut()) {
-                        Row(
-                            Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = .75f), Color.Transparent)))
-                                .safeDrawingPadding().padding(horizontal = 16.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            GlassIcon(R.drawable.ic_back, size = 42.dp) { finish() }
-                            Spacer(Modifier.width(12.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(label, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, style = jakarta(), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text("Web player · tap play to start", color = Muted, fontSize = 12.sp, style = jakarta())
-                            }
-                            if (kind == Kind.TV) { GhostButton("Next", R.drawable.ic_next) { nextEpisode() }; Spacer(Modifier.width(10.dp)) }
-                            GhostButton("Movio player", R.drawable.ic_play_fill) { load() }
-                        }
-                    }
-                    Phase.FINDING, Phase.FAILED -> Column(
-                        Modifier.fillMaxSize().background(Ink), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
-                    ) {
-                        if (phase == Phase.FAILED) {
-                            Message("Can't play right now", "Check your internet connection and try again.", "Try again") { load() }
-                        } else {
-                            CircularProgressIndicator(color = Violet, trackColor = Glass, strokeWidth = 3.dp, modifier = Modifier.size(42.dp))
-                            Spacer(Modifier.height(18.dp))
-                            Text(label, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold, style = jakarta())
-                            Text("Getting your stream ready", color = Muted, fontSize = 13.sp, style = jakarta())
-                        }
-                    }
-                }
-                if (phase == Phase.FINDING || phase == Phase.FAILED) {
-                    Box(Modifier.safeDrawingPadding().padding(16.dp)) { GlassIcon(R.drawable.ic_back, size = 42.dp) { finish() } }
-                }
-            }
-        }
+        overlay.setContent { Overlay() }
 
         setupWebView()
-        load()
+        val preferred = Sources.all.indexOfFirst { it.name == prefs.getString("source", "Movio") }.coerceAtLeast(0)
+        start(preferred, automatic = true)
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (customView != null) webView.webChromeClient?.onHideCustomView() else finish()
+                when {
+                    sourcesOpen -> sourcesOpen = false
+                    customView != null -> webView.webChromeClient?.onHideCustomView()
+                    else -> finish()
+                }
             }
         })
+    }
+
+    // ---------- UI ----------
+
+    @Composable
+    private fun Overlay() {
+        if (pip) return
+        Box(Modifier.fillMaxSize()) {
+            when (phase) {
+                Phase.NATIVE -> PlayerControls(
+                    exo, label, showNext = kind == Kind.TV, fill = fill,
+                    onFill = { fill = !fill; playerView.resizeMode = if (fill) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT },
+                    onBack = { finish() }, onNext = { nextEpisode() }, onWeb = { showWeb(reload = true) },
+                    onSources = { sourcesOpen = true }, source = source.name,
+                )
+                Phase.WEB -> AnimatedVisibility(webBar, enter = fadeIn(), exit = fadeOut()) {
+                    Row(
+                        Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = .75f), Color.Transparent)))
+                            .safeDrawingPadding().padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        GlassIcon(R.drawable.ic_back, size = 42.dp) { finish() }
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(label, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, style = jakarta(), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("${source.name} · web player", color = Muted, fontSize = 12.sp, style = jakarta())
+                        }
+                        if (kind == Kind.TV) { GhostButton("Next", R.drawable.ic_next) { nextEpisode() }; Spacer(Modifier.width(10.dp)) }
+                        GhostButton("Sources", R.drawable.ic_servers) { sourcesOpen = true }
+                    }
+                }
+                Phase.FINDING, Phase.FAILED -> Column(
+                    Modifier.fillMaxSize().background(Ink), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
+                ) {
+                    if (phase == Phase.FAILED) {
+                        Message("Can't play right now", "None of the sources could play this. Check your connection or pick a source.", "Try again") {
+                            failedSources.clear(); autoTried = 0; start(0, automatic = true)
+                        }
+                    } else {
+                        CircularProgressIndicator(color = Violet, trackColor = Glass, strokeWidth = 3.dp, modifier = Modifier.size(42.dp))
+                        Spacer(Modifier.height(18.dp))
+                        Text(label, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold, style = jakarta())
+                        Text(status, color = Muted, fontSize = 13.sp, style = jakarta())
+                    }
+                }
+            }
+            if (phase == Phase.FINDING || phase == Phase.FAILED) {
+                Row(Modifier.fillMaxWidth().safeDrawingPadding().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    GlassIcon(R.drawable.ic_back, size = 42.dp) { finish() }
+                    Spacer(Modifier.weight(1f))
+                    GhostButton(source.name, R.drawable.ic_servers) { sourcesOpen = true }
+                }
+            }
+            AnimatedVisibility(
+                sourcesOpen, modifier = Modifier.align(Alignment.CenterEnd),
+                enter = slideInHorizontally { it } + fadeIn(), exit = slideOutHorizontally { it } + fadeOut(),
+            ) { SourcesPanel() }
+        }
+    }
+
+    @Composable
+    private fun SourcesPanel() {
+        Column(Modifier.fillMaxHeight().width(300.dp).background(Color(0xF2101219)).safeDrawingPadding().padding(18.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Label("Sources")
+                Spacer(Modifier.weight(1f))
+                GlassIcon(R.drawable.ic_close, size = 34.dp) { sourcesOpen = false }
+            }
+            Spacer(Modifier.height(4.dp))
+            Text("If one doesn't play, try another.", color = Muted, fontSize = 12.sp, style = jakarta())
+            Spacer(Modifier.height(10.dp))
+            LazyColumn {
+                itemsIndexed(Sources.all) { i, s ->
+                    val selected = i == sourceIndex
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(12.dp))
+                            .background(if (selected) Violet.copy(alpha = .28f) else Color.Transparent)
+                            .border(1.dp, if (selected) Violet.copy(alpha = .6f) else Color.Transparent, RoundedCornerShape(12.dp))
+                            .clickable { sourcesOpen = false; start(i, automatic = false) }
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(s.name, color = Color.White, fontSize = 15.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium, style = jakarta())
+                            when {
+                                s.direct -> Text("Fastest · no ads", color = Color(0xFF5EE6A8), fontSize = 11.sp, style = jakarta())
+                                i in failedSources -> Text("Didn't play this title", color = Pink.copy(alpha = .8f), fontSize = 11.sp, style = jakarta())
+                            }
+                        }
+                        if (selected) Icon(painterResource(R.drawable.ic_check), null, tint = Color.White, modifier = Modifier.size(18.dp))
+                    }
+                }
+            }
+        }
     }
 
     private fun updateLabel() { label = if (kind == Kind.TV) "$name · S$season E$episode" else name }
     private fun posKey() = title?.let { store.posKey(it, season, episode) } ?: "${kind.api}:$id${if (kind == Kind.TV) ":$season:$episode" else ""}"
 
-    /** Get the stream straight from the player service; fall back to the title's web page. */
-    private fun load() {
-        pageToken++
-        candidates.clear(); subtitles.clear(); trying = null; rejected.clear()
+    // ---------- Sources ----------
+
+    /** Play from source [index]. Automatic starts move on to the next source by themselves. */
+    private fun start(index: Int, automatic: Boolean) {
+        if (phase == Phase.NATIVE) savePosition()
+        auto = automatic
+        if (!automatic) { autoTried = 0; prefs.edit().putString("source", Sources.all[index].name).apply() }
+        sourceIndex = index
+        attempt++
+        val token = attempt
+        candidates.clear(); rejected.clear(); trying = null; subtitleTracks = emptyList()
+        resolveJob?.cancel()
         exo.stop(); exo.clearMediaItems()
         playerView.visibility = View.GONE
         phase = Phase.FINDING
-        direct = true
+        status = if (source.direct) "Getting your stream ready" else "Connecting to ${source.name}"
         webView.stopLoading()
-        webView.loadUrl("about:blank")
-        resolveJob?.cancel()
-        resolveJob = lifecycleScope.launch {
-            try {
-                val p = Source.resolve(kind, id, season, episode)
-                subtitleTracks = p.subtitles
-                trying = Stream(p.url, p.headers, hls = true)
-                play(trying!!)
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                loadPage()
+
+        if (source.direct) {
+            pageHost = ""
+            webView.loadUrl("about:blank")
+            resolveJob = lifecycleScope.launch {
+                try {
+                    val p = Source.resolve(kind, id, season, episode)
+                    if (token != attempt) return@launch
+                    subtitleTracks = p.subtitles
+                    trying = Stream(p.url, p.headers, hls = true)
+                    play(trying!!)
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    if (token == attempt) sourceFailed()
+                }
             }
+            return
         }
+
+        val url = source.url(kind, id, season, episode)
+        pageHost = android.net.Uri.parse(url).host.orEmpty()
+        webView.onResume()
+        webView.loadUrl(url, mapOf("Referer" to "https://braflix.at/"))
+        // Many players wait for a tap on play; tap the middle for the viewer.
+        listOf(5_000L, 9_000L, 13_000L).forEach { d -> main.postDelayed({ if (token == attempt && phase == Phase.FINDING && trying == null) tapCentre() }, d) }
+        main.postDelayed({ if (token == attempt && phase == Phase.FINDING && trying == null) sourceFailed() }, 18_000)
     }
 
-    /** Fallback: load the title's page out of sight and catch the stream it requests. */
-    private fun loadPage() {
-        direct = false
-        pageToken++
-        val token = pageToken
-        candidates.clear(); subtitles.clear(); trying = null
-        phase = Phase.FINDING
-        webView.onResume()
-        webView.loadUrl(url(id, kind, season, episode))
-        // If the page waits for a tap, tap the middle of the player for the viewer.
-        listOf(6_000L, 10_000L, 14_000L).forEach { d -> main.postDelayed({ if (token == pageToken && phase == Phase.FINDING && trying == null) tapCentre() }, d) }
-        main.postDelayed({ if (token == pageToken && phase == Phase.FINDING && trying == null) showWeb(manual = false) }, 20_000)
+    /** This source couldn't play: try the next one, or show its page when it was picked by hand. */
+    private fun sourceFailed() {
+        failedSources.add(sourceIndex)
+        if (auto && autoTried < 5) {
+            autoTried++
+            val next = Sources.fallbackOrder.firstOrNull { it !in failedSources }
+            if (next != null) { start(next, automatic = true); return }
+        }
+        if (source.direct) { phase = Phase.FAILED; return }
+        showWeb(reload = false)
     }
 
     private fun tapCentre() {
@@ -285,22 +382,21 @@ class PlayerActivity : ComponentActivity() {
         webView.dispatchTouchEvent(MotionEvent.obtain(t, t + 60, MotionEvent.ACTION_UP, x, y, 0))
     }
 
-    private fun showWeb(manual: Boolean) {
+    private fun showWeb(reload: Boolean) {
         if (phase == Phase.NATIVE) savePosition()
         exo.pause()
         playerView.visibility = View.GONE
-        phase = Phase.WEB
-        webBar = true
-        main.postDelayed({ if (phase == Phase.WEB) webBar = false }, 5000)
-        if (manual) {
-            // Bring the title's page back so it can play there.
-            direct = false
-            pageToken++
+        if (reload) {
+            if (source.direct) { start(Sources.fallbackOrder.first { !Sources.all[it].direct }, automatic = false); return }
+            attempt++
             candidates.clear(); trying = null
             exo.stop()
             webView.onResume()
-            webView.loadUrl(url(id, kind, season, episode))
+            webView.loadUrl(source.url(kind, id, season, episode), mapOf("Referer" to "https://braflix.at/"))
         }
+        phase = Phase.WEB
+        webBar = true
+        main.postDelayed({ if (phase == Phase.WEB) webBar = false }, 5000)
     }
 
     private fun onCandidate(s: Stream) {
@@ -312,10 +408,9 @@ class PlayerActivity : ComponentActivity() {
     private fun tryNext() {
         val next = candidates.sortedByDescending { it.hls }.firstOrNull { it.url !in rejected } ?: run { trying = null; return }
         trying = next
+        status = "Starting ${source.name}"
         play(next)
     }
-
-    private var subtitleTracks: List<Subtitle> = emptyList()
 
     private fun play(s: Stream) {
         val cookie = CookieManager.getInstance().getCookie(s.url)
@@ -332,11 +427,6 @@ class PlayerActivity : ComponentActivity() {
                 .setMimeType(if (t.url.endsWith(".srt", true)) MimeTypes.APPLICATION_SUBRIP else MimeTypes.TEXT_VTT)
                 .setLanguage(t.lang).setLabel(t.label)
                 .build()
-        } + subtitles.take(6).map { u ->
-            MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(u))
-                .setMimeType(if (u.contains(".srt", true)) MimeTypes.APPLICATION_SUBRIP else MimeTypes.TEXT_VTT)
-                .setLabel(u.substringAfterLast('/').substringBefore('?').substringBeforeLast('.').take(24))
-                .build()
         }
         val item = MediaItem.Builder().setUri(s.url)
             .setMimeType(if (s.hls) MimeTypes.APPLICATION_M3U8 else null)
@@ -346,12 +436,12 @@ class PlayerActivity : ComponentActivity() {
         exo.prepare()
     }
 
-    /** Short clips are ads; anything real gets the screen and the page is shut down. */
+    /** Short clips from a page are ads; anything real takes the screen and the page is shut down. */
     private fun onReady() {
         val s = trying ?: return
         if (phase == Phase.NATIVE) return
         val d = exo.duration
-        if (!direct && d != C.TIME_UNSET && d in 1 until 150_000) {
+        if (!source.direct && d != C.TIME_UNSET && d in 1 until 150_000) {
             rejected.add(s.url); trying = null; exo.stop(); tryNext(); return
         }
         phase = Phase.NATIVE
@@ -359,6 +449,7 @@ class PlayerActivity : ComponentActivity() {
         store.position(posKey())?.let { (p, dur) -> if (p > 30_000 && (dur <= 0 || p < dur - 60_000)) exo.seekTo(p) }
         exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon().setPreferredTextLanguage("en").build()
         exo.play()
+        failedSources.remove(sourceIndex)
         webView.stopLoading()
         webView.loadUrl("about:blank")
         webView.onPause()
@@ -367,9 +458,9 @@ class PlayerActivity : ComponentActivity() {
     private fun onStreamFailed() {
         trying?.let { rejected.add(it.url) }
         trying = null
-        if (direct) { subtitleTracks = emptyList(); playerView.visibility = View.GONE; phase = Phase.FINDING; loadPage(); return }
-        if (phase == Phase.NATIVE) { savePosition(); showWeb(manual = true); Toast.makeText(this, "Switched to the web player", Toast.LENGTH_SHORT).show(); return }
-        tryNext()
+        if (phase == Phase.NATIVE) { savePosition(); sourceFailed(); return }
+        if (source.direct) { sourceFailed(); return }
+        if (candidates.any { it.url !in rejected }) tryNext()
     }
 
     private fun nextEpisode() {
@@ -377,7 +468,9 @@ class PlayerActivity : ComponentActivity() {
         episode += 1
         updateLabel()
         title?.let { store.watched(it, season, episode) }
-        load()
+        failedSources.clear()
+        autoTried = 0
+        start(sourceIndex, automatic = true)
     }
 
     private fun savePosition() {
@@ -401,14 +494,35 @@ class PlayerActivity : ComponentActivity() {
         return super.dispatchTouchEvent(ev)
     }
 
+    // ---------- Page ----------
+
+    /** Called from every frame of a source page (sniff.js / player.js). */
     inner class Bridge {
         @JavascriptInterface
-        fun state(s: String) {
-            main.post { if (s == "challenge" && phase == Phase.FINDING) showWeb(manual = false) }
+        fun stream(url: String, page: String) = found(url, page, hls = true)
+
+        @JavascriptInterface
+        fun video(url: String, page: String) = found(url, page, hls = false)
+
+        @JavascriptInterface
+        fun state(s: String) {}
+
+        private fun found(url: String, page: String, hls: Boolean) {
+            val host = android.net.Uri.parse(url).host ?: return
+            if (AdBlock.blocks(host)) return
+            val p = android.net.Uri.parse(page)
+            val origin = "${p.scheme}://${p.host}"
+            val headers = mapOf("Referer" to "$origin/", "Origin" to origin)
+            main.post { val token = attempt; if (phase == Phase.FINDING || phase == Phase.WEB) if (token == attempt) onCandidate(Stream(url, headers, hls)) }
         }
     }
 
     private val empty get() = WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
+
+    private fun sameSite(a: String, b: String): Boolean {
+        fun root(h: String) = h.split('.').takeLast(2).joinToString(".")
+        return a.isNotEmpty() && b.isNotEmpty() && root(a) == root(b)
+    }
 
     @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
     private fun setupWebView() {
@@ -432,47 +546,45 @@ class PlayerActivity : ComponentActivity() {
 
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
             WebViewCompat.addDocumentStartJavaScript(webView, feelJs, setOf("*"))
-            WebViewCompat.addDocumentStartJavaScript(webView, playerJs, setOf("https://$HOST", "https://*.$HOST"))
+            WebViewCompat.addDocumentStartJavaScript(webView, sniffJs, setOf("*"))
+            WebViewCompat.addDocumentStartJavaScript(webView, playerJs, setOf("*"))
         }
 
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
-                if (url == "about:blank") return
+                if (url == null || url == "about:blank") return
                 view?.evaluateJavascript(feelJs, null)
-                val h = android.net.Uri.parse(url ?: "").host.orEmpty()
-                if (h == HOST || h.endsWith(".$HOST")) view?.evaluateJavascript(playerJs, null)
+                view?.evaluateJavascript(playerJs, null)
                 CookieManager.getInstance().flush()
             }
 
             override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: android.webkit.WebResourceError?) {
-                if (request?.isForMainFrame == true && phase != Phase.NATIVE) phase = Phase.FAILED
+                if (request?.isForMainFrame == true && phase == Phase.FINDING && !source.direct) sourceFailed()
             }
 
-            // Every request from every frame passes here: ads are dropped, video streams are caught.
+            // Every request from every frame passes here: ads are dropped, video playlists are caught.
             override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
                 val uri = request?.url ?: return null
                 val host = uri.host ?: return null
-                val own = host == HOST || host.endsWith(".$HOST")
-                if (!own && AdBlock.blocks(host)) return empty
+                if (!sameSite(host, pageHost) && AdBlock.blocks(host)) return empty
                 val u = uri.toString()
                 val path = (uri.path ?: "").lowercase()
-                val token = pageToken
-                when {
-                    u.contains(".m3u8", ignoreCase = true) || Regex("/(stream|master|playlist|manifest)(\\.\\w+)?$").containsMatchIn(path) ->
-                        main.post { if (token == pageToken) onCandidate(Stream(u, request.requestHeaders.orEmpty(), hls = true)) }
-                    path.endsWith(".mp4") && !path.contains("preview") && !path.contains("thumb") ->
-                        main.post { if (token == pageToken) onCandidate(Stream(u, request.requestHeaders.orEmpty(), hls = false)) }
-                    path.endsWith(".vtt") || path.endsWith(".srt") ->
-                        main.post { if (token == pageToken) subtitles.add(u) }
+                if (u.contains(".m3u8", ignoreCase = true) || Regex("/(stream|master|playlist|manifest)(\\.\\w+)?$").containsMatchIn(path) ||
+                    (path.contains("/hls/") && !Regex("\\.(ts|m4s|mp4|aac|key|jpg|jpeg|png|webp|gif|vtt|js|css)$").containsMatchIn(path))) {
+                    val headers = request.requestHeaders.orEmpty()
+                    main.post { if (phase == Phase.FINDING || phase == Phase.WEB) onCandidate(Stream(u, headers, hls = true)) }
                 }
                 return null
             }
 
-            // The page may never leave the site: redirects to ads go nowhere.
+            // The page may follow its own redirects but never jump to another site (ad redirects).
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 val h = request?.url?.host.orEmpty()
-                if (request?.isForMainFrame == false) return AdBlock.blocks(h)
-                return !(h == HOST || h.endsWith(".$HOST"))
+                if (AdBlock.blocks(h)) return true
+                if (request?.isForMainFrame == false) return false
+                if (sameSite(h, pageHost)) return false
+                if (request?.isRedirect == true && request.hasGesture() == false) { pageHost = h; return false }
+                return true
             }
 
             override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {

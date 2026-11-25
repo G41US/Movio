@@ -1,5 +1,5 @@
 (function () {
-  if (window.__mp) return; window.__mp = 1;
+  if (window.__mp || window.top !== window) return; window.__mp = 1;
   var bridge = window.MovioPlayer;
   function report(s) { try { bridge && bridge.state(s); } catch (e) {} }
   function css(id, text) {

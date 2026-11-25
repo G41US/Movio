@@ -81,6 +81,8 @@ fun PlayerControls(
     onBack: () -> Unit,
     onNext: () -> Unit,
     onWeb: () -> Unit,
+    onSources: () -> Unit = {},
+    source: String = "",
 ) {
     var visible by remember { mutableStateOf(true) }
     var playing by remember { mutableStateOf(player.isPlaying) }
@@ -137,7 +139,8 @@ fun PlayerControls(
                     Spacer(Modifier.width(14.dp))
                     Text(label, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold, style = jakarta(),
                         maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        GhostButton(source.ifBlank { "Sources" }, R.drawable.ic_servers) { onSources(); touch() }
                         GlassIcon(R.drawable.ic_cc, active = menu == Menu.SUBTITLES, size = 44.dp) { menu = Menu.SUBTITLES; touch() }
                         GlassIcon(R.drawable.ic_speed, active = menu == Menu.SPEED, size = 44.dp) { menu = Menu.SPEED; touch() }
                         GlassIcon(R.drawable.ic_settings, active = menu == Menu.QUALITY, size = 44.dp) { menu = Menu.QUALITY; touch() }
