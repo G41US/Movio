@@ -291,7 +291,7 @@ class PlayerActivity : ComponentActivity() {
                         Text("Resumed at ${clock(resumedAt)}", color = Soft, fontSize = 13.sp, style = jakarta())
                         Spacer(Modifier.width(10.dp))
                         Text("Start over", color = Ink, fontSize = 13.sp, fontWeight = FontWeight.Bold, style = jakarta(),
-                            modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(Color.White).focusGlow(RoundedCornerShape(8.dp)).clickable { exo.seekTo(0); resumedAt = 0L; store.savePosition(posKey(), 0, exo.duration.coerceAtLeast(1)) }
+                            modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(Color.White).playerGlow(RoundedCornerShape(8.dp)).clickable { exo.seekTo(0); resumedAt = 0L; store.savePosition(posKey(), 0, exo.duration.coerceAtLeast(1)) }
                                 .padding(horizontal = 12.dp, vertical = 7.dp))
                     }
                 }
@@ -368,7 +368,7 @@ class PlayerActivity : ComponentActivity() {
                     Row(
                         Modifier.fillMaxWidth().padding(vertical = 3.dp)
                             .then(if (selected) androidx.compose.ui.Modifier.focusRequester(pick) else androidx.compose.ui.Modifier)
-                            .focusGlow(RoundedCornerShape(12.dp)).clip(RoundedCornerShape(12.dp))
+                            .playerGlow(RoundedCornerShape(12.dp)).clip(RoundedCornerShape(12.dp))
                             .background(if (selected) Violet.copy(alpha = .28f) else Color.Transparent)
                             .border(1.dp, if (selected) Violet.copy(alpha = .6f) else Color.Transparent, RoundedCornerShape(12.dp))
                             .clickable { sourcesOpen = false; start(i, automatic = false) }

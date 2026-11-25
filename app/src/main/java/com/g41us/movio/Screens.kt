@@ -175,7 +175,7 @@ fun SearchScreen(onOpen: (Title) -> Unit) {
     val tv2 = rememberLazyGridState()
     val tvBar = LocalTopBar.current
     LazyVerticalGrid(
-        GridCells.Adaptive(108.dp), Modifier.fillMaxSize().dpadScroll(tv2), state = tv2,
+        GridCells.Adaptive(if (LocalWide.current) 160.dp else 108.dp), Modifier.fillMaxSize().dpadScroll(tv2), state = tv2,
         contentPadding = PaddingValues(start = Gutter, end = Gutter, top = if (tvBar != null) 0.dp else barSpace(), bottom = dockSpace()),
         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
@@ -225,7 +225,7 @@ fun MyListScreen(store: Store, onOpen: (Title) -> Unit, onDownloads: () -> Unit)
     val tv3 = rememberLazyGridState()
     val tvBar = LocalTopBar.current
     LazyVerticalGrid(
-        GridCells.Adaptive(108.dp), Modifier.fillMaxSize().dpadScroll(tv3), state = tv3,
+        GridCells.Adaptive(if (LocalWide.current) 160.dp else 108.dp), Modifier.fillMaxSize().dpadScroll(tv3), state = tv3,
         contentPadding = PaddingValues(start = Gutter, end = Gutter, top = if (tvBar != null) 0.dp else barSpace(), bottom = dockSpace()),
         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
@@ -494,7 +494,7 @@ fun PersonScreen(person: Person, onOpen: (Title) -> Unit) {
     val tv6 = rememberLazyGridState()
     val tvBar = LocalTopBar.current
     LazyVerticalGrid(
-        GridCells.Adaptive(108.dp), Modifier.fillMaxSize().dpadScroll(tv6), state = tv6,
+        GridCells.Adaptive(if (LocalWide.current) 160.dp else 108.dp), Modifier.fillMaxSize().dpadScroll(tv6), state = tv6,
         contentPadding = PaddingValues(start = Gutter, end = Gutter, top = if (tvBar != null) 0.dp else barSpace(), bottom = dockSpace()),
         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {

@@ -61,11 +61,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -147,7 +149,7 @@ private val shade = Shadow(Color.Black.copy(alpha = .6f), Offset(0f, 2f), 8f)
 @Composable
 private fun Plain(icon: Int, label: String?, size: Dp = 24.dp, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Row(
-        modifier.clip(RoundedCornerShape(12.dp)).focusGlow(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(horizontal = 10.dp, vertical = 8.dp),
+        modifier.clip(RoundedCornerShape(12.dp)).playerGlow(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(painterResource(icon), label, tint = Color.White, modifier = Modifier.size(size))
@@ -186,6 +188,8 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
     val playFocus = remember { FocusRequester() }
     val sheetFocus = remember { FocusRequester() }
     var focusInside by remember { mutableStateOf(false) }
+    var skipFocused by remember { mutableStateOf(false) }
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
     LaunchedEffect(player) {
         while (true) {
@@ -249,7 +253,7 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
                 when {
                     // Controls hidden: OK takes Up next / Skip intro if showing, Left/Right skip 10 s, anything else shows the controls.
                     !visible && center && countdown >= 0 -> { countdownDismissed = true; host.next(); true }
-                    !visible && center && skipTo != null -> { player.seekTo(skipTo); true }
+                    center && skipTo != null && (!visible || !focusInside) -> { player.seekTo(skipTo); hint = if (active?.type == "recap") "Skipped recap" else "Skipped intro"; true }
                     !visible && e.key == Key.DirectionLeft -> { seekBy(-10_000); true }
                     !visible && e.key == Key.DirectionRight -> { seekBy(10_000); true }
                     !visible && (center || arrow) -> { onVisible(true); focusPlay(); true }
@@ -330,7 +334,7 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
                 Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(64.dp)) {
                     SeekIcon(R.drawable.ic_back10) { seekBy(-10_000) }
                     Box(
-                        Modifier.size(76.dp).focusRequester(playFocus).clip(CircleShape).focusGlow(CircleShape).clickable { if (player.isPlaying) player.pause() else player.play(); touch() },
+                        Modifier.size(76.dp).focusRequester(playFocus).clip(CircleShape).playerGlow(CircleShape).clickable { if (player.isPlaying) player.pause() else player.play(); touch() },
                         contentAlignment = Alignment.Center,
                     ) { Icon(painterResource(if (playing) R.drawable.ic_pause else R.drawable.ic_play_fill), null, tint = Color.White, modifier = Modifier.size(54.dp)) }
                     SeekIcon(R.drawable.ic_fwd10) { seekBy(10_000) }
@@ -361,11 +365,17 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
                             onValueChange = { dragging = true; dragValue = it; touch(); host.preview((it * duration).toLong()) },
                             onValueChangeFinished = { player.seekTo((dragValue * duration).toLong()); dragging = false; host.preview(null) },
                             colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Violet, inactiveTrackColor = Color.White.copy(alpha = .3f)),
-                            modifier = Modifier.weight(1f).padding(horizontal = 12.dp).focusGlow(RoundedCornerShape(10.dp))
+                            modifier = Modifier.weight(1f).padding(horizontal = 12.dp).playerGlow(RoundedCornerShape(10.dp))
                                 // Remote: Left/Right on the bar skip 10 s instead of nudging 1 %.
                                 .onPreviewKeyEvent { e ->
                                     if (e.type != KeyEventType.KeyDown) false
-                                    else when (e.key) { Key.DirectionLeft -> { seekBy(-10_000); true }; Key.DirectionRight -> { seekBy(10_000); true }; else -> false }
+                                    else when (e.key) {
+                                        Key.DirectionLeft -> { seekBy(-10_000); true }
+                                        Key.DirectionRight -> { seekBy(10_000); true }
+                                        Key.DirectionUp -> { focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Up); true }
+                                        Key.DirectionDown -> { focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Down); true }
+                                        else -> false
+                                    }
                                 },
                         )
                         Text("−" + clock(duration - position), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
@@ -386,8 +396,8 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
         if (!locked && seg != null && seg.endMs != null && !host.autoSkip && countdown < 0 && sheet == null) {
             Box(Modifier.align(Alignment.BottomEnd).safeDrawingPadding().padding(end = 24.dp, bottom = if (visible) 110.dp else 28.dp)) {
                 Text(seg.label, color = Ink, fontSize = 14.sp, fontWeight = FontWeight.Bold, style = jakarta(),
-                    modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(Color.White).focusGlow(RoundedCornerShape(10.dp))
-                        .clickable { player.seekTo(seg.endMs); touch() }.padding(horizontal = 18.dp, vertical = 11.dp))
+                    modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(Color.White).playerGlow(RoundedCornerShape(10.dp))
+                        .clickable { player.seekTo(seg.endMs); hint = if (seg.type == "recap") "Skipped recap" else "Skipped intro"; touch() }.padding(horizontal = 18.dp, vertical = 11.dp))
             }
         }
 
@@ -402,9 +412,9 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Play in ${countdown.coerceAtLeast(0)}", color = Ink, fontSize = 14.sp, fontWeight = FontWeight.Bold, style = jakarta(),
-                        modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(Color.White).focusGlow(RoundedCornerShape(10.dp)).clickable { countdownDismissed = true; host.next() }.padding(horizontal = 16.dp, vertical = 10.dp))
+                        modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(Color.White).playerGlow(RoundedCornerShape(10.dp)).clickable { countdownDismissed = true; host.next() }.padding(horizontal = 16.dp, vertical = 10.dp))
                     Text("Cancel", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, style = jakarta(),
-                        modifier = Modifier.clip(RoundedCornerShape(10.dp)).focusGlow(RoundedCornerShape(10.dp)).clickable { countdownDismissed = true }.padding(horizontal = 12.dp, vertical = 10.dp))
+                        modifier = Modifier.clip(RoundedCornerShape(10.dp)).playerGlow(RoundedCornerShape(10.dp)).clickable { countdownDismissed = true }.padding(horizontal = 12.dp, vertical = 10.dp))
                 }
             }
         }
@@ -440,7 +450,7 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
                             val current = e.number == host.episode
                             androidx.compose.foundation.layout.Row(
                                 Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (current) Color.White.copy(alpha = .1f) else Color.Transparent)
-                                    .focusGlow(RoundedCornerShape(12.dp)).clickable { sheet = null; host.playEpisode(e.number) }.padding(6.dp),
+                                    .playerGlow(RoundedCornerShape(12.dp)).clickable { sheet = null; host.playEpisode(e.number) }.padding(6.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Box(Modifier.width(110.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp)).background(Panel)) {
@@ -478,7 +488,7 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
                             SubColors.forEachIndexed { i, c ->
                                 Box(Modifier.size(34.dp).clip(CircleShape).background(c)
                                     .border(if (host.subColor == i) 3.dp else 1.dp, if (host.subColor == i) Violet else Hairline, CircleShape)
-                                    .focusGlow(CircleShape).clickable { host.setSubColor(i) })
+                                    .playerGlow(CircleShape).clickable { host.setSubColor(i) })
                             }
                         }
                         Spacer(Modifier.height(14.dp))
@@ -526,13 +536,13 @@ private fun Caption(text: String) {
 private fun Pick(label: String, selected: Boolean, onClick: () -> Unit) {
     Text(label, color = if (selected) Ink else Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, style = jakarta(),
         modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(if (selected) Color.White else Color.White.copy(alpha = .1f))
-            .focusGlow(RoundedCornerShape(10.dp)).clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 8.dp))
+            .playerGlow(RoundedCornerShape(10.dp)).clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 8.dp))
 }
 
 @Composable
 private fun SettingRow(title: String, value: String, icon: Int, onClick: () -> Unit) {
     androidx.compose.foundation.layout.Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).focusGlow(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(horizontal = 6.dp, vertical = 13.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).playerGlow(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(horizontal = 6.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(painterResource(icon), null, tint = Soft, modifier = Modifier.size(20.dp))
@@ -551,7 +561,7 @@ private fun Bubble(text: String, modifier: Modifier) {
 
 @Composable
 private fun SeekIcon(icon: Int, onClick: () -> Unit) {
-    Box(Modifier.size(58.dp).clip(CircleShape).focusGlow(CircleShape).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(58.dp).clip(CircleShape).playerGlow(CircleShape).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
         Icon(painterResource(icon), null, tint = Color.White, modifier = Modifier.size(38.dp))
         Text("10", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold, style = jakarta(), modifier = Modifier.padding(top = 3.dp))
     }
@@ -564,7 +574,7 @@ private fun Options(choices: List<Choice>, onPicked: () -> Unit) {
         androidx.compose.foundation.layout.Row(
             Modifier.fillMaxWidth().padding(vertical = 2.dp).clip(RoundedCornerShape(12.dp))
                 .background(if (c.selected) Color.White.copy(alpha = .1f) else Color.Transparent)
-                .focusGlow(RoundedCornerShape(12.dp)).clickable { c.apply(); onPicked() }
+                .playerGlow(RoundedCornerShape(12.dp)).clickable { c.apply(); onPicked() }
                 .padding(horizontal = 12.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -624,4 +634,13 @@ private fun choices(player: Player, sheet: Sheet): List<Choice> {
         }
         else -> emptyList()
     }
+}
+
+/** TV focus without hard outlines: a soft light behind the control and a slight lift. */
+fun Modifier.playerGlow(shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(12.dp)): Modifier = composed {
+    var focused by remember { mutableStateOf(false) }
+    val lift by androidx.compose.animation.core.animateFloatAsState(if (focused) 1.1f else 1f, label = "lift")
+    this.onFocusChanged { focused = it.isFocused || it.hasFocus }
+        .graphicsLayer { scaleX = lift; scaleY = lift }
+        .background(if (focused) Color.White.copy(alpha = .22f) else Color.Transparent, shape)
 }

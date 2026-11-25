@@ -287,7 +287,7 @@ fun PosterRow(row: Row, onOpen: (Title) -> Unit) {
     SectionTitle(row.name)
     LazyRow(contentPadding = PaddingValues(horizontal = Gutter), horizontalArrangement = Arrangement.spacedBy(if (row.ranked) 4.dp else 12.dp)) {
         itemsIndexed(row.items, key = { _, t -> t.key }) { i, t ->
-            if (row.ranked) RankedCard(i + 1, t) { onOpen(t) } else PosterCard(t, 118.dp) { onOpen(t) }
+            if (row.ranked) RankedCard(i + 1, t) { onOpen(t) } else PosterCard(t, if (LocalWide.current) 172.dp else 118.dp) { onOpen(t) }
         }
     }
 }
@@ -297,17 +297,17 @@ fun PosterRow(row: Row, onOpen: (Title) -> Unit) {
 fun RankedCard(rank: Int, t: Title, onClick: () -> Unit) {
     Row(Modifier.tappable(onClick), verticalAlignment = Alignment.Bottom) {
         Text(
-            rank.toString(), fontSize = 120.sp, lineHeight = 120.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-10).sp,
+            rank.toString(), fontSize = if (LocalWide.current) 170.sp else 120.sp, lineHeight = if (LocalWide.current) 170.sp else 120.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-10).sp,
             style = jakarta(Brush.verticalGradient(0f to Color.White, .45f to Color(0xFFDCD6F5), .8f to Color(0xFF6E6891), 1f to Color(0xFF221F35))),
             modifier = Modifier.offset(x = 14.dp, y = 18.dp),
         )
-        Poster(t, Modifier.width(112.dp))
+        Poster(t, Modifier.width(if (LocalWide.current) 164.dp else 112.dp))
     }
 }
 
 @Composable
 fun ContinueCard(p: Progress, progress: Float? = null, onClick: () -> Unit) {
-    Column(Modifier.width(220.dp).tappable(onClick)) {
+    Column(Modifier.width(if (LocalWide.current) 320.dp else 220.dp).tappable(onClick)) {
         Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(14.dp)).background(Panel).border(1.dp, Hairline, RoundedCornerShape(14.dp))) {
             AsyncImage(Tmdb.img(p.title.backdrop ?: p.title.poster, "w500"), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(.45f to Color.Transparent, 1f to Ink.copy(alpha = .85f))))
