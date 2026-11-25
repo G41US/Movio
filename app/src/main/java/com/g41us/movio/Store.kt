@@ -74,6 +74,9 @@ class Store private constructor(context: Context) {
     var autoplayNext: Boolean
         get() = misc.getBoolean("autoplay", true)
         set(v) = misc.edit().putBoolean("autoplay", v).apply()
+    var autoSkip: Boolean
+        get() = misc.getBoolean("auto_skip", false)
+        set(v) = misc.edit().putBoolean("auto_skip", v).apply()
     var alerts: Boolean
         get() = misc.getBoolean("alerts", true)
         set(v) = misc.edit().putBoolean("alerts", v).apply()

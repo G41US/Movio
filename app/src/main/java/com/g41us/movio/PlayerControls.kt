@@ -94,6 +94,9 @@ interface PlayerHost {
     val subColor: Int
     val subOffset: Long
     val autoplay: Boolean
+    val autoSkip: Boolean
+    /** Exact intro/recap/credits/preview times for what's playing (may be empty). */
+    val segments: List<Segment>
     fun back()
     fun next()
     fun web()
@@ -161,6 +164,8 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
     var lastTouch by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var countdown by remember { mutableIntStateOf(-1) }
     var countdownDismissed by remember(host.episode) { mutableStateOf(false) }
+    var autoSkipped by remember(host.episode) { mutableStateOf(setOf<Segment>()) }
+    var active by remember { mutableStateOf<Segment?>(null) }
 
     LaunchedEffect(player) {
         while (true) {
@@ -170,8 +175,22 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
             duration = player.duration.takeIf { it > 0 } ?: 0L
             if (visible && sheet == null && player.isPlaying && System.currentTimeMillis() - lastTouch > 3500) onVisible(false)
             val left = duration - position
+            val segs = host.segments
+            active = segs.firstOrNull { it.type != "credits" && it.type != "preview" && it.contains(position) }
+            // Auto-skip intros and recaps once each, when the viewer turned that on.
+            active?.let { a ->
+                if (host.autoSkip && a !in autoSkipped && a.endMs != null) {
+                    autoSkipped = autoSkipped + a; player.seekTo(a.endMs); hint = if (a.type == "recap") "Skipped recap" else "Skipped intro"
+                }
+            }
+            // Up next starts when the credits really start (10 s), else in the last 20 s.
+            val credits = segs.firstOrNull { it.type == "credits" || it.type == "preview" }?.startMs?.takeIf { it > duration / 2 }
+            val inCredits = credits != null && position >= credits
             countdown = if (host.isTv && host.hasNext && host.autoplay && !countdownDismissed && duration > 0 &&
-                (left in 1..20_000 || player.playbackState == Player.STATE_ENDED)) (left / 1000).toInt().coerceAtLeast(0) else -1
+                (inCredits || left in 1..20_000 || player.playbackState == Player.STATE_ENDED)) {
+                if (inCredits) (10 - (position - credits!!) / 1000).toInt().coerceIn(0, 10).let { if (left < it * 1000L) (left / 1000).toInt() else it }
+                else (left / 1000).toInt().coerceAtLeast(0)
+            } else -1
             if (countdown == 0) { countdownDismissed = true; host.next() }
             delay(250)
         }
@@ -289,12 +308,13 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
             }
         }
 
-        // Skip intro: early in episodes, even when the controls are hidden.
-        if (!locked && host.isTv && position in 20_000..240_000 && countdown < 0 && sheet == null) {
+        // Skip intro / recap: only during the real segment, jumping to its exact end.
+        val seg = active
+        if (!locked && seg != null && seg.endMs != null && !host.autoSkip && countdown < 0 && sheet == null) {
             Box(Modifier.align(Alignment.BottomEnd).safeDrawingPadding().padding(end = 24.dp, bottom = if (visible) 110.dp else 28.dp)) {
-                Text("Skip intro", color = Ink, fontSize = 14.sp, fontWeight = FontWeight.Bold, style = jakarta(),
+                Text(seg.label, color = Ink, fontSize = 14.sp, fontWeight = FontWeight.Bold, style = jakarta(),
                     modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(Color.White).focusGlow(RoundedCornerShape(10.dp))
-                        .clickable { seekBy(85_000) }.padding(horizontal = 18.dp, vertical = 11.dp))
+                        .clickable { player.seekTo(seg.endMs); touch() }.padding(horizontal = 18.dp, vertical = 11.dp))
             }
         }
 

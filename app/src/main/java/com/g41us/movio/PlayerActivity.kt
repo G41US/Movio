@@ -160,6 +160,8 @@ class PlayerActivity : ComponentActivity() {
     private var downloadLabelState by mutableStateOf<String?>(null)
     private var offlineId: String? = null
     private var resumedAt by mutableLongStateOf(0L)
+    private var segments by mutableStateOf<List<Segment>>(emptyList())
+    private var segmentsFor = ""
 
     private var id = 0
     private var kind = Kind.MOVIE
@@ -388,6 +390,11 @@ class PlayerActivity : ComponentActivity() {
         if (!automatic) { autoTried = 0; prefs.edit().putString("source2", Sources.all[index].name).apply() }
         sourceIndex = index
         attempt++
+        val segKey = "$season:$episode"
+        if (segKey != segmentsFor) {
+            segmentsFor = segKey; segments = emptyList()
+            lifecycleScope.launch { val found = Segments.find(kind, id, season, episode); if (segmentsFor == segKey) segments = found }
+        }
         val token = attempt
         candidates.clear(); rejected.clear(); trying = null; subtitleTracks = emptyList(); pageSubs.clear()
         resolveJob?.cancel()
@@ -567,7 +574,11 @@ class PlayerActivity : ComponentActivity() {
 
     private fun savePosition() {
         if (phase != Phase.NATIVE) return
-        store.savePosition(posKey(), exo.currentPosition, exo.duration.takeIf { it != C.TIME_UNSET } ?: 0)
+        val dur = exo.duration.takeIf { it != C.TIME_UNSET } ?: 0
+        val credits = segments.firstOrNull { it.type == "credits" }?.startMs?.takeIf { it > dur / 2 }
+        // Reaching the credits counts as finished, so it won't "resume" into them.
+        val pos = if (credits != null && exo.currentPosition >= credits) dur else exo.currentPosition
+        store.savePosition(posKey(), pos, dur)
     }
 
     private suspend fun loadEpisodeInfo() {
@@ -600,6 +611,7 @@ class PlayerActivity : ComponentActivity() {
         exo.prepare()
         trying = Stream(d.request.uri.toString(), emptyMap(), hls = true)
         status = "Playing from Downloads"
+        lifecycleScope.launch { segments = Segments.find(kind, this@PlayerActivity.id, season, episode) }
     }
 
     private fun refreshDownloadLabel() {
@@ -685,6 +697,8 @@ class PlayerActivity : ComponentActivity() {
         override val subColor get() = subColorState
         override val subOffset get() = subOffsetState
         override val autoplay get() = store.autoplayNext
+        override val autoSkip get() = store.autoSkip
+        override val segments get() = this@PlayerActivity.segments
         override fun back() = finish()
         override fun next() = nextEpisode()
         override fun web() = showWeb(reload = true)

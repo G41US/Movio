@@ -381,6 +381,8 @@ fun SettingsScreen(version: String, update: UpdateState, blocked: Int, store: St
                 Spacer(Modifier.height(6.dp))
                 var autoplay by remember { mutableStateOf(store.autoplayNext) }
                 ToggleRow("Autoplay next episode", "Starts the next episode after a 20-second countdown.", autoplay) { autoplay = it; store.autoplayNext = it }
+                var autoSkip by remember { mutableStateOf(store.autoSkip) }
+                ToggleRow("Skip intros automatically", "Jumps past intros and recaps by itself, using exact times.", autoSkip) { autoSkip = it; store.autoSkip = it }
                 var alerts by remember { mutableStateOf(store.alerts) }
                 ToggleRow("New episode alerts", "Get notified when a show in My List has a new episode.", alerts) { alerts = it; store.alerts = it; onAlerts(it) }
                 Spacer(Modifier.height(6.dp))
