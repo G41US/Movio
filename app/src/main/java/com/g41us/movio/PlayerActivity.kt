@@ -254,6 +254,8 @@ class PlayerActivity : ComponentActivity() {
             useController = false
             player = exo
             setShutterBackgroundColor(android.graphics.Color.BLACK)
+            // Bars around the picture are always black, never whatever sits behind the player.
+            setBackgroundColor(android.graphics.Color.BLACK)
             setKeepContentOnPlayerReset(true)
             visibility = View.GONE
         }
@@ -486,6 +488,7 @@ class PlayerActivity : ComponentActivity() {
         val url = source.url(kind, id, season, episode)
         pageHost = android.net.Uri.parse(url).host.orEmpty()
         webView.onResume()
+        webView.visibility = View.VISIBLE
         webView.loadUrl(url, mapOf("Referer" to "https://braflix.at/"))
         if (source.web) { showWeb(reload = false); return }
         // Many players wait for a tap on play; tap the middle for the viewer.
@@ -537,6 +540,7 @@ class PlayerActivity : ComponentActivity() {
             webView.loadUrl(source.url(kind, id, season, episode), mapOf("Referer" to "https://braflix.at/"))
         }
         phase = Phase.WEB
+        webView.visibility = View.VISIBLE
         webBar = true
         main.postDelayed({ if (phase == Phase.WEB) webBar = false }, 5000)
     }
@@ -622,6 +626,7 @@ class PlayerActivity : ComponentActivity() {
         webView.stopLoading()
         webView.loadUrl("about:blank")
         webView.onPause()
+        webView.visibility = View.INVISIBLE
     }
 
     private fun onStreamFailed() {
