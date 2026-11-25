@@ -268,13 +268,13 @@ class PlayerActivity : ComponentActivity() {
         })
         lifecycleScope.launch { while (true) { kotlinx.coroutines.delay(100); speech.clock = exo.currentPosition; renderOwnSubs() } }
         lifecycleScope.launch {
+            var rounds = 0
             while (true) {
-                kotlinx.coroutines.delay(30_000)
-                val cues = ownCues ?: continue
+                // Often at first (quick fix), then once a minute to catch slow drift.
+                kotlinx.coroutines.delay(if (rounds < 20) 15_000 else 60_000)
                 if (phase != Phase.NATIVE || !exo.isPlaying) continue
-                val key = ownKey
-                val fit = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { SubAligner.align(cues, speech, ownFit) } ?: continue
-                if (key == ownKey) { ownFit = fit; Toast.makeText(this@PlayerActivity, "Subtitles synced", Toast.LENGTH_SHORT).show() }
+                rounds++
+                syncSubtitles()
             }
         }
         applySubtitleStyle()
@@ -581,7 +581,7 @@ class PlayerActivity : ComponentActivity() {
             .setMimeType(if (s.hls) MimeTypes.APPLICATION_M3U8 else null)
             .setSubtitleConfigurations(subs)
             .build()
-        if (s.url != speechUrl) { speechUrl = s.url; speech.reset() }
+        if (s.url != speechUrl) { speechUrl = s.url; speech.reset(); fitFor.clear() }
         speech.seeked(0)
         exo.setMediaSource(DefaultMediaSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(this, http)).createMediaSource(item))
         exo.prepare()
@@ -749,6 +749,57 @@ class PlayerActivity : ComponentActivity() {
     private var ownCues: List<SubCue>? = null
     private var ownKey: String? = null
     private var ownFit = SubAligner.Fit(1.0, 0)
+    private val fitFor = HashMap<String, SubAligner.Fit>()
+    private val candidateCues = java.util.concurrent.ConcurrentHashMap<String, List<SubCue>>()
+    var syncStatus by mutableStateOf("Listening to the film…")
+
+    /**
+     * Listens to the film, tries every English subtitle version against it, and keeps the one that
+     * lines up best, with any frame-rate or delay mismatch corrected.
+     */
+    private suspend fun syncSubtitles() {
+        val key = ownKey ?: run { syncStatus = "Pick a subtitle in CC"; return }
+        if (speech.heard == 0 && exo.currentPosition > 60_000) { syncStatus = "Can't hear the film on this device; use Timing"; return }
+        if (speech.heard < 600) { syncStatus = "Listening to the film…"; return }
+        val cands = allSubs.filter { it.url == key || it.lang == "en" || it.lang == "und" }.take(7)
+        val dir = java.io.File(cacheDir, "subs").apply { mkdirs() }
+        val results = cands.mapNotNull { sub ->
+            val cues = candidateCues[sub.url] ?: SubLoad.cues(dir, sub, lastHeaders).also { candidateCues[sub.url] = it }
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { SubAligner.evaluate(cues, speech) }?.let { sub to it }
+        }
+        if (key != ownKey) return
+        val current = results.firstOrNull { it.first.url == key }?.second
+        val best = results.filter { it.second.sure }.maxByOrNull { it.second.quality }
+        if (best != null && best.first.url != key && best.second.quality > (current?.quality ?: -1.0) + 0.08) {
+            fitFor[best.first.url] = best.second.fit
+            if (selectSub(best.first)) { syncStatus = "Switched to a better-matching version"; return }
+        }
+        val c = current ?: run { syncStatus = "Still checking…"; return }
+        if (!c.sure) { syncStatus = "Still checking…"; return }
+        val changed = c.fit.scale != ownFit.scale || kotlin.math.abs(c.fit.offset - ownFit.offset) >= 300
+        if (changed) { ownFit = c.fit; fitFor[key] = c.fit; shownCues = null }
+        syncStatus = describe(c.fit)
+    }
+
+    private fun describe(f: SubAligner.Fit): String {
+        val drift = when {
+            kotlin.math.abs(f.scale - 1.0) < 0.0005 -> null
+            f.scale > 1.03 || f.scale < 0.97 -> "frame rate fixed"
+            else -> "slow drift fixed"
+        }
+        val shift = if (kotlin.math.abs(f.offset) >= 300) "%+.1fs".format(f.offset / 1000f) else null
+        return "In sync" + (listOfNotNull(drift, shift).takeIf { it.isNotEmpty() }?.joinToString(", ", " (", ")") ?: "")
+    }
+
+    private fun matches(f: androidx.media3.common.Format, s: Subtitle) = f.id?.endsWith(s.url) == true || (f.label != null && f.label == s.label)
+
+    private fun selectSub(s: Subtitle): Boolean {
+        val g = exo.currentTracks.groups.firstOrNull { gr -> gr.type == C.TRACK_TYPE_TEXT && (0 until gr.length).any { matches(gr.getTrackFormat(it), s) } } ?: return false
+        val i = (0 until g.length).first { matches(g.getTrackFormat(it), s) }
+        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            .setOverrideForType(androidx.media3.common.TrackSelectionOverride(g.mediaTrackGroup, i)).build()
+        return true
+    }
     private var shownCues: List<SubCue>? = null
     private val allSubs get() = subtitleTracks + pageSubs.filter { u -> subtitleTracks.none { it.url == u } }.take(4).mapIndexed { i, u -> Subtitle("Source ${i + 1}", "und", u) }
 
@@ -757,9 +808,11 @@ class PlayerActivity : ComponentActivity() {
         val g = tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_TEXT && it.isSelected }
         val f = g?.let { gr -> (0 until gr.length).firstOrNull { gr.isTrackSelected(it) }?.let { gr.getTrackFormat(it) } }
         val sub = f?.let { fmt -> allSubs.firstOrNull { s -> fmt.id?.endsWith(s.url) == true } ?: allSubs.firstOrNull { it.label == fmt.label } }
+        if (sub == null && f != null) syncStatus = "Built-in subtitles: use Timing if needed"
         if (sub == null) { ownCues = null; ownKey = null; shownCues = null; return }
         if (sub.url == ownKey) return
-        ownKey = sub.url; ownCues = null; ownFit = SubAligner.Fit(1.0, 0); shownCues = null
+        ownKey = sub.url; ownCues = null; ownFit = fitFor[sub.url] ?: SubAligner.Fit(1.0, 0); shownCues = null
+        syncStatus = fitFor[sub.url]?.let { describe(it) } ?: if (speech.heard < 600) "Listening to the film…" else "Checking…"
         lifecycleScope.launch {
             val cues = SubLoad.cues(java.io.File(cacheDir, "subs").apply { mkdirs() }, sub, lastHeaders)
             if (ownKey == sub.url && cues.isNotEmpty()) { ownCues = cues; renderOwnSubs() }
@@ -829,6 +882,7 @@ class PlayerActivity : ComponentActivity() {
         override val subStyle get() = subStyleState
         override val subColor get() = subColorState
         override val subOffset get() = subOffsetState
+        override val subSync get() = syncStatus
         override val autoplay get() = store.autoplayNext
         override val autoSkip get() = store.autoSkip
         override val segments get() = this@PlayerActivity.segments

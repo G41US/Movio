@@ -109,40 +109,45 @@ class SpeechTrack : TeeAudioProcessor.AudioBufferSink {
  */
 object SubAligner {
     data class Fit(val scale: Double, val offset: Long)
+    /** [quality]: share of subtitle time that lands on speech (−1..1). [sure]: one fit clearly beats the rest. */
+    data class Eval(val fit: Fit, val quality: Double, val sure: Boolean)
 
     private val scales = doubleArrayOf(1.0, 25 / 23.976, 23.976 / 25, 24 / 23.976, 23.976 / 24, 25.0 / 24, 24.0 / 25)
 
-    fun align(cues: List<SubCue>, track: SpeechTrack, current: Fit): Fit? {
+    fun evaluate(cues: List<SubCue>, track: SpeechTrack): Eval? {
         val e = track.energy
-        if (track.heard < 1500 || cues.size < 20) return null
+        if (track.heard < 600 || cues.size < 20) return null
         val known = e.filter { !it.isNaN() }.sorted()
         val thr = known[known.size * 55 / 100]
         // +1 where there's speech-like sound, −1 where it's quiet, 0 where we haven't listened.
-        val pre = DoubleArray(e.size + 1)
-        for (i in e.indices) pre[i + 1] = pre[i] + if (e[i].isNaN()) 0.0 else if (e[i] > thr) 1.0 else -1.0
-        val step = SpeechTrack.STEP
-        fun score(s: Double, o: Long): Double {
-            var t = 0.0
-            for (c in cues) {
-                val a = ((c.start * s + o) / step).toInt().coerceIn(0, e.size)
-                val b = ((c.end * s + o) / step).toInt().coerceIn(0, e.size)
-                if (b > a) t += pre[b] - pre[a]
-            }
-            return t
+        val pre = DoubleArray(e.size + 1); val cnt = IntArray(e.size + 1)
+        for (i in e.indices) {
+            pre[i + 1] = pre[i] + if (e[i].isNaN()) 0.0 else if (e[i] > thr) 1.0 else -1.0
+            cnt[i + 1] = cnt[i] + if (e[i].isNaN()) 0 else 1
         }
-        var best = Fit(1.0, 0); var bestScore = Double.NEGATIVE_INFINITY
-        val all = HashMap<Fit, Double>()
+        val step = SpeechTrack.STEP
+        fun score(s: Double, o: Long): Pair<Double, Int> {
+            var t = 0.0; var c = 0
+            for (q in cues) {
+                val a = ((q.start * s + o) / step).toInt().coerceIn(0, e.size)
+                val b = ((q.end * s + o) / step).toInt().coerceIn(0, e.size)
+                if (b > a) { t += pre[b] - pre[a]; c += cnt[b] - cnt[a] }
+            }
+            return t to c
+        }
+        var best = Fit(1.0, 0); var bestScore = Double.NEGATIVE_INFINITY; var bestCov = 0
+        val all = ArrayList<Pair<Fit, Double>>(3000)
         for (s in scales) {
             var o = -20_000L
-            while (o <= 20_000L) { val f = Fit(s, o); val v = score(s, o); all[f] = v; if (v > bestScore) { bestScore = v; best = f }; o += 100 }
+            while (o <= 20_000L) {
+                val (v, c) = score(s, o); val f = Fit(s, o); all.add(f to v)
+                if (v > bestScore) { bestScore = v; best = f; bestCov = c }
+                o += 100
+            }
         }
-        val base = score(current.scale, current.offset)
-        // Must beat what's showing now by a clear margin, and stand out from nearby offsets.
-        val runnerUp = all.filter { (f, _) -> abs(f.scale - best.scale) > 0.01 || abs(f.offset - best.offset) >= 2_000 }.values.maxOrNull() ?: return null
-        val gain = bestScore - base
-        if (gain < 25 || bestScore - runnerUp < 12) return null
-        if (best.scale == current.scale && abs(best.offset - current.offset) < 400) return null
-        return best
+        if (bestCov < 150) return null
+        val runnerUp = all.filter { (f, _) -> abs(f.scale - best.scale) > 0.01 || abs(f.offset - best.offset) >= 2_000 }.maxOfOrNull { it.second } ?: return null
+        return Eval(best, bestScore / bestCov, bestScore - runnerUp >= 12)
     }
 }
 

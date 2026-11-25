@@ -107,6 +107,8 @@ interface PlayerHost {
     val subStyle: Int
     val subColor: Int
     val subOffset: Long
+    /** What automatic subtitle sync is doing, in plain words. */
+    val subSync: String
     val autoplay: Boolean
     val autoSkip: Boolean
     /** Exact intro/recap/credits/preview times for what's playing (may be empty). */
@@ -461,7 +463,8 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
                         Options(choices(player, Sheet.SUBTITLES)) { sheet = null; touch() }
                         Spacer(Modifier.height(8.dp))
                         SettingRow("Subtitle style", "${SubStyleNames[host.subStyle]} · ${SubColorNames[host.subColor]} · ${listOf("S", "M", "L", "XL")[host.subSize]}", R.drawable.ic_cc) { sheet = Sheet.STYLE }
-                        SettingRow("Timing", if (host.subOffset == 0L) "In sync" else "%+.1fs".format(host.subOffset / 1000f), R.drawable.ic_speed) { sheet = Sheet.STYLE }
+                        SettingRow("Auto-sync", host.subSync, R.drawable.ic_refresh) { }
+                        SettingRow("Timing", if (host.subOffset == 0L) "No change" else "%+.1fs".format(host.subOffset / 1000f), R.drawable.ic_speed) { sheet = Sheet.STYLE }
                     }
                     Sheet.STYLE -> Column(Modifier.verticalScroll(rememberScrollState())) {
                         SubtitlePreview(host)

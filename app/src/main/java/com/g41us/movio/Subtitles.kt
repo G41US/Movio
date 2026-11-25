@@ -37,14 +37,19 @@ object Subtitles {
             c.connectTimeout = 10_000; c.readTimeout = 15_000
             if (c.responseCode !in 200..299) return emptyList()
             val a = JSONArray(c.inputStream.bufferedReader().use { it.readText() })
+            // Several English versions (most downloaded first, plain before hearing-impaired):
+            // the player listens to the film and keeps whichever lines up best.
             return (0 until a.length()).map { a.getJSONObject(it) }
                 .filter { it.optString("url").startsWith("https://") }
-                .sortedBy { o -> wanted.indexOf(o.optString("language")).let { if (it < 0) 99 else it } }
-                .distinctBy { it.optString("language") }
-                .map { o ->
-                    val lang = o.optString("language")
-                    val name = o.optString("display").ifBlank { Locale(lang).displayLanguage.ifBlank { lang } }
-                    Subtitle(name, lang, o.optString("url"), srt = o.optString("format").equals("srt", true))
+                .groupBy { it.optString("language") }
+                .entries.sortedBy { (lang, _) -> wanted.indexOf(lang).let { if (it < 0) 99 else it } }
+                .flatMap { (lang, list) ->
+                    list.sortedWith(compareBy<org.json.JSONObject> { it.optBoolean("isHearingImpaired") }.thenByDescending { it.optLong("downloadCount") })
+                        .take(if (lang == "en") 5 else 1)
+                        .mapIndexed { i, o ->
+                            val name = o.optString("display").ifBlank { Locale(lang).displayLanguage.ifBlank { lang } }
+                            Subtitle(if (i == 0) name else "$name · ${i + 1}", lang, o.optString("url"), srt = o.optString("format").equals("srt", true))
+                        }
                 }
         } finally { c.disconnect() }
     }
