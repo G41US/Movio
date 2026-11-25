@@ -113,8 +113,8 @@ fun FeedScreen(kind: Kind?, store: Store, onOpen: (Title) -> Unit, onPlay: (Titl
             val rows = Tmdb.home()
             val watched = store.continueWatching.map { it.title.key }.toSet()
             val byw = Tmdb.becauseYouWatched(store.continueWatching.map { it.title } + store.myList, watched)
-            // Personal rows right after the first row.
-            rows.take(1) + byw + rows.drop(1)
+            // Top 10, New in cinemas, Trending, then "Because you watched", then the rest.
+            rows.take(Tmdb.PERSONAL_AFTER) + byw + rows.drop(Tmdb.PERSONAL_AFTER)
         }
     }
     LaunchedEffect(state) { if (state !is Load.Loading) Boot.ready = true }
@@ -136,7 +136,7 @@ fun FeedScreen(kind: Kind?, store: Store, onOpen: (Title) -> Unit, onPlay: (Titl
                 val rows = s.value
                 item(key = "hero") {
                     Hero(
-                        rows.firstOrNull()?.items?.filter { it.overview.isNotBlank() }?.take(6) ?: emptyList(),
+                        (rows.firstOrNull { it.name.startsWith("Trending") } ?: rows.firstOrNull())?.items?.filter { it.overview.isNotBlank() }?.take(6) ?: emptyList(),
                         saved = { store.inList(it) }, onPlay = onPlay, onOpen = onOpen, onToggle = { store.toggle(it) },
                     )
                 }
@@ -151,7 +151,7 @@ fun FeedScreen(kind: Kind?, store: Store, onOpen: (Title) -> Unit, onPlay: (Titl
                     LazyRow(contentPadding = PaddingValues(horizontal = Gutter), horizontalArrangement = Arrangement.spacedBy(if (LocalWide.current) 18.dp else 12.dp)) {
                         items(store.continueWatching, key = { it.title.key }) { p ->
                             val pos = store.position(store.posKey(p.title, p.season, p.episode))
-                            ContinueCard(p, pos?.let { (a, b) -> if (b > 0) a.toFloat() / b else null }) { onPlay(p.title) }
+                            ContinueCard(p, pos?.let { (a, b) -> if (b > 0) a.toFloat() / b else null }, pos?.let { (a, b) -> (b - a).takeIf { b > 0 && it > 0 } }) { onPlay(p.title) }
                         }
                     }
                 }
@@ -542,7 +542,8 @@ fun PersonScreen(person: Person, onOpen: (Title) -> Unit) {
 /** iOS-style switch row. */
 @Composable
 fun ToggleRow(title: String, body: String, on: Boolean, onChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).focusGlow(RoundedCornerShape(12.dp)).clickableNoRipple { onChange(!on) }.padding(vertical = 10.dp),
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).focusGlow(RoundedCornerShape(12.dp), grow = false).clickableNoRipple { onChange(!on) }
+        .padding(vertical = 10.dp, horizontal = if (LocalWide.current) 12.dp else 0.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White, style = jakarta())

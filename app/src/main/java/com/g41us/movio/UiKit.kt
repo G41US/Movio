@@ -102,13 +102,13 @@ fun Modifier.tappableCard(shape: Shape?, onClick: () -> Unit): Modifier = compos
 fun Modifier.lift(on: Boolean, shape: Shape? = null, amount: Float = 1.07f): Modifier = composed {
     val s by androidx.compose.animation.core.animateFloatAsState(if (on) amount else 1f, tween(220, easing = EnterEase), label = "lift")
     val g by androidx.compose.animation.core.animateFloatAsState(if (on && shape != null) 1f else 0f, tween(220), label = "glow")
-    val glow = with(LocalDensity.current) { 26.dp.toPx() }
+    val glow = with(LocalDensity.current) { 12.dp.toPx() }
     this.graphicsLayer {
         scaleX = s; scaleY = s
         if (shape != null) {
             this.shape = shape; clip = false
             shadowElevation = g * glow
-            ambientShadowColor = Violet; spotShadowColor = Violet
+            ambientShadowColor = Violet; spotShadowColor = Violet.copy(alpha = .5f)
         }
     }
 }
@@ -129,7 +129,8 @@ fun Modifier.enterUp(order: Int = 0): Modifier = composed {
 
 /** Slow push-in on hero artwork. */
 fun Modifier.kenBurns(): Modifier = composed {
-    if (LocalInspectionMode.current || LocalPreload.current.isNotEmpty()) return@composed this
+    // TV boxes have weak GPUs: a never-ending full-screen zoom redraws every frame and makes the whole app lag.
+    if (LocalInspectionMode.current || LocalPreload.current.isNotEmpty() || LocalWide.current) return@composed this
     val zoom by rememberInfiniteTransition(label = "kb").animateFloat(
         initialValue = 1f, targetValue = 1.1f,
         animationSpec = infiniteRepeatable(tween(16_000, easing = LinearEasing), RepeatMode.Reverse), label = "zoom",
@@ -164,11 +165,11 @@ fun Modifier.tvFirstFocus(key: Any?): Modifier = composed {
 }
 
 /** What the TV remote is on: a soft light fill and a slight lift. No outlines. */
-fun Modifier.focusGlow(shape: Shape = RoundedCornerShape(14.dp)): Modifier = composed {
+fun Modifier.focusGlow(shape: Shape = RoundedCornerShape(14.dp), grow: Boolean = true): Modifier = composed {
     var focused by remember { mutableStateOf(false) }
     this.onFocusChanged { focused = it.isFocused || it.hasFocus }
-        .lift(focused, amount = 1.06f)
-        .background(if (focused) Color.White.copy(alpha = .2f) else Color.Transparent, shape)
+        .then(if (grow) Modifier.lift(focused, amount = 1.06f) else Modifier)
+        .background(if (focused) Color.White.copy(alpha = .12f) else Color.Transparent, shape)
 }
 
 /** TV: scroll only as far as needed to show the focused item, instead of pinning it near the top. */

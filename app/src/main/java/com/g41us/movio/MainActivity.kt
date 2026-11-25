@@ -69,7 +69,10 @@ class MainActivity : ComponentActivity() {
         // Load the browser engine now, so the first Play doesn't pay for it.
         window.decorView.post { try { android.webkit.WebView(this).destroy() } catch (_: Exception) { } }
         Coil.setImageLoader(
-            ImageLoader.Builder(this).crossfade(true)
+            ImageLoader.Builder(this)
+                // TV boxes: lighter bitmaps and a quicker fade keep scrolling smooth.
+                .crossfade(if (packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)) 150 else 300)
+                .allowRgb565(packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK))
                 .diskCache { DiskCache.Builder().directory(cacheDir.resolve("images")).maxSizePercent(.04).build() }
                 .build()
         )

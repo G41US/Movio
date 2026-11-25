@@ -110,8 +110,8 @@ fun TopBar(title: String? = null, onBack: (() -> Unit)? = null, settingsActive: 
             Row(horizontalArrangement = Arrangement.spacedBy(if (tight) 2.dp else 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Tab.entries.forEach { t ->
                     val active = t == tab
-                    Text(t.label, fontSize = if (tight) 14.sp else 16.sp, maxLines = 1, softWrap = false, style = jakarta(), fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
-                        color = if (active) Color.White else Muted,
+                    Text(t.label, fontSize = if (tight) 14.sp else 16.sp, maxLines = 1, softWrap = false, style = jakarta(), fontWeight = if (active) FontWeight.ExtraBold else FontWeight.Bold,
+                        color = if (active) Color.White else Soft,
                         modifier = Modifier.clip(RoundedCornerShape(50)).background(if (active) Brush.linearGradient(listOf(Violet.copy(alpha = .45f), Pink.copy(alpha = .35f))) else Brush.linearGradient(listOf(Color.Transparent, Color.Transparent)))
                             .then(if (active) Modifier.tvFirstFocus(t) else Modifier).focusGlow(RoundedCornerShape(50)).clickable { onTab(t) }.padding(horizontal = if (tight) 11.dp else 16.dp, vertical = 9.dp))
                 }
@@ -319,24 +319,55 @@ fun RankedCard(rank: Int, t: Title, onClick: () -> Unit) {
 }
 
 @Composable
-fun ContinueCard(p: Progress, progress: Float? = null, onClick: () -> Unit) {
-    Column(Modifier.width(if (LocalWide.current) 300.dp else 220.dp)) {
-        Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).tappableCard(RoundedCornerShape(14.dp), onClick).clip(RoundedCornerShape(14.dp)).background(Panel).border(1.dp, Edge, RoundedCornerShape(14.dp))) {
-            NetImage(Tmdb.img(p.title.backdrop ?: p.title.poster, "w500"), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(.45f to Color.Transparent, 1f to Ink.copy(alpha = .85f))))
-            Box(Modifier.align(Alignment.Center).size(44.dp).clip(CircleShape).background(Color.White.copy(alpha = .9f)), contentAlignment = Alignment.Center) {
+fun ContinueCard(p: Progress, progress: Float? = null, leftMs: Long? = null, onClick: () -> Unit) {
+    val tv = LocalWide.current
+    if (!tv) {
+        Column(Modifier.width(220.dp)) {
+            Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).tappableCard(RoundedCornerShape(14.dp), onClick).clip(RoundedCornerShape(14.dp)).background(Panel).border(1.dp, Edge, RoundedCornerShape(14.dp))) {
+                NetImage(Tmdb.img(p.title.backdrop ?: p.title.poster, "w500"), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(.45f to Color.Transparent, 1f to Ink.copy(alpha = .85f))))
+                Box(Modifier.align(Alignment.Center).size(44.dp).clip(CircleShape).background(Color.White.copy(alpha = .9f)), contentAlignment = Alignment.Center) {
+                    Icon(painterResource(R.drawable.ic_play_fill), null, tint = Ink, modifier = Modifier.size(20.dp))
+                }
+                if (p.title.kind == Kind.TV) Text(
+                    "S${p.season} · E${p.episode}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White, style = jakarta(),
+                    modifier = Modifier.align(Alignment.BottomStart).padding(start = 10.dp, bottom = 14.dp),
+                )
+                if (progress != null && progress > 0f) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(horizontal = 10.dp, vertical = 7.dp).height(3.dp).clip(CircleShape).background(Color.White.copy(alpha = .25f))) {
+                    Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).height(3.dp).background(Brand))
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(p.title.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Soft, style = jakarta(), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        return
+    }
+    // TV: everything lives inside the artwork, like Apple TV / Netflix.
+    var focused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(16.dp)
+    Box(
+        Modifier.width(300.dp).aspectRatio(16f / 9f).onFocusChanged { focused = it.hasFocus }.tappableCard(shape, onClick).clip(shape).background(Panel),
+    ) {
+        NetImage(Tmdb.img(p.title.backdrop ?: p.title.poster, "w500"), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Transparent, .4f to Color.Transparent, 1f to Ink.copy(alpha = .95f))))
+        // Play mark only on the card you're on.
+        androidx.compose.animation.AnimatedVisibility(focused, Modifier.align(Alignment.Center), enter = fadeIn(tween(160)), exit = fadeOut(tween(160))) {
+            Box(Modifier.size(46.dp).clip(CircleShape).background(Color.White.copy(alpha = .92f)), contentAlignment = Alignment.Center) {
                 Icon(painterResource(R.drawable.ic_play_fill), null, tint = Ink, modifier = Modifier.size(20.dp))
             }
-            if (p.title.kind == Kind.TV) Text(
-                "S${p.season} · E${p.episode}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White, style = jakarta(),
-                modifier = Modifier.align(Alignment.BottomStart).padding(start = 10.dp, bottom = 14.dp),
-            )
-            if (progress != null && progress > 0f) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(horizontal = 10.dp, vertical = 7.dp).height(3.dp).clip(CircleShape).background(Color.White.copy(alpha = .25f))) {
-                Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).height(3.dp).background(Brand))
+        }
+        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
+            Text(p.title.name, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, style = jakarta(), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            val left = leftMs?.let { ms -> val m = (ms / 60_000).toInt().coerceAtLeast(1); if (m >= 60) "${m / 60}h ${m % 60}m left" else "${m}m left" }
+            val sub = listOfNotNull(if (p.title.kind == Kind.TV) "S${p.season} · E${p.episode}" else null, left).joinToString("  ·  ")
+            if (sub.isNotBlank()) Text(sub, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Soft, style = jakarta(), maxLines = 1)
+            if (progress != null && progress > 0f) {
+                Spacer(Modifier.height(8.dp))
+                Box(Modifier.fillMaxWidth().height(4.dp).clip(CircleShape).background(Color.White.copy(alpha = .22f))) {
+                    Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).height(4.dp).clip(CircleShape).background(Brand))
+                }
             }
         }
-        Spacer(Modifier.height(8.dp))
-        Text(p.title.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Soft, style = jakarta(), maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -435,7 +466,7 @@ fun Card(content: @Composable () -> Unit) {
     Column(
         Modifier.fillMaxWidth().padding(bottom = 14.dp).clip(RoundedCornerShape(22.dp))
             .background(Brush.linearGradient(listOf(Color(0xFF1B1E2C), Color(0xFF12141D))))
-            .border(1.dp, Hairline, RoundedCornerShape(22.dp)).padding(20.dp),
+            .border(1.dp, Edge, RoundedCornerShape(22.dp)).padding(20.dp),
     ) { content() }
 }
 

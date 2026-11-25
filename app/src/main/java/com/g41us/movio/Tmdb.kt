@@ -1,5 +1,7 @@
 package com.g41us.movio
 
+import kotlinx.coroutines.async
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -134,23 +136,38 @@ object Tmdb {
         parseList(get(path, params).optJSONArray("results"), kind)
 
     /** "Because you watched" rows from recent titles' recommendations. */
-    suspend fun becauseYouWatched(recent: List<Title>, exclude: Set<String>): List<Row> =
-        recent.distinctBy { it.key }.take(3).mapNotNull { t ->
-            try {
-                val recs = details(t).similar.filter { it.key !in exclude }
-                if (recs.size >= 4) Row("Because you watched ${t.name}", recs) else null
-            } catch (_: Exception) { null }
-        }
+    suspend fun becauseYouWatched(recent: List<Title>, exclude: Set<String>): List<Row> = kotlinx.coroutines.coroutineScope {
+        recent.distinctBy { it.key }.take(3).map { t ->
+            async {
+                try {
+                    val recs = details(t).similar.filter { it.key !in exclude }
+                    if (recs.size >= 4) Row("Because you watched ${t.name}", recs) else null
+                } catch (_: Exception) { null }
+            }
+        }.mapNotNull { it.await() }
+    }
 
-    suspend fun home(): List<Row> = listOf(
-        Row("Trending this week", list("trending/all/week", null)),
-        Row("Top 10 today", list("trending/all/day", null).take(10), ranked = true),
-        Row("New in cinemas", list("movie/now_playing", Kind.MOVIE)),
-        Row("Popular movies", list("movie/popular", Kind.MOVIE)),
-        Row("Popular shows", list("tv/popular", Kind.TV)),
-        Row("Top rated movies", list("movie/top_rated", Kind.MOVIE)),
-        Row("Top rated shows", list("tv/top_rated", Kind.TV)),
-    ).filter { it.items.isNotEmpty() }
+    /** Loads every row at once instead of one after another. */
+    private suspend fun rows(vararg specs: Pair<String, suspend () -> List<Title>>, ranked: String? = null): List<Row> =
+        kotlinx.coroutines.coroutineScope {
+            specs.map { (name, load) -> async { Row(name, try { load() } catch (_: Exception) { emptyList() }, ranked = name == ranked) } }.map { it.await() }
+        }.filter { it.items.isNotEmpty() }.also { if (it.isEmpty()) error("Nothing loaded") }
+
+    private fun r(name: String, load: suspend () -> List<Title>) = name to load
+
+    /** Rows that come after "Because you watched" on Home. */
+    const val PERSONAL_AFTER = 3
+
+    suspend fun home(): List<Row> = rows(
+        r("Top 10 today") { list("trending/all/day", null).take(10) },
+        r("New in cinemas") { list("movie/now_playing", Kind.MOVIE) },
+        r("Trending this week") { list("trending/all/week", null) },
+        r("Popular movies") { list("movie/popular", Kind.MOVIE) },
+        r("Popular shows") { list("tv/popular", Kind.TV) },
+        r("Top rated movies") { list("movie/top_rated", Kind.MOVIE) },
+        r("Top rated shows") { list("tv/top_rated", Kind.TV) },
+        ranked = "Top 10 today",
+    )
 
     suspend fun browse(kind: Kind, genre: Genre?): List<Row> {
         if (genre != null) {
@@ -162,20 +179,22 @@ object Tmdb {
                 Row("Highly rated ${genre.name}", list("discover/${kind.api}", kind, params + mapOf("sort_by" to "vote_average.desc", "vote_count.gte" to "300"))),
             ).filter { it.items.isNotEmpty() }
         }
-        return if (kind == Kind.MOVIE) listOf(
-            Row("Trending movies", list("trending/movie/week", Kind.MOVIE)),
-            Row("Top 10 movies", list("trending/movie/day", Kind.MOVIE).take(10), ranked = true),
-            Row("Now playing", list("movie/now_playing", Kind.MOVIE)),
-            Row("Popular", list("movie/popular", Kind.MOVIE)),
-            Row("Coming soon", list("movie/upcoming", Kind.MOVIE)),
-            Row("Top rated", list("movie/top_rated", Kind.MOVIE)),
-        ) else listOf(
-            Row("Trending shows", list("trending/tv/week", Kind.TV)),
-            Row("Top 10 shows", list("trending/tv/day", Kind.TV).take(10), ranked = true),
-            Row("Airing today", list("tv/airing_today", Kind.TV)),
-            Row("Popular", list("tv/popular", Kind.TV)),
-            Row("On the air", list("tv/on_the_air", Kind.TV)),
-            Row("Top rated", list("tv/top_rated", Kind.TV)),
+        return if (kind == Kind.MOVIE) rows(
+            r("Top 10 movies") { list("trending/movie/day", Kind.MOVIE).take(10) },
+            r("Now playing") { list("movie/now_playing", Kind.MOVIE) },
+            r("Trending movies") { list("trending/movie/week", Kind.MOVIE) },
+            r("Popular") { list("movie/popular", Kind.MOVIE) },
+            r("Coming soon") { list("movie/upcoming", Kind.MOVIE) },
+            r("Top rated") { list("movie/top_rated", Kind.MOVIE) },
+            ranked = "Top 10 movies",
+        ) else rows(
+            r("Top 10 shows") { list("trending/tv/day", Kind.TV).take(10) },
+            r("Airing today") { list("tv/airing_today", Kind.TV) },
+            r("Trending shows") { list("trending/tv/week", Kind.TV) },
+            r("Popular") { list("tv/popular", Kind.TV) },
+            r("On the air") { list("tv/on_the_air", Kind.TV) },
+            r("Top rated") { list("tv/top_rated", Kind.TV) },
+            ranked = "Top 10 shows",
         )
     }
 
