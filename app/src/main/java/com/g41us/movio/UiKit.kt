@@ -115,6 +115,8 @@ fun rating(r: Double) = if (r <= 0) null else String.format("%.1f", r)
 val LocalWide = compositionLocalOf { false }
 /** Running on a TV (remote control, no touch). */
 val LocalTv = compositionLocalOf { false }
+/** On TV, the top bar each page draws inside itself. */
+val LocalTopBar = compositionLocalOf<(@androidx.compose.runtime.Composable () -> Unit)?> { null }
 
 /** On TV, puts the remote on this element when the page opens so there's always a starting point. */
 fun Modifier.tvFirstFocus(key: Any?): Modifier = composed {

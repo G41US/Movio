@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.ui.layout.layout
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -170,11 +171,13 @@ fun SearchScreen(onOpen: (Title) -> Unit) {
     val (state, retry) = load(submitted) { if (submitted.length < 2) emptyList() else Tmdb.search(submitted) }
 
     val tv2 = rememberLazyGridState()
+    val tvBar = LocalTopBar.current
     LazyVerticalGrid(
         GridCells.Adaptive(108.dp), Modifier.fillMaxSize().dpadScroll(tv2), state = tv2,
-        contentPadding = PaddingValues(start = Gutter, end = Gutter, top = barSpace(), bottom = dockSpace()),
+        contentPadding = PaddingValues(start = Gutter, end = Gutter, top = if (tvBar != null) 0.dp else barSpace(), bottom = dockSpace()),
         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
+        if (tvBar != null) item(span = { GridItemSpan(maxLineSpan) }) { Box(Modifier.bleed(Gutter)) { tvBar() } }
         item(span = { GridItemSpan(maxLineSpan) }) {
             Row(
                 Modifier.fillMaxWidth().height(52.dp).clip(RoundedCornerShape(16.dp)).background(Glass)
@@ -218,11 +221,13 @@ fun SearchScreen(onOpen: (Title) -> Unit) {
 @Composable
 fun MyListScreen(store: Store, onOpen: (Title) -> Unit, onDownloads: () -> Unit) {
     val tv3 = rememberLazyGridState()
+    val tvBar = LocalTopBar.current
     LazyVerticalGrid(
         GridCells.Adaptive(108.dp), Modifier.fillMaxSize().dpadScroll(tv3), state = tv3,
-        contentPadding = PaddingValues(start = Gutter, end = Gutter, top = barSpace(), bottom = dockSpace()),
+        contentPadding = PaddingValues(start = Gutter, end = Gutter, top = if (tvBar != null) 0.dp else barSpace(), bottom = dockSpace()),
         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
+        if (tvBar != null) item(span = { GridItemSpan(maxLineSpan) }) { Box(Modifier.bleed(Gutter)) { tvBar() } }
         item(span = { GridItemSpan(maxLineSpan) }) {
             Row { GhostButton("Downloads", R.drawable.ic_download, onClick = onDownloads) }
         }
@@ -469,11 +474,13 @@ fun PersonScreen(person: Person, onOpen: (Title) -> Unit) {
     val (state, retry) = load(person.id) { Tmdb.person(person.id) }
     var more by remember { mutableStateOf(false) }
     val tv6 = rememberLazyGridState()
+    val tvBar = LocalTopBar.current
     LazyVerticalGrid(
         GridCells.Adaptive(108.dp), Modifier.fillMaxSize().dpadScroll(tv6), state = tv6,
-        contentPadding = PaddingValues(start = Gutter, end = Gutter, top = barSpace(), bottom = dockSpace()),
+        contentPadding = PaddingValues(start = Gutter, end = Gutter, top = if (tvBar != null) 0.dp else barSpace(), bottom = dockSpace()),
         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
+        if (tvBar != null) item(span = { GridItemSpan(maxLineSpan) }) { Box(Modifier.bleed(Gutter)) { tvBar() } }
         item(span = { GridItemSpan(maxLineSpan) }) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                 Avatar((state as? Load.Done)?.value?.person ?: person, 120.dp)
@@ -570,7 +577,14 @@ fun DownloadsScreen(onPlay: (DownloadInfo, String) -> Unit) {
  */
 @Composable
 private fun ScrollList(state: androidx.compose.foundation.ScrollState, padding: PaddingValues, content: @Composable ListShim.() -> Unit) {
-    Column(Modifier.fillMaxSize().verticalScroll(state).dpadScroll(state).padding(padding)) { ListShim.content() }
+    val bar = LocalTopBar.current
+    Column(Modifier.fillMaxSize().verticalScroll(state).dpadScroll(state)) {
+        // On TV the top bar is part of the page (not floating over it), so Down from the tabs reaches the content.
+        Box {
+            Column(Modifier.padding(padding)) { ListShim.content() }
+            bar?.invoke()
+        }
+    }
 }
 
 private object ListShim {
@@ -579,4 +593,11 @@ private object ListShim {
     @Composable fun <T> items(list: List<T>, key: ((T) -> Any)? = null, content: @Composable (T) -> Unit) {
         list.forEach { androidx.compose.runtime.key(key?.invoke(it)) { content(it) } }
     }
+}
+
+/** Lets a full-width row ignore the grid's side padding. */
+private fun Modifier.bleed(side: Dp) = layout { m, c ->
+    val extra = (side * 2).roundToPx()
+    val p = m.measure(c.copy(minWidth = c.minWidth + extra, maxWidth = c.maxWidth + extra))
+    layout(c.maxWidth, p.height) { p.place(-extra / 2, 0) }
 }

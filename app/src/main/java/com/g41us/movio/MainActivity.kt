@@ -169,7 +169,25 @@ fun App(openRequest: androidx.compose.runtime.MutableState<Title?>) {
     }
 
     CompositionLocalProvider(LocalWide provides wide, LocalTv provides isTv) {
+        val bar: @Composable () -> Unit = {
+                TopBar(
+                    title = when {
+                        top is Screen.Settings -> "Settings"
+                        top is Screen.Downloads -> "Downloads"
+                        top is Screen.Details || top is Screen.People -> null
+                        tab == Tab.SEARCH -> "Search"
+                        tab == Tab.LIST -> "My List"
+                        else -> null
+                    },
+                    onBack = if (top != null) ({ stack.removeAt(stack.lastIndex) }) else null,
+                    settingsActive = top is Screen.Settings,
+                    tab = if (top == null) tab else null,
+                    onTab = { t -> stack.clear(); tab = t },
+                    onSettings = { if (top is Screen.Settings) stack.removeAt(stack.lastIndex) else stack.add(Screen.Settings) },
+                )
+        }
         Box(Modifier.fillMaxSize().background(Ink)) {
+            CompositionLocalProvider(LocalTopBar provides if (isTv) bar else null) {
             AnimatedContent(top ?: tab, transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(160)) }, label = "screen") { s ->
                 when (s) {
                     is Screen.Details -> DetailsScreen(s.title, store, ::open, { p -> stack.add(Screen.People(p)) }, ::trailer) { t, se, ep -> PlayerActivity.start(context, t, se, ep) }
@@ -195,21 +213,8 @@ fun App(openRequest: androidx.compose.runtime.MutableState<Title?>) {
                     else -> {}
                 }
             }
-            TopBar(
-                title = when {
-                    top is Screen.Settings -> "Settings"
-                    top is Screen.Downloads -> "Downloads"
-                    top is Screen.Details || top is Screen.People -> null
-                    tab == Tab.SEARCH -> "Search"
-                    tab == Tab.LIST -> "My List"
-                    else -> null
-                },
-                onBack = if (top != null) ({ stack.removeAt(stack.lastIndex) }) else null,
-                settingsActive = top is Screen.Settings,
-                tab = if (top == null) tab else null,
-                onTab = { t -> stack.clear(); tab = t },
-                onSettings = { if (top is Screen.Settings) stack.removeAt(stack.lastIndex) else stack.add(Screen.Settings) },
-            )
+            }
+            if (!isTv) bar()
             if (!wide) Dock(if (top == null) tab else null, { t -> stack.clear(); tab = t }, Modifier.align(Alignment.BottomCenter))
 
             if (splash) Splash { splash = false }
