@@ -38,6 +38,23 @@ class Store private constructor(context: Context) {
         save("continue", continueWatching.map { p -> toJson(p.title).put("s", p.season).put("e", p.episode) })
     }
 
+    private val positions = context.getSharedPreferences("movio_positions", Context.MODE_PRIVATE)
+
+    fun posKey(t: Title, season: Int, episode: Int) = if (t.kind == Kind.TV) "${t.key}:$season:$episode" else t.key
+
+    /** Where playback stopped, so it can resume there. */
+    fun savePosition(key: String, positionMs: Long, durationMs: Long) {
+        if (durationMs <= 0) return
+        val done = positionMs > durationMs - 90_000
+        positions.edit().putString(key, if (done) "0:$durationMs" else "$positionMs:$durationMs").apply()
+    }
+
+    fun position(key: String): Pair<Long, Long>? = positions.getString(key, null)?.split(":")?.let {
+        val p = it.getOrNull(0)?.toLongOrNull() ?: return null
+        val d = it.getOrNull(1)?.toLongOrNull() ?: return null
+        p to d
+    }
+
     fun lastEpisode(t: Title): Progress? = continueWatching.firstOrNull { it.title.key == t.key }
 
     private fun toJson(t: Title) = JSONObject()

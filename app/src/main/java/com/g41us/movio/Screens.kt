@@ -124,7 +124,10 @@ fun FeedScreen(kind: Kind?, store: Store, onOpen: (Title) -> Unit, onPlay: (Titl
                 if (kind == null && store.continueWatching.isNotEmpty()) item(key = "continue") {
                     SectionTitle("Continue watching")
                     LazyRow(contentPadding = PaddingValues(horizontal = Gutter), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(store.continueWatching, key = { it.title.key }) { p -> ContinueCard(p) { onPlay(p.title) } }
+                        items(store.continueWatching, key = { it.title.key }) { p ->
+                            val pos = store.position(store.posKey(p.title, p.season, p.episode))
+                            ContinueCard(p, pos?.let { (a, b) -> if (b > 0) a.toFloat() / b else null }) { onPlay(p.title) }
+                        }
                     }
                 }
                 rows.forEachIndexed { i, row ->

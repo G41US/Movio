@@ -284,7 +284,7 @@ fun RankedCard(rank: Int, t: Title, onClick: () -> Unit) {
 }
 
 @Composable
-fun ContinueCard(p: Progress, onClick: () -> Unit) {
+fun ContinueCard(p: Progress, progress: Float? = null, onClick: () -> Unit) {
     Column(Modifier.width(220.dp).tappable(onClick)) {
         Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(14.dp)).background(Panel).border(1.dp, Hairline, RoundedCornerShape(14.dp))) {
             AsyncImage(Tmdb.img(p.title.backdrop ?: p.title.poster, "w500"), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
@@ -294,8 +294,11 @@ fun ContinueCard(p: Progress, onClick: () -> Unit) {
             }
             if (p.title.kind == Kind.TV) Text(
                 "S${p.season} · E${p.episode}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White, style = jakarta(),
-                modifier = Modifier.align(Alignment.BottomStart).padding(10.dp),
+                modifier = Modifier.align(Alignment.BottomStart).padding(start = 10.dp, bottom = 14.dp),
             )
+            if (progress != null && progress > 0f) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(horizontal = 10.dp, vertical = 7.dp).height(3.dp).clip(CircleShape).background(Color.White.copy(alpha = .25f))) {
+                Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).height(3.dp).background(Brand))
+            }
         }
         Spacer(Modifier.height(8.dp))
         Text(p.title.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Soft, style = jakarta(), maxLines = 1, overflow = TextOverflow.Ellipsis)
