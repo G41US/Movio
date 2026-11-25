@@ -331,7 +331,7 @@ fun Hero(items: List<Title>, saved: (Title) -> Boolean, onPlay: (Title) -> Unit,
     var index by remember(items) { mutableIntStateOf(0) }
     LaunchedEffect(items) { while (items.size > 1) { delay(7000); index = (index + 1) % items.size } }
     val wide = LocalWide.current
-    val heroH = if (wide) (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * .82f).dp else 560.dp
+    val heroH = if (wide) (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * .66f).dp else 560.dp
     Box(Modifier.fillMaxWidth().height(heroH).clipToBounds()) {
         val arts = remember(items) { androidx.compose.runtime.mutableStateMapOf<String, Art>() }
         LaunchedEffect(items) { items.forEach { t -> if (t.key !in arts) arts[t.key] = Tmdb.art(t) } }

@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -110,7 +112,8 @@ fun FeedScreen(kind: Kind?, store: Store, onOpen: (Title) -> Unit, onPlay: (Titl
     LaunchedEffect(state) { if (state !is Load.Loading) Boot.ready = true }
     // Get the titles you're most likely to play ready ahead of time.
     LaunchedEffect(Unit) { store.continueWatching.take(3).forEach { Prefetch.title(it.title, it.season, it.episode) } }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = dockSpace())) {
+    val tv1 = rememberLazyListState()
+    LazyColumn(Modifier.fillMaxSize().dpadScroll(tv1), state = tv1, contentPadding = PaddingValues(bottom = dockSpace())) {
         when (val s = state) {
             Load.Loading -> {
                 item { HeroSkeleton() }
@@ -164,8 +167,9 @@ fun SearchScreen(onOpen: (Title) -> Unit) {
     LaunchedEffect(query) { delay(450); submitted = query.trim() }
     val (state, retry) = load(submitted) { if (submitted.length < 2) emptyList() else Tmdb.search(submitted) }
 
+    val tv2 = rememberLazyGridState()
     LazyVerticalGrid(
-        GridCells.Adaptive(108.dp), Modifier.fillMaxSize(),
+        GridCells.Adaptive(108.dp), Modifier.fillMaxSize().dpadScroll(tv2), state = tv2,
         contentPadding = PaddingValues(start = Gutter, end = Gutter, top = barSpace(), bottom = dockSpace()),
         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
@@ -211,8 +215,9 @@ fun SearchScreen(onOpen: (Title) -> Unit) {
 
 @Composable
 fun MyListScreen(store: Store, onOpen: (Title) -> Unit, onDownloads: () -> Unit) {
+    val tv3 = rememberLazyGridState()
     LazyVerticalGrid(
-        GridCells.Adaptive(108.dp), Modifier.fillMaxSize(),
+        GridCells.Adaptive(108.dp), Modifier.fillMaxSize().dpadScroll(tv3), state = tv3,
         contentPadding = PaddingValues(start = Gutter, end = Gutter, top = barSpace(), bottom = dockSpace()),
         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
@@ -234,7 +239,8 @@ fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPerson:
     LaunchedEffect(title.key) { Prefetch.title(title, last?.season ?: 1, last?.episode ?: 1) }
     var season by remember(title.key) { mutableIntStateOf(last?.season ?: 1) }
 
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = dockSpace())) {
+    val tv4 = rememberLazyListState()
+    LazyColumn(Modifier.fillMaxSize().dpadScroll(tv4), state = tv4, contentPadding = PaddingValues(bottom = dockSpace())) {
         item(key = "top") {
             val d = (state as? Load.Done)?.value
             val t = d?.title ?: title
@@ -352,7 +358,8 @@ sealed interface UpdateState {
 
 @Composable
 fun SettingsScreen(version: String, update: UpdateState, blocked: Int, store: Store, onDownloads: () -> Unit, onAlerts: (Boolean) -> Unit, onUpdate: () -> Unit, onClearCache: () -> Unit) {
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = Gutter, end = Gutter, top = barSpace(), bottom = dockSpace())) {
+    val tv5 = rememberLazyListState()
+    LazyColumn(Modifier.fillMaxSize().dpadScroll(tv5), state = tv5, contentPadding = PaddingValues(start = Gutter, end = Gutter, top = barSpace(), bottom = dockSpace())) {
         item {
             Card {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -459,8 +466,9 @@ fun CastCard(p: Person, onClick: () -> Unit) {
 fun PersonScreen(person: Person, onOpen: (Title) -> Unit) {
     val (state, retry) = load(person.id) { Tmdb.person(person.id) }
     var more by remember { mutableStateOf(false) }
+    val tv6 = rememberLazyGridState()
     LazyVerticalGrid(
-        GridCells.Adaptive(108.dp), Modifier.fillMaxSize(),
+        GridCells.Adaptive(108.dp), Modifier.fillMaxSize().dpadScroll(tv6), state = tv6,
         contentPadding = PaddingValues(start = Gutter, end = Gutter, top = barSpace(), bottom = dockSpace()),
         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
@@ -518,7 +526,8 @@ fun DownloadsScreen(onPlay: (DownloadInfo, String) -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var items by remember { mutableStateOf(Downloads.all(context)) }
     LaunchedEffect(Unit) { while (true) { items = Downloads.all(context); delay(1000) } }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = Gutter, end = Gutter, top = barSpace(), bottom = dockSpace())) {
+    val tv7 = rememberLazyListState()
+    LazyColumn(Modifier.fillMaxSize().dpadScroll(tv7), state = tv7, contentPadding = PaddingValues(start = Gutter, end = Gutter, top = barSpace(), bottom = dockSpace())) {
         if (items.isEmpty()) item { Message("No downloads yet", "Tap Download in the player to save a movie or episode for offline viewing.") }
         items(items, key = { it.request.id }) { d ->
             val info = DownloadInfo.from(d.request.data) ?: return@items

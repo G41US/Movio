@@ -18,6 +18,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.key
+import androidx.compose.foundation.gestures.animateScrollBy
+import kotlinx.coroutines.launch
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -114,4 +119,28 @@ fun Modifier.focusGlow(shape: Shape = RoundedCornerShape(14.dp)): Modifier = com
     this.onFocusChanged { focused = it.isFocused || it.hasFocus }
         .graphicsLayer { val s = if (focused) 1.06f else 1f; scaleX = s; scaleY = s }
         .border(if (focused) 2.5.dp else 0.dp, if (focused) Color.White else Color.Transparent, shape)
+}
+
+/**
+ * TV remote: Up/Down moves focus to the next item; when nothing focusable is in that direction
+ * (text, gaps, the end of a section), the page scrolls instead so the remote never gets stuck.
+ */
+fun Modifier.dpadScroll(state: androidx.compose.foundation.gestures.ScrollableState): Modifier = composed {
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val step = with(LocalDensity.current) { 260.dp.toPx() }
+    this.onPreviewKeyEvent { e ->
+        if (e.type != androidx.compose.ui.input.key.KeyEventType.KeyDown) return@onPreviewKeyEvent false
+        val down = when (e.key) {
+            androidx.compose.ui.input.key.Key.DirectionDown -> true
+            androidx.compose.ui.input.key.Key.DirectionUp -> false
+            else -> return@onPreviewKeyEvent false
+        }
+        val dir = if (down) androidx.compose.ui.focus.FocusDirection.Down else androidx.compose.ui.focus.FocusDirection.Up
+        if (focus.moveFocus(dir)) return@onPreviewKeyEvent true
+        if (!down && !state.canScrollBackward) return@onPreviewKeyEvent false
+        if (down && !state.canScrollForward) return@onPreviewKeyEvent false
+        scope.launch { state.animateScrollBy(if (down) step else -step) }
+        true
+    }
 }
