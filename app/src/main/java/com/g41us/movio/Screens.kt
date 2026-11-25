@@ -226,7 +226,9 @@ fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPerson:
             val d = (state as? Load.Done)?.value
             val t = d?.title ?: title
             Box(Modifier.fillMaxWidth().height(500.dp).clipToBounds()) {
-                AsyncImage(Tmdb.img(t.poster, "w780"), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().kenBurns())
+                // Art without printed titles; while details load, show nothing rather than a poster with text.
+                val image = when { d == null -> null; d.cleanPoster != null -> Tmdb.img(d.cleanPoster, "w780"); else -> Tmdb.img(t.backdrop ?: t.poster, "w1280") }
+                if (image != null) AsyncImage(image, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().kenBurns())
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Ink.copy(alpha = .4f), .35f to Color.Transparent, .7f to Ink.copy(alpha = .7f), 1f to Ink)))
                 Column(Modifier.align(Alignment.BottomStart).padding(horizontal = Gutter).enterUp()) {
                     if (d?.logo != null) AsyncImage(Tmdb.img(d.logo, "w500"), t.name, contentScale = ContentScale.Fit,

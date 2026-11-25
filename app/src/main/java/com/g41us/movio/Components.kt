@@ -330,12 +330,17 @@ fun Hero(items: List<Title>, saved: (Title) -> Boolean, onPlay: (Title) -> Unit,
     val wide = LocalWide.current
     val heroH = if (wide) (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * .82f).dp else 560.dp
     Box(Modifier.fillMaxWidth().height(heroH).clipToBounds()) {
+        val arts = remember(items) { androidx.compose.runtime.mutableStateMapOf<String, Art>() }
+        LaunchedEffect(items) { items.forEach { t -> if (t.key !in arts) arts[t.key] = Tmdb.art(t) } }
         AnimatedContent(items[index], transitionSpec = { fadeIn(tween(700)) togetherWith fadeOut(tween(700)) }, label = "hero") { t ->
             Box(Modifier.fillMaxSize()) {
-                AsyncImage(
-                    if (wide) Tmdb.img(t.backdrop ?: t.poster, "w1280") else Tmdb.img(t.poster, "w780"), null, contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize().kenBurns(),
-                )
+                val art = arts[t.key]
+                val image = when {
+                    wide -> Tmdb.img(t.backdrop ?: art?.image, "w1280")
+                    art == null -> null
+                    else -> Tmdb.img(art.image, if (art.wide) "w1280" else "w780")
+                }
+                if (image != null) AsyncImage(image, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().kenBurns())
                 if (wide) Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Ink.copy(alpha = .85f), .55f to Color.Transparent)))
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Ink.copy(alpha = .35f), .3f to Color.Transparent, .62f to Ink.copy(alpha = .55f), 1f to Ink)))
             }
@@ -345,7 +350,10 @@ fun Hero(items: List<Title>, saved: (Title) -> Boolean, onPlay: (Title) -> Unit,
             .then(if (wide) Modifier.width(560.dp) else Modifier).enterUp()) {
             Badge(if (t.kind == Kind.TV) "SERIES" else "MOVIE")
             Spacer(Modifier.height(12.dp))
-            Text(t.name, fontSize = if (wide) 40.sp else 34.sp, lineHeight = if (wide) 44.sp else 38.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-1).sp, color = Color.White,
+            val logo = arts[t.key]?.logo
+            if (logo != null) AsyncImage(Tmdb.img(logo, "w500"), t.name, contentScale = ContentScale.Fit, alignment = Alignment.BottomStart,
+                modifier = Modifier.width(260.dp).height(84.dp))
+            else Text(t.name, fontSize = if (wide) 40.sp else 34.sp, lineHeight = if (wide) 44.sp else 38.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-1).sp, color = Color.White,
                 style = jakarta(), maxLines = 2, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(8.dp))
             Meta(t)

@@ -97,6 +97,10 @@ interface PlayerHost {
     val autoSkip: Boolean
     /** Exact intro/recap/credits/preview times for what's playing (may be empty). */
     val segments: List<Segment>
+    /** Small muted video view used for seek previews. */
+    val previewView: android.view.View?
+    /** Move the seek preview to [posMs], or stop it with null. */
+    fun preview(posMs: Long?)
     fun back()
     fun next()
     fun web()
@@ -229,8 +233,8 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
                 var scrubTo = 0L
                 detectDragGestures(
                     onDragStart = { o -> mode = 0; startPos = player.currentPosition; scrubTo = startPos; side = if (o.x < size.width / 2) 1 else 2 },
-                    onDragEnd = { if (mode == 3) { player.seekTo(scrubTo); dragging = false }; mode = 0 },
-                    onDragCancel = { mode = 0; dragging = false },
+                    onDragEnd = { if (mode == 3) { player.seekTo(scrubTo); dragging = false; host.preview(null) }; mode = 0 },
+                    onDragCancel = { mode = 0; dragging = false; host.preview(null) },
                 ) { change, d ->
                     if (mode == 0) mode = if (abs(d.x) > abs(d.y)) 3 else side
                     when (mode) {
@@ -239,7 +243,8 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
                         3 -> if (duration > 0) {
                             scrubTo = (scrubTo + (d.x / size.width * 180_000).toLong()).coerceIn(0, duration)
                             dragging = true; dragValue = scrubTo.toFloat() / duration
-                            hint = "${clock(scrubTo)}  (${if (scrubTo >= startPos) "+" else "−"}${clock(abs(scrubTo - startPos))})"
+                            host.preview(scrubTo)
+                            if (host.previewView == null) hint = "${clock(scrubTo)}  (${if (scrubTo >= startPos) "+" else "−"}${clock(abs(scrubTo - startPos))})"
                         }
                     }
                     change.consume()
@@ -285,13 +290,29 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
                 }
                 // Bottom: seek bar, then one quiet row
                 Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().safeDrawingPadding().padding(horizontal = 18.dp, vertical = 4.dp)) {
+                    val pv = host.previewView
+                    if (dragging && pv != null && duration > 0) androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().height(118.dp)) {
+                        val w = 176.dp
+                        val x = ((maxWidth - w) * dragValue.coerceIn(0f, 1f))
+                        Column(Modifier.padding(start = x).width(w), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Box(Modifier.width(w).aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp)).background(Color.Black).border(2.dp, Color.White, RoundedCornerShape(10.dp))) {
+                                androidx.compose.ui.viewinterop.AndroidView(
+                                    factory = { (pv.parent as? android.view.ViewGroup)?.removeView(pv); pv },
+                                    modifier = Modifier.fillMaxSize().padding(2.dp).clip(RoundedCornerShape(8.dp)),
+                                    onRelease = { (it.parent as? android.view.ViewGroup)?.removeView(it) },
+                                )
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            Text(clock((dragValue * duration).toLong()), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, style = TextStyle(fontFamily = Jakarta, shadow = shade))
+                        }
+                    }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(clock(if (dragging) (dragValue * duration).toLong() else position), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                             style = TextStyle(fontFamily = Jakarta, shadow = shade))
                         Slider(
                             value = if (dragging) dragValue else if (duration > 0) position.toFloat() / duration else 0f,
-                            onValueChange = { dragging = true; dragValue = it; touch() },
-                            onValueChangeFinished = { player.seekTo((dragValue * duration).toLong()); dragging = false },
+                            onValueChange = { dragging = true; dragValue = it; touch(); host.preview((it * duration).toLong()) },
+                            onValueChangeFinished = { player.seekTo((dragValue * duration).toLong()); dragging = false; host.preview(null) },
                             colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Violet, inactiveTrackColor = Color.White.copy(alpha = .3f)),
                             modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
                         )

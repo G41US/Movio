@@ -519,6 +519,8 @@ class PlayerActivity : ComponentActivity() {
         exo.setMediaSource(DefaultMediaSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(this, http)).createMediaSource(item))
         exo.prepare()
         lastHeaders = headers
+        previewSource = { DefaultMediaSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(this, http)).createMediaSource(MediaItem.Builder().setUri(s.url).setMimeType(if (s.hls) MimeTypes.APPLICATION_M3U8 else null).build()) }
+        releasePreview()
     }
 
     private val shiftedSubs = mutableMapOf<String, String>()
@@ -610,6 +612,7 @@ class PlayerActivity : ComponentActivity() {
         val item = d.request.toMediaItem().buildUpon().setSubtitleConfigurations(listOfNotNull(sub)).build()
         exo.setMediaSource(DefaultMediaSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(this, Downloads.offlineFactory(this))).createMediaSource(item))
         exo.prepare()
+        previewSource = { DefaultMediaSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(this, Downloads.offlineFactory(this))).createMediaSource(d.request.toMediaItem()) }
         trying = Stream(d.request.uri.toString(), emptyMap(), hls = true)
         status = "Playing from Downloads"
         lifecycleScope.launch { segments = Segments.find(kind, this@PlayerActivity.id, season, episode) }
@@ -681,6 +684,42 @@ class PlayerActivity : ComponentActivity() {
         }
     }
 
+    // ---------- Seek preview: a tiny muted second player at the lowest quality ----------
+
+    private var previewSource: (() -> androidx.media3.exoplayer.source.MediaSource)? = null
+    private var previewPlayer: ExoPlayer? = null
+    private var previewTarget = -1L
+    private val previewTexture by lazy { android.view.TextureView(this) }
+    private val previewSeek = Runnable { previewPlayer?.let { if (previewTarget >= 0) it.seekTo(previewTarget) } }
+
+    private fun preview(pos: Long?) {
+        if (pos == null) { main.removeCallbacks(previewSeek); previewPlayer?.pause(); return }
+        val p = previewPlayer ?: run {
+            val src = previewSource ?: return
+            ExoPlayer.Builder(this).build().apply {
+                trackSelectionParameters = trackSelectionParameters.buildUpon()
+                    .setMaxVideoSize(426, 240).setForceLowestBitrate(true)
+                    .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, true).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
+                setSeekParameters(androidx.media3.exoplayer.SeekParameters.CLOSEST_SYNC)
+                volume = 0f
+                playWhenReady = false
+                setVideoTextureView(previewTexture)
+                setMediaSource(src())
+                prepare()
+                previewPlayer = this
+            }
+        }
+        previewTarget = pos
+        main.removeCallbacks(previewSeek)
+        main.postDelayed(previewSeek, if (p.playbackState == Player.STATE_BUFFERING) 220 else 90)
+    }
+
+    private fun releasePreview() {
+        main.removeCallbacks(previewSeek)
+        previewPlayer?.release()
+        previewPlayer = null
+    }
+
     private val audio by lazy { getSystemService(AUDIO_SERVICE) as AudioManager }
 
     private val host = object : PlayerHost {
@@ -700,6 +739,8 @@ class PlayerActivity : ComponentActivity() {
         override val autoplay get() = store.autoplayNext
         override val autoSkip get() = store.autoSkip
         override val segments get() = this@PlayerActivity.segments
+        override val previewView: View? get() = if (previewSource != null) previewTexture else null
+        override fun preview(posMs: Long?) = this@PlayerActivity.preview(posMs)
         override fun back() = finish()
         override fun next() = nextEpisode()
         override fun web() = showWeb(reload = true)
@@ -917,6 +958,7 @@ class PlayerActivity : ComponentActivity() {
     override fun onDestroy() {
         savePosition()
         main.removeCallbacksAndMessages(null)
+        releasePreview()
         exo.release()
         try {
             (webView.parent as? ViewGroup)?.removeView(webView)

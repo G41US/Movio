@@ -41,7 +41,12 @@ data class Details(
     val similar: List<Title>,
     val logo: String?,
     val trailer: String?,
+    /** Poster with no title printed on it (or null if TMDB has none). */
+    val cleanPoster: String?,
 )
+
+/** Artwork without baked-in title text, plus the title logo, for big hero images. */
+data class Art(val image: String?, val wide: Boolean, val logo: String?)
 
 data class PersonDetails(val person: Person, val bio: String, val known: List<Title>)
 
@@ -177,8 +182,22 @@ object Tmdb {
                 .firstOrNull { it.optString("iso_639_1") == "en" || it.isNull("iso_639_1") }
                 ?.optString("file_path")
         }
-        return Details(full.copy(poster = full.poster ?: t.poster), o.optString("tagline"), runtime, genres, seasons, cast, similar, logo, trailer)
+        val clean = o.optJSONObject("images")?.optJSONArray("posters")?.let { a ->
+            (0 until a.length()).map { a.getJSONObject(it) }.filter { it.isNull("iso_639_1") || it.optString("iso_639_1").isBlank() }
+                .maxByOrNull { it.optDouble("vote_average", 0.0) * 10 + it.optInt("vote_count") }?.optString("file_path")
+        }
+        return Details(full.copy(poster = full.poster ?: t.poster), o.optString("tagline"), runtime, genres, seasons, cast, similar, logo, trailer, clean)
     }
+
+    /** Clean hero artwork: textless poster, else the (text-free) backdrop; plus the logo. */
+    suspend fun art(t: Title): Art = try {
+        val d = details(t)
+        when {
+            d.cleanPoster != null -> Art(d.cleanPoster, false, d.logo)
+            d.title.backdrop != null -> Art(d.title.backdrop, true, d.logo)
+            else -> Art(t.poster, false, null)
+        }
+    } catch (_: Exception) { Art(t.backdrop ?: t.poster, t.backdrop != null, null) }
 
     suspend fun person(id: Int): PersonDetails {
         val o = get("person/$id", mapOf("append_to_response" to "combined_credits"))
