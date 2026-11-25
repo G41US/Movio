@@ -66,8 +66,8 @@ fun Logo(size: Int = 20, anchor: Boolean = false) {
         Image(painterResource(R.drawable.logo_tile), null, Modifier.size((size * 1.5).dp)
             .then(if (anchor) Modifier.onGloballyPositioned { Boot.logo = it.boundsInRoot() } else Modifier))
         Spacer(Modifier.width(10.dp))
-        Text("MOV", fontSize = size.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp, color = Color.White, style = jakarta())
-        Text("IO", fontSize = size.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp, style = jakarta(Brand))
+        Text("MOV", fontSize = size.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp, color = Color.White, style = jakarta(), maxLines = 1, softWrap = false)
+        Text("IO", fontSize = size.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp, style = jakarta(Brand), maxLines = 1, softWrap = false)
     }
 }
 
@@ -97,18 +97,20 @@ fun TopBar(title: String? = null, onBack: (() -> Unit)? = null, settingsActive: 
             GlassIcon(R.drawable.ic_back, size = 40.dp, onClick = onBack)
             Spacer(Modifier.width(12.dp))
         }
-        Box(Modifier.weight(1f)) {
+        Box(if (LocalWide.current && onTab != null) Modifier.padding(end = 12.dp) else Modifier.weight(1f)) {
             if (title != null && !(LocalWide.current && onTab != null)) Text(title, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, style = jakarta())
             else Logo(anchor = true)
         }
         if (LocalWide.current && onTab != null) {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Spacer(Modifier.weight(1f))
+            val tight = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 900
+            Row(horizontalArrangement = Arrangement.spacedBy(if (tight) 2.dp else 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Tab.entries.forEach { t ->
                     val active = t == tab
-                    Text(t.label, fontSize = 16.sp, style = jakarta(), fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                    Text(t.label, fontSize = if (tight) 14.sp else 16.sp, maxLines = 1, softWrap = false, style = jakarta(), fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
                         color = if (active) Color.White else Muted,
                         modifier = Modifier.clip(RoundedCornerShape(50)).background(if (active) Brush.linearGradient(listOf(Violet.copy(alpha = .45f), Pink.copy(alpha = .35f))) else Brush.linearGradient(listOf(Color.Transparent, Color.Transparent)))
-                            .focusGlow(RoundedCornerShape(50)).clickable { onTab(t) }.padding(horizontal = 16.dp, vertical = 9.dp))
+                            .focusGlow(RoundedCornerShape(50)).clickable { onTab(t) }.padding(horizontal = if (tight) 11.dp else 16.dp, vertical = 9.dp))
                 }
             }
             Spacer(Modifier.width(16.dp))
@@ -331,7 +333,7 @@ fun Hero(items: List<Title>, saved: (Title) -> Boolean, onPlay: (Title) -> Unit,
     var index by remember(items) { mutableIntStateOf(0) }
     LaunchedEffect(items) { while (items.size > 1) { delay(7000); index = (index + 1) % items.size } }
     val wide = LocalWide.current
-    val heroH = if (wide) (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * .66f).dp else 560.dp
+    val heroH = if (wide) (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * .66f).dp.coerceAtLeast(400.dp) else 560.dp
     Box(Modifier.fillMaxWidth().height(heroH).clipToBounds()) {
         val arts = remember(items) { androidx.compose.runtime.mutableStateMapOf<String, Art>() }
         LaunchedEffect(items) { items.forEach { t -> if (t.key !in arts) arts[t.key] = Tmdb.art(t) } }

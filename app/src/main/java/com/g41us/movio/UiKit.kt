@@ -121,14 +121,39 @@ fun Modifier.focusGlow(shape: Shape = RoundedCornerShape(14.dp)): Modifier = com
         .border(if (focused) 2.5.dp else 0.dp, if (focused) Color.White else Color.Transparent, shape)
 }
 
+/** The list on screen right now, so the TV remote can always scroll it. */
+object TvScroll {
+    var target: androidx.compose.foundation.gestures.ScrollableState? = null
+    var scope: kotlinx.coroutines.CoroutineScope? = null
+    var focus: androidx.compose.ui.focus.FocusManager? = null
+    var step = 600f
+
+    /** Scrolls the current page when the remote's Up/Down found nothing to move to. */
+    fun nudge(down: Boolean): Boolean {
+        val t = target ?: return false
+        val sc = scope ?: return false
+        if (down && !t.canScrollForward || !down && !t.canScrollBackward) return false
+        sc.launch {
+            t.animateScrollBy(if (down) step else -step)
+            // Land on whatever just scrolled into view.
+            focus?.moveFocus(if (down) androidx.compose.ui.focus.FocusDirection.Down else androidx.compose.ui.focus.FocusDirection.Up)
+        }
+        return true
+    }
+}
+
 /**
  * TV remote: Up/Down moves focus to the next item; when nothing focusable is in that direction
- * (text, gaps, the end of a section), the page scrolls instead so the remote never gets stuck.
+ * the page scrolls instead, so the remote never gets stuck.
  */
 fun Modifier.dpadScroll(state: androidx.compose.foundation.gestures.ScrollableState): Modifier = composed {
     val focus = androidx.compose.ui.platform.LocalFocusManager.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val step = with(LocalDensity.current) { 260.dp.toPx() }
+    androidx.compose.runtime.DisposableEffect(state) {
+        TvScroll.target = state; TvScroll.scope = scope; TvScroll.focus = focus; TvScroll.step = step
+        onDispose { if (TvScroll.target === state) { TvScroll.target = null; TvScroll.scope = null } }
+    }
     this.onPreviewKeyEvent { e ->
         if (e.type != androidx.compose.ui.input.key.KeyEventType.KeyDown) return@onPreviewKeyEvent false
         val down = when (e.key) {
@@ -137,10 +162,6 @@ fun Modifier.dpadScroll(state: androidx.compose.foundation.gestures.ScrollableSt
             else -> return@onPreviewKeyEvent false
         }
         val dir = if (down) androidx.compose.ui.focus.FocusDirection.Down else androidx.compose.ui.focus.FocusDirection.Up
-        if (focus.moveFocus(dir)) return@onPreviewKeyEvent true
-        if (!down && !state.canScrollBackward) return@onPreviewKeyEvent false
-        if (down && !state.canScrollForward) return@onPreviewKeyEvent false
-        scope.launch { state.animateScrollBy(if (down) step else -step) }
-        true
+        if (focus.moveFocus(dir)) true else TvScroll.nudge(down)
     }
 }

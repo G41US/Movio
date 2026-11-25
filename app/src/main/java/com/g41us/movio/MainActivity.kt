@@ -78,6 +78,17 @@ class MainActivity : ComponentActivity() {
         setContent { App(openRequest) }
     }
 
+    /** Whatever the remote is on, Up/Down that goes nowhere scrolls the page instead. */
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        if (super.dispatchKeyEvent(event)) return true
+        if (event.action != android.view.KeyEvent.ACTION_DOWN) return false
+        return when (event.keyCode) {
+            android.view.KeyEvent.KEYCODE_DPAD_DOWN -> TvScroll.nudge(true)
+            android.view.KeyEvent.KEYCODE_DPAD_UP -> TvScroll.nudge(false)
+            else -> false
+        }
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handle(intent)
@@ -97,7 +108,9 @@ fun App(openRequest: androidx.compose.runtime.MutableState<Title?>) {
     val context = LocalContext.current
     val store = remember { Store.get(context) }
     val scope = rememberCoroutineScope()
-    val wide = LocalConfiguration.current.screenWidthDp >= 840
+    val isTv = remember { context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK) ||
+        (context.getSystemService(android.app.UiModeManager::class.java)?.currentModeType == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION) }
+    val wide = isTv || LocalConfiguration.current.screenWidthDp >= 840
     var tab by rememberSaveable { mutableStateOf(Tab.HOME) }
     val stack = remember { mutableStateListOf<Screen>() }
     var update by remember { mutableStateOf<UpdateState>(UpdateState.Idle) }
