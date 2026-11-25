@@ -159,6 +159,7 @@ class PlayerActivity : ComponentActivity() {
     private var subOffsetState by mutableLongStateOf(0L)
     private var downloadLabelState by mutableStateOf<String?>(null)
     private var offlineId: String? = null
+    private var resumedAt by mutableLongStateOf(0L)
 
     private var id = 0
     private var kind = Kind.MOVIE
@@ -270,7 +271,20 @@ class PlayerActivity : ComponentActivity() {
         if (pip) return
         Box(Modifier.fillMaxSize()) {
             when (phase) {
-                Phase.NATIVE -> PlayerControls(exo, host, controlsVisible) { controlsVisible = it; placeSubtitles() }
+                Phase.NATIVE -> {
+                    PlayerControls(exo, host, controlsVisible) { controlsVisible = it; placeSubtitles() }
+                    if (resumedAt > 0) Row(
+                        Modifier.align(Alignment.BottomStart).safeDrawingPadding().padding(start = 24.dp, bottom = if (controlsVisible) 112.dp else 28.dp)
+                            .clip(RoundedCornerShape(12.dp)).background(Color(0xF00E1017)).padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("Resumed at ${clock(resumedAt)}", color = Soft, fontSize = 13.sp, style = jakarta())
+                        Spacer(Modifier.width(10.dp))
+                        Text("Start over", color = Ink, fontSize = 13.sp, fontWeight = FontWeight.Bold, style = jakarta(),
+                            modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(Color.White).clickable { exo.seekTo(0); resumedAt = 0L; store.savePosition(posKey(), 0, exo.duration.coerceAtLeast(1)) }
+                                .padding(horizontal = 12.dp, vertical = 7.dp))
+                    }
+                }
                 Phase.WEB -> AnimatedVisibility(webBar, enter = fadeIn(), exit = fadeOut()) {
                     Row(
                         Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = .75f), Color.Transparent)))
@@ -366,8 +380,10 @@ class PlayerActivity : ComponentActivity() {
     // ---------- Sources ----------
 
     /** Play from source [index]. Automatic starts move on to the next source by themselves. */
-    private fun start(index: Int, automatic: Boolean) {
-        if (phase == Phase.NATIVE) savePosition()
+    private fun start(index: Int, automatic: Boolean, save: Boolean = true) {
+        // Only save when staying on the same episode (e.g. switching source); episode changes save before moving.
+        if (save && phase == Phase.NATIVE) savePosition()
+        resumedAt = 0L
         auto = automatic
         if (!automatic) { autoTried = 0; prefs.edit().putString("source2", Sources.all[index].name).apply() }
         sourceIndex = index
@@ -518,7 +534,7 @@ class PlayerActivity : ComponentActivity() {
         }
         phase = Phase.NATIVE
         playerView.visibility = View.VISIBLE
-        store.position(posKey())?.let { (p, dur) -> if (p > 30_000 && (dur <= 0 || p < dur - 60_000)) exo.seekTo(p) }
+        store.position(posKey())?.let { (p, dur) -> if (p > 30_000 && (dur <= 0 || p < dur - 60_000)) { exo.seekTo(p); resumedAt = p; main.postDelayed({ resumedAt = 0L }, 7000) } }
         exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon().setPreferredTextLanguage("en").build()
         exo.play()
         failedSources.remove(sourceIndex)
@@ -546,7 +562,7 @@ class PlayerActivity : ComponentActivity() {
         title?.let { store.watched(it, season, episode) }
         failedSources.clear()
         autoTried = 0
-        start(sourceIndex, automatic = true)
+        start(sourceIndex, automatic = true, save = false)
     }
 
     private fun savePosition() {
@@ -568,7 +584,7 @@ class PlayerActivity : ComponentActivity() {
         updateLabel()
         title?.let { store.watched(it, season, episode) }
         failedSources.clear(); autoTried = 0
-        start(sourceIndex, automatic = true)
+        start(sourceIndex, automatic = true, save = false)
     }
 
     /** Plays a finished download straight from the phone. */
