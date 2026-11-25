@@ -37,6 +37,10 @@
     });
     return send.apply(this, arguments);
   };
+  // Tell Movio when the page's own video starts, so it can show the page if the stream wasn't caught.
+  document.addEventListener('playing', function (e) {
+    try { if (e.target && e.target.tagName === 'VIDEO' && e.target.duration > 150) B.playing(); } catch (x) {}
+  }, true);
   var d = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'src');
   if (d && d.set) Object.defineProperty(HTMLMediaElement.prototype, 'src', {
     get: d.get, configurable: true,

@@ -144,6 +144,8 @@ class PlayerActivity : ComponentActivity() {
     private var season = 1
     private var episode = 1
     private var title: Title? = null
+    /** Expected length from TMDB, to spot a source playing the wrong title. */
+    @Volatile private var runtimeMs = 0L
 
     // Per-attempt state.
     private val candidates = mutableListOf<Stream>()
@@ -179,6 +181,13 @@ class PlayerActivity : ComponentActivity() {
         episode = intent.getIntExtra("e", 1)
         title = store.continueWatching.firstOrNull { it.title.id == id && it.title.kind == kind }?.title
         updateLabel()
+        lifecycleScope.launch {
+            runtimeMs = try {
+                val t = title ?: Title(id, kind, name, "", null, null, null, 0.0)
+                if (kind == Kind.MOVIE) (Tmdb.details(t).runtime ?: 0) * 60_000L
+                else (Tmdb.episodes(id, season).firstOrNull { it.number == episode }?.runtime ?: 0) * 60_000L
+            } catch (_: Exception) { 0L }
+        }
 
         exo = ExoPlayer.Builder(this).build().apply {
             playWhenReady = true
@@ -207,7 +216,7 @@ class PlayerActivity : ComponentActivity() {
         overlay.setContent { Overlay() }
 
         setupWebView()
-        val preferred = Sources.all.indexOfFirst { it.name == prefs.getString("source", "Movio") }.coerceAtLeast(0)
+        val preferred = Sources.index(prefs.getString("source2", null))
         start(preferred, automatic = true)
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -255,7 +264,7 @@ class PlayerActivity : ComponentActivity() {
                 ) {
                     if (phase == Phase.FAILED) {
                         Message("Can't play right now", "None of the sources could play this. Check your connection or pick a source.", "Try again") {
-                            failedSources.clear(); autoTried = 0; start(0, automatic = true)
+                            failedSources.clear(); autoTried = 0; start(Sources.fallbackOrder.first(), automatic = true)
                         }
                     } else {
                         CircularProgressIndicator(color = Violet, trackColor = Glass, strokeWidth = 3.dp, modifier = Modifier.size(42.dp))
@@ -304,8 +313,9 @@ class PlayerActivity : ComponentActivity() {
                         Column(Modifier.weight(1f)) {
                             Text(s.name, color = Color.White, fontSize = 15.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium, style = jakarta())
                             when {
-                                s.direct -> Text("Fastest · no ads", color = Color(0xFF5EE6A8), fontSize = 11.sp, style = jakarta())
                                 i in failedSources -> Text("Didn't play this title", color = Pink.copy(alpha = .8f), fontSize = 11.sp, style = jakarta())
+                                s.web -> Text("Web player", color = Muted, fontSize = 11.sp, style = jakarta())
+                                else -> Text("Movio player", color = Color(0xFF5EE6A8), fontSize = 11.sp, style = jakarta())
                             }
                         }
                         if (selected) Icon(painterResource(R.drawable.ic_check), null, tint = Color.White, modifier = Modifier.size(18.dp))
@@ -324,7 +334,7 @@ class PlayerActivity : ComponentActivity() {
     private fun start(index: Int, automatic: Boolean) {
         if (phase == Phase.NATIVE) savePosition()
         auto = automatic
-        if (!automatic) { autoTried = 0; prefs.edit().putString("source", Sources.all[index].name).apply() }
+        if (!automatic) { autoTried = 0; prefs.edit().putString("source2", Sources.all[index].name).apply() }
         sourceIndex = index
         attempt++
         val token = attempt
@@ -358,6 +368,7 @@ class PlayerActivity : ComponentActivity() {
         pageHost = android.net.Uri.parse(url).host.orEmpty()
         webView.onResume()
         webView.loadUrl(url, mapOf("Referer" to "https://braflix.at/"))
+        if (source.web) { showWeb(reload = false); return }
         // Many players wait for a tap on play; tap the middle for the viewer.
         listOf(5_000L, 9_000L, 13_000L).forEach { d -> main.postDelayed({ if (token == attempt && phase == Phase.FINDING && trying == null) tapCentre() }, d) }
         main.postDelayed({ if (token == attempt && phase == Phase.FINDING && trying == null) sourceFailed() }, 18_000)
@@ -387,7 +398,7 @@ class PlayerActivity : ComponentActivity() {
         exo.pause()
         playerView.visibility = View.GONE
         if (reload) {
-            if (source.direct) { start(Sources.fallbackOrder.first { !Sources.all[it].direct }, automatic = false); return }
+            if (source.direct) { start(Sources.fallbackOrder.first(), automatic = false); return }
             attempt++
             candidates.clear(); trying = null
             exo.stop()
@@ -443,6 +454,13 @@ class PlayerActivity : ComponentActivity() {
         val d = exo.duration
         if (!source.direct && d != C.TIME_UNSET && d in 1 until 150_000) {
             rejected.add(s.url); trying = null; exo.stop(); tryNext(); return
+        }
+        val rt = runtimeMs
+        if (rt > 0 && d != C.TIME_UNSET && d > 0 && kotlin.math.abs(d - rt).toDouble() / rt > 0.3) {
+            // Far from the real runtime: this source is playing a different title.
+            rejected.add(s.url); trying = null; exo.stop()
+            if (candidates.any { it.url !in rejected }) tryNext() else sourceFailed()
+            return
         }
         phase = Phase.NATIVE
         playerView.visibility = View.VISIBLE
@@ -506,6 +524,11 @@ class PlayerActivity : ComponentActivity() {
 
         @JavascriptInterface
         fun state(s: String) {}
+
+        @JavascriptInterface
+        fun playing() {
+            main.postDelayed({ if (phase == Phase.FINDING && trying == null && !source.direct) showWeb(reload = false) }, 2500)
+        }
 
         private fun found(url: String, page: String, hls: Boolean) {
             val host = android.net.Uri.parse(url).host ?: return
