@@ -59,6 +59,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.C
@@ -131,6 +134,8 @@ class PlayerActivity : ComponentActivity() {
     private val subtitles = linkedSetOf<String>()
     private var trying: Stream? = null
     private var pageToken = 0
+    private var resolveJob: Job? = null
+    private var direct = true
 
     @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -235,13 +240,36 @@ class PlayerActivity : ComponentActivity() {
     private fun updateLabel() { label = if (kind == Kind.TV) "$name · S$season E$episode" else name }
     private fun posKey() = title?.let { store.posKey(it, season, episode) } ?: "${kind.api}:$id${if (kind == Kind.TV) ":$season:$episode" else ""}"
 
-    /** (Re)load the title's page and start looking for its stream. */
+    /** Get the stream straight from the player service; fall back to the title's web page. */
     private fun load() {
+        pageToken++
+        candidates.clear(); subtitles.clear(); trying = null; rejected.clear()
+        exo.stop(); exo.clearMediaItems()
+        playerView.visibility = View.GONE
+        phase = Phase.FINDING
+        direct = true
+        webView.stopLoading()
+        webView.loadUrl("about:blank")
+        resolveJob?.cancel()
+        resolveJob = lifecycleScope.launch {
+            try {
+                val p = Source.resolve(kind, id, season, episode)
+                subtitleTracks = p.subtitles
+                trying = Stream(p.url, p.headers, hls = true)
+                play(trying!!)
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                loadPage()
+            }
+        }
+    }
+
+    /** Fallback: load the title's page out of sight and catch the stream it requests. */
+    private fun loadPage() {
+        direct = false
         pageToken++
         val token = pageToken
         candidates.clear(); subtitles.clear(); trying = null
-        exo.stop(); exo.clearMediaItems()
-        playerView.visibility = View.GONE
         phase = Phase.FINDING
         webView.onResume()
         webView.loadUrl(url(id, kind, season, episode))
@@ -265,9 +293,11 @@ class PlayerActivity : ComponentActivity() {
         webBar = true
         main.postDelayed({ if (phase == Phase.WEB) webBar = false }, 5000)
         if (manual) {
-            // The page was blanked when the stream was handed over; bring it back.
+            // Bring the title's page back so it can play there.
+            direct = false
             pageToken++
             candidates.clear(); trying = null
+            exo.stop()
             webView.onResume()
             webView.loadUrl(url(id, kind, season, episode))
         }
@@ -282,22 +312,35 @@ class PlayerActivity : ComponentActivity() {
     private fun tryNext() {
         val next = candidates.sortedByDescending { it.hls }.firstOrNull { it.url !in rejected } ?: run { trying = null; return }
         trying = next
-        val cookie = CookieManager.getInstance().getCookie(next.url)
-        val headers = next.headers.filterKeys { k -> k.lowercase() in setOf("referer", "origin", "user-agent", "accept-language") }.toMutableMap()
+        play(next)
+    }
+
+    private var subtitleTracks: List<Subtitle> = emptyList()
+
+    private fun play(s: Stream) {
+        val cookie = CookieManager.getInstance().getCookie(s.url)
+        val headers = s.headers.filterKeys { k -> k.lowercase() in setOf("referer", "origin", "user-agent", "accept-language") }.toMutableMap()
         if (!cookie.isNullOrBlank()) headers["Cookie"] = cookie
+        val ua = headers.remove("User-Agent") ?: headers.remove("user-agent") ?: webView.settings.userAgentString
         val http = DefaultHttpDataSource.Factory()
-            .setUserAgent(headers.remove("User-Agent") ?: headers.remove("user-agent") ?: webView.settings.userAgentString)
+            .setUserAgent(ua)
             .setDefaultRequestProperties(headers)
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(15_000).setReadTimeoutMs(20_000)
-        val item = MediaItem.Builder().setUri(next.url)
-            .setMimeType(if (next.hls) MimeTypes.APPLICATION_M3U8 else null)
-            .setSubtitleConfigurations(subtitles.take(6).map { u ->
-                MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(u))
-                    .setMimeType(if (u.contains(".srt", true)) MimeTypes.APPLICATION_SUBRIP else MimeTypes.TEXT_VTT)
-                    .setLabel(u.substringAfterLast('/').substringBefore('?').substringBeforeLast('.').take(24))
-                    .build()
-            })
+        val subs = subtitleTracks.map { t ->
+            MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(t.url))
+                .setMimeType(if (t.url.endsWith(".srt", true)) MimeTypes.APPLICATION_SUBRIP else MimeTypes.TEXT_VTT)
+                .setLanguage(t.lang).setLabel(t.label)
+                .build()
+        } + subtitles.take(6).map { u ->
+            MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(u))
+                .setMimeType(if (u.contains(".srt", true)) MimeTypes.APPLICATION_SUBRIP else MimeTypes.TEXT_VTT)
+                .setLabel(u.substringAfterLast('/').substringBefore('?').substringBeforeLast('.').take(24))
+                .build()
+        }
+        val item = MediaItem.Builder().setUri(s.url)
+            .setMimeType(if (s.hls) MimeTypes.APPLICATION_M3U8 else null)
+            .setSubtitleConfigurations(subs)
             .build()
         exo.setMediaSource(DefaultMediaSourceFactory(http).createMediaSource(item))
         exo.prepare()
@@ -308,7 +351,7 @@ class PlayerActivity : ComponentActivity() {
         val s = trying ?: return
         if (phase == Phase.NATIVE) return
         val d = exo.duration
-        if (d != C.TIME_UNSET && d in 1 until 150_000) {
+        if (!direct && d != C.TIME_UNSET && d in 1 until 150_000) {
             rejected.add(s.url); trying = null; exo.stop(); tryNext(); return
         }
         phase = Phase.NATIVE
@@ -324,6 +367,7 @@ class PlayerActivity : ComponentActivity() {
     private fun onStreamFailed() {
         trying?.let { rejected.add(it.url) }
         trying = null
+        if (direct) { subtitleTracks = emptyList(); playerView.visibility = View.GONE; phase = Phase.FINDING; loadPage(); return }
         if (phase == Phase.NATIVE) { savePosition(); showWeb(manual = true); Toast.makeText(this, "Switched to the web player", Toast.LENGTH_SHORT).show(); return }
         tryNext()
     }
@@ -414,7 +458,7 @@ class PlayerActivity : ComponentActivity() {
                 val path = (uri.path ?: "").lowercase()
                 val token = pageToken
                 when {
-                    u.contains(".m3u8", ignoreCase = true) ->
+                    u.contains(".m3u8", ignoreCase = true) || Regex("/(stream|master|playlist|manifest)(\\.\\w+)?$").containsMatchIn(path) ->
                         main.post { if (token == pageToken) onCandidate(Stream(u, request.requestHeaders.orEmpty(), hls = true)) }
                     path.endsWith(".mp4") && !path.contains("preview") && !path.contains("thumb") ->
                         main.post { if (token == pageToken) onCandidate(Stream(u, request.requestHeaders.orEmpty(), hls = false)) }
