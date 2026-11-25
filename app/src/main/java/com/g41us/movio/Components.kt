@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
@@ -105,7 +106,7 @@ fun TopBar(title: String? = null, onBack: (() -> Unit)? = null, settingsActive: 
         }
         if (LocalWide.current && onTab != null) {
             Spacer(Modifier.weight(1f))
-            val tight = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 900
+            val tight = screenDp().width < 900.dp
             Row(horizontalArrangement = Arrangement.spacedBy(if (tight) 2.dp else 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Tab.entries.forEach { t ->
                     val active = t == tab
@@ -178,7 +179,7 @@ private fun DockItem(t: Tab, active: Boolean, modifier: Modifier, onClick: () ->
 @Composable
 fun SectionTitle(text: String, caption: String? = null) {
     Row(Modifier.fillMaxWidth().padding(start = Gutter, end = Gutter, top = 26.dp, bottom = 12.dp), verticalAlignment = Alignment.Bottom) {
-        Text(text, fontSize = 19.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.3).sp, color = Color.White, style = jakarta())
+        Text(text, fontSize = if (LocalWide.current) 22.sp else 19.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.4).sp, color = Color.White, style = jakarta())
         if (caption != null) {
             Spacer(Modifier.width(10.dp))
             Text(caption, fontSize = 13.sp, color = Muted, style = jakarta(), modifier = Modifier.padding(bottom = 2.dp))
@@ -195,7 +196,7 @@ fun PrimaryButton(text: String, icon: Int, modifier: Modifier = Modifier, onClic
     ) {
         Icon(painterResource(icon), null, tint = Ink, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(8.dp))
-        Text(text, color = Ink, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, style = jakarta(), maxLines = 1)
+        Text(text, color = Ink, fontWeight = FontWeight.Bold, fontSize = 16.sp, letterSpacing = (-0.1).sp, style = jakarta(), maxLines = 1)
     }
 }
 
@@ -210,7 +211,7 @@ fun GhostButton(text: String, icon: Int?, modifier: Modifier = Modifier, onClick
             Icon(painterResource(icon), null, tint = Color.White, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(8.dp))
         }
-        Text(text, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp, style = jakarta(), maxLines = 1)
+        Text(text, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, style = jakarta(), maxLines = 1)
     }
 }
 
@@ -232,9 +233,7 @@ fun Chip(label: String, active: Boolean, onClick: () -> Unit) {
 @Composable
 fun Badge(text: String) {
     Text(
-        text, fontSize = 10.5.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp, color = Color.White, style = jakarta(),
-        modifier = Modifier.clip(RoundedCornerShape(50)).background(Ink.copy(alpha = .5f))
-            .border(1.dp, Color.White.copy(alpha = .22f), RoundedCornerShape(50)).padding(horizontal = 10.dp, vertical = 5.dp),
+        text, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 2.4.sp, color = Soft, style = jakarta(),
     )
 }
 
@@ -244,10 +243,10 @@ fun Meta(t: Title, extra: String? = null) {
         rating(t.rating)?.let {
             Icon(painterResource(R.drawable.ic_star), null, tint = Gold, modifier = Modifier.size(13.dp))
             Spacer(Modifier.width(4.dp))
-            Text(it, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White, style = jakarta())
-            Text("  ·  ", fontSize = 13.sp, color = Muted)
+            Text(it, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color.White, style = jakarta())
+            Text("   ·   ", fontSize = 13.sp, color = Muted)
         }
-        Text(listOfNotNull(t.year, if (t.kind == Kind.TV) "Series" else "Movie", extra).joinToString("  ·  "), fontSize = 13.sp, color = Soft, style = jakarta())
+        Text(listOfNotNull(t.year, if (t.kind == Kind.TV) "Series" else "Movie", extra).joinToString("   ·   "), fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Soft, style = jakarta())
     }
 }
 
@@ -255,29 +254,29 @@ fun Meta(t: Title, extra: String? = null) {
 
 @Composable
 fun Poster(t: Title, modifier: Modifier = Modifier) {
-    Box(modifier.aspectRatio(2f / 3f).clip(RoundedCornerShape(14.dp)).background(Panel).border(1.dp, Hairline, RoundedCornerShape(14.dp))) {
-        AsyncImage(Tmdb.img(t.poster, "w342"), t.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-        rating(t.rating)?.let {
-            Row(
-                Modifier.align(Alignment.TopStart).padding(7.dp).clip(RoundedCornerShape(50)).background(Ink.copy(alpha = .72f))
-                    .padding(horizontal = 7.dp, vertical = 3.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(painterResource(R.drawable.ic_star), null, tint = Gold, modifier = Modifier.size(11.dp))
-                Spacer(Modifier.width(3.dp))
-                Text(it, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White, style = jakarta())
-            }
-        }
+    Box(modifier.aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp)).background(Panel).border(1.dp, Hairline, RoundedCornerShape(12.dp))) {
+        AsyncImage(Tmdb.img(t.poster, if (LocalWide.current) "w500" else "w342"), t.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
     }
 }
 
 @Composable
 fun PosterCard(t: Title, width: Dp, onClick: () -> Unit) {
+    if (LocalWide.current) {
+        // TV: artwork only; the name appears under the poster you're on.
+        var focused by remember { mutableStateOf(false) }
+        Column(Modifier.width(width)) {
+            Box(Modifier.onFocusChanged { focused = it.hasFocus }.tappable(onClick)) { Poster(t, Modifier.fillMaxWidth()) }
+            Spacer(Modifier.height(10.dp))
+            Text(if (focused) t.name else "", fontSize = 15.sp, lineHeight = 19.sp, fontWeight = FontWeight.SemiBold, color = Color.White, style = jakarta(),
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        return
+    }
     Column(Modifier.width(width).tappable(onClick)) {
         Poster(t, Modifier.fillMaxWidth())
         Spacer(Modifier.height(8.dp))
         Text(t.name, fontSize = 13.sp, lineHeight = 17.sp, fontWeight = FontWeight.SemiBold, color = Soft, style = jakarta(),
-            maxLines = 2, minLines = 2, overflow = TextOverflow.Ellipsis)
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(listOfNotNull(t.year, if (t.kind == Kind.TV) "Series" else "Movie").joinToString("  ·  "), fontSize = 11.5.sp, color = Muted, style = jakarta(), maxLines = 1)
     }
 }
@@ -287,7 +286,7 @@ fun PosterRow(row: Row, onOpen: (Title) -> Unit) {
     SectionTitle(row.name)
     LazyRow(contentPadding = PaddingValues(horizontal = Gutter), horizontalArrangement = Arrangement.spacedBy(if (row.ranked) 4.dp else 12.dp)) {
         itemsIndexed(row.items, key = { _, t -> t.key }) { i, t ->
-            if (row.ranked) RankedCard(i + 1, t) { onOpen(t) } else PosterCard(t, if (LocalWide.current) 172.dp else 118.dp) { onOpen(t) }
+            if (row.ranked) RankedCard(i + 1, t) { onOpen(t) } else PosterCard(t, if (LocalWide.current) 210.dp else 118.dp) { onOpen(t) }
         }
     }
 }
@@ -297,17 +296,17 @@ fun PosterRow(row: Row, onOpen: (Title) -> Unit) {
 fun RankedCard(rank: Int, t: Title, onClick: () -> Unit) {
     Row(Modifier.tappable(onClick), verticalAlignment = Alignment.Bottom) {
         Text(
-            rank.toString(), fontSize = if (LocalWide.current) 170.sp else 120.sp, lineHeight = if (LocalWide.current) 170.sp else 120.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-10).sp,
+            rank.toString(), fontSize = if (LocalWide.current) 200.sp else 120.sp, lineHeight = if (LocalWide.current) 200.sp else 120.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-10).sp,
             style = jakarta(Brush.verticalGradient(0f to Color.White, .45f to Color(0xFFDCD6F5), .8f to Color(0xFF6E6891), 1f to Color(0xFF221F35))),
             modifier = Modifier.offset(x = 14.dp, y = 18.dp),
         )
-        Poster(t, Modifier.width(if (LocalWide.current) 164.dp else 112.dp))
+        Poster(t, Modifier.width(if (LocalWide.current) 200.dp else 112.dp))
     }
 }
 
 @Composable
 fun ContinueCard(p: Progress, progress: Float? = null, onClick: () -> Unit) {
-    Column(Modifier.width(if (LocalWide.current) 320.dp else 220.dp).tappable(onClick)) {
+    Column(Modifier.width(if (LocalWide.current) 360.dp else 220.dp).tappable(onClick)) {
         Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(14.dp)).background(Panel).border(1.dp, Hairline, RoundedCornerShape(14.dp))) {
             AsyncImage(Tmdb.img(p.title.backdrop ?: p.title.poster, "w500"), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(.45f to Color.Transparent, 1f to Ink.copy(alpha = .85f))))
@@ -337,7 +336,7 @@ fun Hero(items: List<Title>, saved: (Title) -> Boolean, onPlay: (Title) -> Unit,
     var paused by remember { mutableStateOf(false) }
     LaunchedEffect(items, paused) { while (items.size > 1 && !paused) { delay(7000); index = (index + 1) % items.size } }
     val wide = LocalWide.current
-    val heroH = if (wide) (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * .66f).dp.coerceAtLeast(400.dp) else 560.dp
+    val heroH = if (wide) (screenDp().height * .72f).coerceAtLeast(380.dp) else 560.dp
     Box(Modifier.fillMaxWidth().height(heroH).clipToBounds()) {
         val arts = remember(items) { androidx.compose.runtime.mutableStateMapOf<String, Art>() }
         LaunchedEffect(items) { items.forEach { t -> if (t.key !in arts) arts[t.key] = Tmdb.art(t) } }
@@ -357,8 +356,6 @@ fun Hero(items: List<Title>, saved: (Title) -> Boolean, onPlay: (Title) -> Unit,
         val t = items[index]
         Column(Modifier.align(Alignment.BottomStart).padding(start = if (wide) 48.dp else Gutter, end = Gutter, bottom = 18.dp)
             .then(if (wide) Modifier.width(560.dp) else Modifier).enterUp()) {
-            Badge(if (t.kind == Kind.TV) "SERIES" else "MOVIE")
-            Spacer(Modifier.height(12.dp))
             val logo = arts[t.key]?.logo
             if (logo != null) AsyncImage(Tmdb.img(logo, "w500"), t.name, contentScale = ContentScale.Fit, alignment = Alignment.BottomStart,
                 modifier = Modifier.width(260.dp).height(84.dp))
@@ -372,12 +369,12 @@ fun Hero(items: List<Title>, saved: (Title) -> Boolean, onPlay: (Title) -> Unit,
             }
             Spacer(Modifier.height(18.dp))
             Row(Modifier.onFocusChanged { paused = it.hasFocus }, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                PrimaryButton("Play", R.drawable.ic_play_fill, Modifier.weight(1f)) { onPlay(t) }
+                PrimaryButton("Play", R.drawable.ic_play_fill, if (wide) Modifier.widthIn(min = 200.dp) else Modifier.weight(1f)) { onPlay(t) }
                 GhostButton(if (saved(t)) "Saved" else "My List", if (saved(t)) R.drawable.ic_check else R.drawable.ic_plus) { onToggle(t) }
                 GlassIcon(R.drawable.ic_info, size = 50.dp) { onOpen(t) }
             }
             Spacer(Modifier.height(16.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = if (wide) Arrangement.Start else Arrangement.Center) {
                 items.indices.forEach { i ->
                     val w by animateDpAsState(if (i == index) 22.dp else 6.dp, label = "dot")
                     Box(Modifier.padding(horizontal = 3.dp).width(w).height(6.dp).clip(CircleShape)

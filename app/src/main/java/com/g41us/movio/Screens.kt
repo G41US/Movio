@@ -175,7 +175,7 @@ fun SearchScreen(onOpen: (Title) -> Unit) {
     val tv2 = rememberLazyGridState()
     val tvBar = LocalTopBar.current
     LazyVerticalGrid(
-        GridCells.Adaptive(if (LocalWide.current) 160.dp else 108.dp), Modifier.fillMaxSize().dpadScroll(tv2), state = tv2,
+        GridCells.Adaptive(if (LocalWide.current) 200.dp else 108.dp), Modifier.fillMaxSize().dpadScroll(tv2), state = tv2,
         contentPadding = PaddingValues(start = Gutter, end = Gutter, top = if (tvBar != null) 0.dp else barSpace(), bottom = dockSpace()),
         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
@@ -207,7 +207,7 @@ fun SearchScreen(onOpen: (Title) -> Unit) {
             is Load.Failed -> item(span = { GridItemSpan(maxLineSpan) }) { Failed(retry) }
             is Load.Done -> when {
                 submitted.length < 2 -> item(span = { GridItemSpan(maxLineSpan) }) {
-                    Message("Find something to watch", "Search across thousands of movies and shows.")
+                    Message("Find something to watch", "Movies, shows and people.")
                 }
                 s.value.isEmpty() -> item(span = { GridItemSpan(maxLineSpan) }) {
                     Message("No results", "Try a different title.")
@@ -225,7 +225,7 @@ fun MyListScreen(store: Store, onOpen: (Title) -> Unit, onDownloads: () -> Unit)
     val tv3 = rememberLazyGridState()
     val tvBar = LocalTopBar.current
     LazyVerticalGrid(
-        GridCells.Adaptive(if (LocalWide.current) 160.dp else 108.dp), Modifier.fillMaxSize().dpadScroll(tv3), state = tv3,
+        GridCells.Adaptive(if (LocalWide.current) 200.dp else 108.dp), Modifier.fillMaxSize().dpadScroll(tv3), state = tv3,
         contentPadding = PaddingValues(start = Gutter, end = Gutter, top = if (tvBar != null) 0.dp else barSpace(), bottom = dockSpace()),
         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
@@ -234,7 +234,7 @@ fun MyListScreen(store: Store, onOpen: (Title) -> Unit, onDownloads: () -> Unit)
             Row { GhostButton("Downloads", R.drawable.ic_download, onClick = onDownloads) }
         }
         if (store.myList.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
-            Message("Your list is empty", "Tap My List on any movie or show to save it here.")
+            Message("Your list is empty", "Add movies and shows to watch later.")
         } else items(store.myList, key = { it.key }) { t -> PosterCard(t, 108.dp) { onOpen(t) } }
     }
 }
@@ -254,7 +254,7 @@ fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPerson:
             val d = (state as? Load.Done)?.value
             val t = d?.title ?: title
             val wide = LocalWide.current
-            val artH = if (wide) (LocalConfiguration.current.screenHeightDp * .62f).dp.coerceAtLeast(360.dp) else 500.dp
+            val artH = if (wide) (screenDp().height * .68f).coerceAtLeast(340.dp) else 500.dp
             Box(Modifier.fillMaxWidth().height(artH).clipToBounds()) {
                 // Art without printed titles; while details load, show nothing rather than a poster with text.
                 val image = when {
@@ -349,8 +349,8 @@ private fun EpisodeList(show: Title, season: Int, last: Progress?, onPlay: (Int)
             is Load.Failed -> Failed(retry)
             is Load.Done -> s.value.forEach { e ->
                 val current = last?.season == season && last.episode == e.number
-                Row(Modifier.fillMaxWidth().padding(vertical = 6.dp).tappable { onPlay(e.number) }, verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.width(132.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)).background(Panel).border(1.dp, if (current) Violet else Hairline, RoundedCornerShape(12.dp))) {
+                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp).tappable { onPlay(e.number) }, verticalAlignment = Alignment.Top) {
+                    Box(Modifier.width(if (wide) 220.dp else 132.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)).background(Panel).border(1.dp, if (current) Violet else Hairline, RoundedCornerShape(12.dp))) {
                         AsyncImage(Tmdb.img(e.still ?: show.backdrop, "w300"), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                         Box(Modifier.align(Alignment.Center).size(32.dp).clip(RoundedCornerShape(50)).background(Ink.copy(alpha = .65f)), contentAlignment = Alignment.Center) {
                             Icon(painterResource(R.drawable.ic_play_fill), null, tint = Color.White, modifier = Modifier.size(15.dp))
@@ -362,7 +362,12 @@ private fun EpisodeList(show: Title, season: Int, last: Progress?, onPlay: (Int)
                             maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Spacer(Modifier.height(3.dp))
                         Text(listOfNotNull(e.runtime?.let { "${it}m" }, if (current) "Watching" else null).joinToString("  ·  ").ifBlank { "Episode ${e.number}" },
-                            fontSize = 12.sp, color = if (current) Violet else Muted, style = jakarta())
+                            fontSize = 12.sp, fontWeight = FontWeight.Medium, color = if (current) Violet else Muted, style = jakarta())
+                        if (e.overview.isNotBlank()) {
+                            Spacer(Modifier.height(6.dp))
+                            Text(e.overview, fontSize = if (wide) 14.sp else 12.5.sp, lineHeight = if (wide) 20.sp else 18.sp, color = Muted, style = jakarta(),
+                                maxLines = if (wide) 3 else 3, overflow = TextOverflow.Ellipsis)
+                        }
                     }
                 }
             }
@@ -428,11 +433,11 @@ fun SettingsScreen(version: String, update: UpdateState, blocked: Int, store: St
                 Label("Playback")
                 Spacer(Modifier.height(6.dp))
                 var autoplay by remember { mutableStateOf(store.autoplayNext) }
-                ToggleRow("Autoplay next episode", "Starts the next episode after a 20-second countdown.", autoplay) { autoplay = it; store.autoplayNext = it }
+                ToggleRow("Autoplay next episode", "Plays the next episode after a short countdown.", autoplay) { autoplay = it; store.autoplayNext = it }
                 var autoSkip by remember { mutableStateOf(store.autoSkip) }
-                ToggleRow("Skip intros automatically", "Jumps past intros and recaps by itself, using exact times.", autoSkip) { autoSkip = it; store.autoSkip = it }
+                ToggleRow("Skip intros automatically", "Skips intros and recaps the moment they start.", autoSkip) { autoSkip = it; store.autoSkip = it }
                 var alerts by remember { mutableStateOf(store.alerts) }
-                ToggleRow("New episode alerts", "Get notified when a show in My List has a new episode.", alerts) { alerts = it; store.alerts = it; onAlerts(it) }
+                ToggleRow("New episode alerts", "Know when a show in My List has a new episode.", alerts) { alerts = it; store.alerts = it; onAlerts(it) }
                 Spacer(Modifier.height(6.dp))
                 GhostButton("Downloads", R.drawable.ic_download, onClick = onDownloads)
             }
@@ -455,7 +460,7 @@ fun SettingsScreen(version: String, update: UpdateState, blocked: Int, store: St
             Card {
                 Label("Storage")
                 Spacer(Modifier.height(6.dp))
-                Text("Clear cached images and player data if something looks stuck.", fontSize = 13.sp, color = Muted, style = jakarta())
+                Text("Clear saved images and player data if something isn't loading.", fontSize = 13.sp, color = Muted, style = jakarta())
                 Spacer(Modifier.height(14.dp))
                 GhostButton("Clear cache", null, onClick = onClearCache)
             }
@@ -494,7 +499,7 @@ fun PersonScreen(person: Person, onOpen: (Title) -> Unit) {
     val tv6 = rememberLazyGridState()
     val tvBar = LocalTopBar.current
     LazyVerticalGrid(
-        GridCells.Adaptive(if (LocalWide.current) 160.dp else 108.dp), Modifier.fillMaxSize().dpadScroll(tv6), state = tv6,
+        GridCells.Adaptive(if (LocalWide.current) 200.dp else 108.dp), Modifier.fillMaxSize().dpadScroll(tv6), state = tv6,
         contentPadding = PaddingValues(start = Gutter, end = Gutter, top = if (tvBar != null) 0.dp else barSpace(), bottom = dockSpace()),
         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
@@ -555,7 +560,7 @@ fun DownloadsScreen(onPlay: (DownloadInfo, String) -> Unit) {
     LaunchedEffect(Unit) { while (true) { items = Downloads.all(context); delay(1000) } }
     val tv7 = rememberScrollState()
     ScrollList(tv7, PaddingValues(start = Gutter, end = Gutter, top = barSpace(), bottom = dockSpace()), narrow = true) {
-        if (items.isEmpty()) item { Message("No downloads yet", "Tap Download in the player to save a movie or episode for offline viewing.") }
+        if (items.isEmpty()) item { Message("No downloads yet", "Save a movie or episode from the player to watch it offline.") }
         items(items, key = { it.request.id }) { d ->
             val info = DownloadInfo.from(d.request.data) ?: return@items
             val done = d.state == androidx.media3.exoplayer.offline.Download.STATE_COMPLETED

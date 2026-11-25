@@ -168,7 +168,10 @@ fun App(openRequest: androidx.compose.runtime.MutableState<Title?>) {
         }
     }
 
-    CompositionLocalProvider(LocalWide provides wide, LocalTv provides isTv) {
+    // TV is watched from across the room: everything a size up.
+    val base = androidx.compose.ui.platform.LocalDensity.current
+    val density = if (isTv) androidx.compose.ui.unit.Density(base.density * 1.15f, base.fontScale) else base
+    CompositionLocalProvider(LocalWide provides wide, LocalTv provides isTv, androidx.compose.ui.platform.LocalDensity provides density) {
         val bar: @Composable () -> Unit = {
                 TopBar(
                     title = when {

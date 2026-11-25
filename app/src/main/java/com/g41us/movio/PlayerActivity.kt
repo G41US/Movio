@@ -252,7 +252,11 @@ class PlayerActivity : ComponentActivity() {
         root.addView(fullscreen, FrameLayout.LayoutParams(-1, -1))
         root.addView(overlay, FrameLayout.LayoutParams(-1, -1))
         setContentView(root)
-        overlay.setContent { androidx.compose.runtime.CompositionLocalProvider(LocalTv provides tvDevice) { Overlay() } }
+        overlay.setContent {
+            val base = androidx.compose.ui.platform.LocalDensity.current
+            val density = if (tvDevice) androidx.compose.ui.unit.Density(base.density * 1.15f, base.fontScale) else base
+            androidx.compose.runtime.CompositionLocalProvider(LocalTv provides tvDevice, androidx.compose.ui.platform.LocalDensity provides density) { Overlay() }
+        }
 
         setupWebView()
         val off = offlineId

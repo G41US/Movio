@@ -460,6 +460,7 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
                                 Column(Modifier.weight(1f)) {
                                     Text("${e.number}. ${e.name}", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, style = jakarta(), maxLines = 2, overflow = TextOverflow.Ellipsis)
                                     Text(if (current) "Watching" else e.runtime?.let { "${it}m" } ?: "", color = if (current) Violet else Muted, fontSize = 11.sp, style = jakarta())
+                                    if (e.overview.isNotBlank()) Text(e.overview, color = Muted, fontSize = 11.5.sp, lineHeight = 15.sp, style = jakarta(), maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 }
                             }
                         }

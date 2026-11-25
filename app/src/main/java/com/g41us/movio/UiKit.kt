@@ -53,7 +53,8 @@ val Gold = Color(0xFFFFC94D)
 val Glass = Color.White.copy(alpha = .09f)
 val Hairline = Color.White.copy(alpha = .12f)
 val Brand = Brush.linearGradient(listOf(Violet, Pink))
-val Gutter = 18.dp
+/** Page margin: roomier on TV so everything lines up with the hero. */
+val Gutter: androidx.compose.ui.unit.Dp @androidx.compose.runtime.Composable get() = if (LocalWide.current) 48.dp else 18.dp
 
 val Jakarta = FontFamily(
     Font(R.font.jakarta_regular, FontWeight.Normal),
@@ -115,6 +116,13 @@ fun rating(r: Double) = if (r <= 0) null else String.format("%.1f", r)
 val LocalWide = compositionLocalOf { false }
 /** Running on a TV (remote control, no touch). */
 val LocalTv = compositionLocalOf { false }
+
+/** Visible screen size in the current (possibly TV-scaled) dp. */
+@androidx.compose.runtime.Composable
+fun screenDp(): androidx.compose.ui.unit.DpSize {
+    val size = androidx.compose.ui.platform.LocalWindowInfo.current.containerSize
+    return with(LocalDensity.current) { androidx.compose.ui.unit.DpSize(size.width.toDp(), size.height.toDp()) }
+}
 /** On TV, the top bar each page draws inside itself. */
 val LocalTopBar = compositionLocalOf<(@androidx.compose.runtime.Composable () -> Unit)?> { null }
 
