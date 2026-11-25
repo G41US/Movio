@@ -84,13 +84,15 @@ jobs:
           apk=app/build/outputs/apk/release/app-release.apk
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$apk"
           cp "$apk" "Movio-${{ steps.version.outputs.name }}.apk"
+          # Same file under a fixed name, so .../releases/latest/download/Movio.apk always gets the newest.
+          cp "$apk" Movio.apk
 
       - name: Publish release
         if: steps.version.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "v${{ steps.version.outputs.name }}" "Movio-${{ steps.version.outputs.name }}.apk" \
+          gh release create "v${{ steps.version.outputs.name }}" "Movio-${{ steps.version.outputs.name }}.apk" Movio.apk \
             --target "$GITHUB_SHA" \
             --title "Movio ${{ steps.version.outputs.name }}" \
             --notes "" \
