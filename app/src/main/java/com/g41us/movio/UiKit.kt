@@ -30,6 +30,12 @@ import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.border
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Shape
 
 val Ink = Color(0xFF07080D)
 val Panel = Color(0xFF151722)
@@ -73,7 +79,7 @@ fun Modifier.tappable(onClick: () -> Unit): Modifier = composed {
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
     val scale = if (pressed) .96f else 1f
-    this.graphicsLayer { scaleX = scale; scaleY = scale }.clickable(interactionSource = source, indication = null, onClick = onClick)
+    this.focusGlow().graphicsLayer { scaleX = scale; scaleY = scale }.clickable(interactionSource = source, indication = null, onClick = onClick)
 }
 
 private val EnterEase = CubicBezierEasing(.16f, 1f, .3f, 1f)
@@ -98,3 +104,14 @@ fun Modifier.kenBurns(): Modifier = composed {
 }
 
 fun rating(r: Double) = if (r <= 0) null else String.format("%.1f", r)
+
+/** True on TVs and other wide screens: tabs move to the top and the dock goes away. */
+val LocalWide = compositionLocalOf { false }
+
+/** A bright ring and slight lift on whatever the TV remote is pointing at. */
+fun Modifier.focusGlow(shape: Shape = RoundedCornerShape(14.dp)): Modifier = composed {
+    var focused by remember { mutableStateOf(false) }
+    this.onFocusChanged { focused = it.isFocused || it.hasFocus }
+        .graphicsLayer { val s = if (focused) 1.06f else 1f; scaleX = s; scaleY = s }
+        .border(if (focused) 2.5.dp else 0.dp, if (focused) Color.White else Color.Transparent, shape)
+}

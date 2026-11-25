@@ -29,16 +29,21 @@ data class Title(
 data class Season(val number: Int, val name: String, val episodeCount: Int)
 data class Episode(val number: Int, val name: String, val overview: String, val still: String?, val runtime: Int?)
 
+data class Person(val id: Int, val name: String, val role: String, val photo: String?)
+
 data class Details(
     val title: Title,
     val tagline: String,
     val runtime: Int?,
     val genres: List<String>,
     val seasons: List<Season>,
-    val cast: List<String>,
+    val cast: List<Person>,
     val similar: List<Title>,
     val logo: String?,
+    val trailer: String?,
 )
+
+data class PersonDetails(val person: Person, val bio: String, val known: List<Title>)
 
 data class Row(val name: String, val items: List<Title>, val ranked: Boolean = false)
 
@@ -144,7 +149,7 @@ object Tmdb {
     suspend fun search(q: String): List<Title> = list("search/multi", null, mapOf("query" to q, "include_adult" to "false"))
 
     suspend fun details(t: Title): Details {
-        val o = get("${t.kind.api}/${t.id}", mapOf("append_to_response" to "credits,similar,recommendations,images", "include_image_language" to "en,null"))
+        val o = get("${t.kind.api}/${t.id}", mapOf("append_to_response" to "credits,similar,recommendations,images,videos", "include_image_language" to "en,null"))
         val full = parse(o, t.kind) ?: t
         val genres = o.optJSONArray("genres")?.let { a -> (0 until a.length()).map { a.getJSONObject(it).optString("name") } } ?: emptyList()
         val runtime = if (t.kind == Kind.MOVIE) o.optInt("runtime").takeIf { it > 0 }
@@ -155,8 +160,16 @@ object Tmdb {
                 .map { Season(it.optInt("season_number"), it.optString("name"), it.optInt("episode_count")) }
         } ?: emptyList()
         val cast = o.optJSONObject("credits")?.optJSONArray("cast")?.let { a ->
-            (0 until minOf(a.length(), 8)).map { a.getJSONObject(it).optString("name") }
+            (0 until minOf(a.length(), 15)).map { a.getJSONObject(it) }.map {
+                Person(it.optInt("id"), it.optString("name"), it.optString("character"), it.optString("profile_path").takeIf { p -> p.startsWith("/") })
+            }
         } ?: emptyList()
+        val trailer = o.optJSONObject("videos")?.optJSONArray("results")?.let { a ->
+            (0 until a.length()).map { a.getJSONObject(it) }
+                .filter { it.optString("site") == "YouTube" && it.optString("type") in setOf("Trailer", "Teaser") }
+                .sortedBy { if (it.optString("type") == "Trailer") 0 else 1 }
+                .firstOrNull()?.optString("key")
+        }
         val recs = parseList(o.optJSONObject("recommendations")?.optJSONArray("results"), t.kind)
         val similar = recs.ifEmpty { parseList(o.optJSONObject("similar")?.optJSONArray("results"), t.kind) }
         val logo = o.optJSONObject("images")?.optJSONArray("logos")?.let { a ->
@@ -164,8 +177,31 @@ object Tmdb {
                 .firstOrNull { it.optString("iso_639_1") == "en" || it.isNull("iso_639_1") }
                 ?.optString("file_path")
         }
-        return Details(full.copy(poster = full.poster ?: t.poster), o.optString("tagline"), runtime, genres, seasons, cast, similar, logo)
+        return Details(full.copy(poster = full.poster ?: t.poster), o.optString("tagline"), runtime, genres, seasons, cast, similar, logo, trailer)
     }
+
+    suspend fun person(id: Int): PersonDetails {
+        val o = get("person/$id", mapOf("append_to_response" to "combined_credits"))
+        val credits = parseList(o.optJSONObject("combined_credits")?.optJSONArray("cast"), null)
+            .distinctBy { it.key }.sortedByDescending { it.rating * (if (it.year != null) 1 else 0) }
+        return PersonDetails(
+            Person(id, o.optString("name"), o.optString("known_for_department"), o.optString("profile_path").takeIf { it.startsWith("/") }),
+            o.optString("biography"), credits.take(60),
+        )
+    }
+
+    /** Latest aired episode of a show, as "season:episode" plus its air date. */
+    suspend fun lastAired(showId: Int): Pair<String, String>? {
+        val l = get("tv/$showId").optJSONObject("last_episode_to_air") ?: return null
+        return "${l.optInt("season_number")}:${l.optInt("episode_number")}" to l.optString("air_date")
+    }
+
+    suspend fun episodeCount(showId: Int, season: Int): Int =
+        get("tv/$showId").optJSONArray("seasons")?.let { a ->
+            (0 until a.length()).map { a.getJSONObject(it) }.firstOrNull { it.optInt("season_number") == season }?.optInt("episode_count")
+        } ?: 0
+
+    suspend fun seasonCount(showId: Int): Int = get("tv/$showId").optInt("number_of_seasons")
 
     suspend fun episodes(showId: Int, season: Int): List<Episode> {
         val a = get("tv/$showId/season/$season").optJSONArray("episodes") ?: return emptyList()

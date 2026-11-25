@@ -1,14 +1,20 @@
 package com.g41us.movio
 
+import android.Manifest
+import android.content.Intent
 import android.graphics.Color as AColor
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.webkit.WebStorage
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -19,6 +25,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -29,7 +36,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import coil.Coil
 import coil.ImageLoader
 import coil.disk.DiskCache
@@ -41,10 +50,14 @@ import java.io.File
 
 sealed interface Screen {
     data class Details(val title: Title) : Screen
+    data class People(val person: Person) : Screen
     data object Settings : Screen
+    data object Downloads : Screen
 }
 
 class MainActivity : ComponentActivity() {
+    private val openRequest = mutableStateOf<Title?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(AColor.TRANSPARENT),
@@ -57,21 +70,44 @@ class MainActivity : ComponentActivity() {
                 .diskCache { DiskCache.Builder().directory(cacheDir.resolve("images")).maxSizePercent(.04).build() }
                 .build()
         )
-        setContent { App() }
+        NewEpisodesWorker.schedule(this)
+        handle(intent)
+        setContent { App(openRequest) }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handle(intent)
+    }
+
+    /** A new-episode notification opens that show's page. */
+    private fun handle(intent: Intent?) {
+        val id = intent?.getIntExtra("open_id", 0) ?: 0
+        val kind = intent?.getStringExtra("open_kind") ?: return
+        if (id > 0) openRequest.value = Store.get(this).myList.firstOrNull { it.id == id && it.kind.name == kind }
+            ?: Title(id, Kind.valueOf(kind), "", "", null, null, null, 0.0)
     }
 }
 
 @Composable
-fun App() {
+fun App(openRequest: androidx.compose.runtime.MutableState<Title?>) {
     val context = LocalContext.current
     val store = remember { Store.get(context) }
     val scope = rememberCoroutineScope()
+    val wide = LocalConfiguration.current.screenWidthDp >= 840
     var tab by rememberSaveable { mutableStateOf(Tab.HOME) }
     val stack = remember { mutableStateListOf<Screen>() }
     var update by remember { mutableStateOf<UpdateState>(UpdateState.Idle) }
     var apk by remember { mutableStateOf<File?>(null) }
     var splash by remember { mutableStateOf(true) }
-    LaunchedEffect(Unit) { delay(1100); splash = false }
+    val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    LaunchedEffect(Unit) {
+        delay(1100); splash = false
+        if (Build.VERSION.SDK_INT >= 33 && store.alerts &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+    LaunchedEffect(openRequest.value) { openRequest.value?.let { stack.add(Screen.Details(it)); openRequest.value = null } }
 
     val top = stack.lastOrNull()
     BackHandler(enabled = top != null || tab != Tab.HOME) {
@@ -79,10 +115,16 @@ fun App() {
     }
 
     fun open(t: Title) { stack.add(Screen.Details(t)) }
-    fun play(t: Title, s: Int = 1, e: Int = 1) {
+    fun play(t: Title) {
         val last = store.lastEpisode(t)
-        if (t.kind == Kind.TV && s == 1 && e == 1 && last != null) PlayerActivity.start(context, t, last.season, last.episode)
-        else PlayerActivity.start(context, t, s, e)
+        if (t.kind == Kind.TV && last != null) PlayerActivity.start(context, t, last.season, last.episode)
+        else PlayerActivity.start(context, t, 1, 1)
+    }
+    fun trailer(key: String) {
+        val app = Intent(Intent.ACTION_VIEW, Uri.parse("vnd.youtube:$key"))
+        try { context.startActivity(app) } catch (_: Exception) {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/watch?v=$key")))
+        }
     }
     fun onUpdate() {
         apk?.let { if (it.exists()) { Updates.install(context, it); return } }
@@ -103,40 +145,54 @@ fun App() {
         }
     }
 
-    Box(Modifier.fillMaxSize().background(Ink)) {
-        AnimatedContent(top ?: tab, transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(160)) }, label = "screen") { s ->
-            when (s) {
-                is Screen.Details -> DetailsScreen(s.title, store, ::open) { t, se, ep -> PlayerActivity.start(context, t, se, ep) }
-                Screen.Settings -> SettingsScreen(Updates.installedName(context), update, AdBlock.size, ::onUpdate) {
-                    context.cacheDir.resolve("images").deleteRecursively()
-                    WebStorage.getInstance().deleteAllData()
-                    Toast.makeText(context, "Cache cleared", Toast.LENGTH_SHORT).show()
+    CompositionLocalProvider(LocalWide provides wide) {
+        Box(Modifier.fillMaxSize().background(Ink)) {
+            AnimatedContent(top ?: tab, transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(160)) }, label = "screen") { s ->
+                when (s) {
+                    is Screen.Details -> DetailsScreen(s.title, store, ::open, { p -> stack.add(Screen.People(p)) }, ::trailer) { t, se, ep -> PlayerActivity.start(context, t, se, ep) }
+                    is Screen.People -> PersonScreen(s.person, ::open)
+                    Screen.Downloads -> DownloadsScreen { info, id -> PlayerActivity.start(context, info.title, info.season, info.episode, offline = id) }
+                    Screen.Settings -> SettingsScreen(
+                        Updates.installedName(context), update, AdBlock.size, store,
+                        onDownloads = { stack.add(Screen.Downloads) },
+                        onAlerts = { on ->
+                            if (on && Build.VERSION.SDK_INT >= 33) askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        },
+                        onUpdate = ::onUpdate,
+                    ) {
+                        context.cacheDir.resolve("images").deleteRecursively()
+                        WebStorage.getInstance().deleteAllData()
+                        Toast.makeText(context, "Cache cleared", Toast.LENGTH_SHORT).show()
+                    }
+                    Tab.HOME -> FeedScreen(null, store, ::open, ::play)
+                    Tab.MOVIES -> FeedScreen(Kind.MOVIE, store, ::open, ::play)
+                    Tab.TV -> FeedScreen(Kind.TV, store, ::open, ::play)
+                    Tab.SEARCH -> SearchScreen(::open)
+                    Tab.LIST -> MyListScreen(store, ::open) { stack.add(Screen.Downloads) }
+                    else -> {}
                 }
-                Tab.HOME -> FeedScreen(null, store, ::open) { play(it) }
-                Tab.MOVIES -> FeedScreen(Kind.MOVIE, store, ::open) { play(it) }
-                Tab.TV -> FeedScreen(Kind.TV, store, ::open) { play(it) }
-                Tab.SEARCH -> SearchScreen(::open)
-                Tab.LIST -> MyListScreen(store, ::open)
-                else -> {}
             }
-        }
-        TopBar(
-            title = when {
-                top is Screen.Settings -> "Settings"
-                top is Screen.Details -> null
-                tab == Tab.SEARCH -> "Search"
-                tab == Tab.LIST -> "My List"
-                else -> null
-            },
-            onBack = if (top != null) ({ stack.removeAt(stack.lastIndex) }) else null,
-            settingsActive = top is Screen.Settings,
-            onSettings = { if (top is Screen.Settings) stack.removeAt(stack.lastIndex) else stack.add(Screen.Settings) },
-        )
-        Dock(if (top == null) tab else null, { t -> stack.clear(); tab = t }, Modifier.align(Alignment.BottomCenter))
+            TopBar(
+                title = when {
+                    top is Screen.Settings -> "Settings"
+                    top is Screen.Downloads -> "Downloads"
+                    top is Screen.Details || top is Screen.People -> null
+                    tab == Tab.SEARCH -> "Search"
+                    tab == Tab.LIST -> "My List"
+                    else -> null
+                },
+                onBack = if (top != null) ({ stack.removeAt(stack.lastIndex) }) else null,
+                settingsActive = top is Screen.Settings,
+                tab = if (top == null) tab else null,
+                onTab = { t -> stack.clear(); tab = t },
+                onSettings = { if (top is Screen.Settings) stack.removeAt(stack.lastIndex) else stack.add(Screen.Settings) },
+            )
+            if (!wide) Dock(if (top == null) tab else null, { t -> stack.clear(); tab = t }, Modifier.align(Alignment.BottomCenter))
 
-        AnimatedVisibility(splash, enter = fadeIn(), exit = fadeOut(tween(400))) {
-            Box(Modifier.fillMaxSize().background(Ink), contentAlignment = Alignment.Center) {
-                Box(Modifier.enterUp()) { Logo(30) }
+            AnimatedVisibility(splash, enter = fadeIn(), exit = fadeOut(tween(400))) {
+                Box(Modifier.fillMaxSize().background(Ink), contentAlignment = Alignment.Center) {
+                    Box(Modifier.enterUp()) { Logo(30) }
+                }
             }
         }
     }

@@ -2,6 +2,7 @@ package com.g41us.movio
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -64,7 +65,7 @@ import kotlinx.coroutines.delay
 
 /** Space under the floating dock so the last row is never hidden behind it. */
 @Composable
-fun dockSpace(): Dp = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 112.dp
+fun dockSpace(): Dp = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + if (LocalWide.current) 32.dp else 112.dp
 
 /** Space under the top bar for screens without a hero. */
 @Composable
@@ -196,12 +197,15 @@ fun SearchScreen(onOpen: (Title) -> Unit) {
 // ---------- My List ----------
 
 @Composable
-fun MyListScreen(store: Store, onOpen: (Title) -> Unit) {
+fun MyListScreen(store: Store, onOpen: (Title) -> Unit, onDownloads: () -> Unit) {
     LazyVerticalGrid(
         GridCells.Adaptive(108.dp), Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = Gutter, end = Gutter, top = barSpace(), bottom = dockSpace()),
         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Row { GhostButton("Downloads", R.drawable.ic_download, onClick = onDownloads) }
+        }
         if (store.myList.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
             Message("Your list is empty", "Tap My List on any movie or show to save it here.")
         } else items(store.myList, key = { it.key }) { t -> PosterCard(t, 108.dp) { onOpen(t) } }
@@ -211,7 +215,7 @@ fun MyListScreen(store: Store, onOpen: (Title) -> Unit) {
 // ---------- Details ----------
 
 @Composable
-fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPlay: (Title, Int, Int) -> Unit) {
+fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPerson: (Person) -> Unit, onTrailer: (String) -> Unit, onPlay: (Title, Int, Int) -> Unit) {
     val (state, retry) = load(title.key) { Tmdb.details(title) }
     val last = store.lastEpisode(title)
     var season by remember(title.key) { mutableIntStateOf(last?.season ?: 1) }
@@ -250,7 +254,10 @@ fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPlay: (
                         }
                         Spacer(Modifier.height(10.dp))
                         val saved = store.inList(t)
-                        GhostButton(if (saved) "In My List" else "Add to My List", if (saved) R.drawable.ic_check else R.drawable.ic_plus, Modifier.fillMaxWidth()) { store.toggle(t) }
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            GhostButton(if (saved) "In My List" else "My List", if (saved) R.drawable.ic_check else R.drawable.ic_plus, Modifier.weight(1f)) { store.toggle(t) }
+                            if (d.trailer != null) GhostButton("Trailer", R.drawable.ic_trailer, Modifier.weight(1f)) { onTrailer(d.trailer) }
+                        }
                         if (d.genres.isNotEmpty()) {
                             Spacer(Modifier.height(16.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { d.genres.take(3).forEach { Badge(it.uppercase()) } }
@@ -261,11 +268,13 @@ fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPlay: (
                         }
                         Spacer(Modifier.height(8.dp))
                         Text(t.overview, fontSize = 14.5.sp, lineHeight = 21.sp, color = Soft, style = jakarta())
-                        if (d.cast.isNotEmpty()) {
-                            Spacer(Modifier.height(12.dp))
-                            Text("Starring  " + d.cast.take(5).joinToString(", "), fontSize = 13.sp, lineHeight = 19.sp, color = Muted, style = jakarta(),
-                                maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        }
+
+                    }
+                }
+                if (d.cast.isNotEmpty()) item(key = "cast") {
+                    SectionTitle("Cast")
+                    LazyRow(contentPadding = PaddingValues(horizontal = Gutter), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                        items(d.cast, key = { it.id }) { p -> CastCard(p) { onPerson(p) } }
                     }
                 }
                 if (t.kind == Kind.TV && d.seasons.isNotEmpty()) {
@@ -326,7 +335,7 @@ sealed interface UpdateState {
 }
 
 @Composable
-fun SettingsScreen(version: String, update: UpdateState, blocked: Int, onUpdate: () -> Unit, onClearCache: () -> Unit) {
+fun SettingsScreen(version: String, update: UpdateState, blocked: Int, store: Store, onDownloads: () -> Unit, onAlerts: (Boolean) -> Unit, onUpdate: () -> Unit, onClearCache: () -> Unit) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = Gutter, end = Gutter, top = barSpace(), bottom = dockSpace())) {
         item {
             Card {
@@ -368,6 +377,18 @@ fun SettingsScreen(version: String, update: UpdateState, blocked: Int, onUpdate:
         }
         item {
             Card {
+                Label("Playback")
+                Spacer(Modifier.height(6.dp))
+                var autoplay by remember { mutableStateOf(store.autoplayNext) }
+                ToggleRow("Autoplay next episode", "Starts the next episode after a 20-second countdown.", autoplay) { autoplay = it; store.autoplayNext = it }
+                var alerts by remember { mutableStateOf(store.alerts) }
+                ToggleRow("New episode alerts", "Get notified when a show in My List has a new episode.", alerts) { alerts = it; store.alerts = it; onAlerts(it) }
+                Spacer(Modifier.height(6.dp))
+                GhostButton("Downloads", R.drawable.ic_download, onClick = onDownloads)
+            }
+        }
+        item {
+            Card {
                 Label("Ad blocking")
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -387,6 +408,128 @@ fun SettingsScreen(version: String, update: UpdateState, blocked: Int, onUpdate:
                 Text("Clear cached images and player data if something looks stuck.", fontSize = 13.sp, color = Muted, style = jakarta())
                 Spacer(Modifier.height(14.dp))
                 GhostButton("Clear cache", null, onClick = onClearCache)
+            }
+        }
+    }
+}
+
+
+// ---------- People ----------
+
+@Composable
+fun Avatar(p: Person, size: Dp) {
+    Box(Modifier.size(size).clip(androidx.compose.foundation.shape.CircleShape).background(Brush.linearGradient(listOf(Violet.copy(alpha = .5f), Pink.copy(alpha = .4f)))), contentAlignment = Alignment.Center) {
+        Text(p.name.split(" ").mapNotNull { it.firstOrNull()?.uppercase() }.take(2).joinToString(""), color = Color.White,
+            fontSize = (size.value * .32f).sp, fontWeight = FontWeight.Bold, style = jakarta())
+        if (p.photo != null) AsyncImage(Tmdb.img(p.photo, "w185"), p.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+    }
+}
+
+@Composable
+fun CastCard(p: Person, onClick: () -> Unit) {
+    Column(Modifier.width(82.dp).tappable(onClick), horizontalAlignment = Alignment.CenterHorizontally) {
+        Avatar(p, 72.dp)
+        Spacer(Modifier.height(8.dp))
+        Text(p.name, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Soft, style = jakarta(), maxLines = 2, minLines = 2,
+            overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        if (p.role.isNotBlank()) Text(p.role, fontSize = 11.sp, color = Muted, style = jakarta(), maxLines = 1, overflow = TextOverflow.Ellipsis,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+    }
+}
+
+@Composable
+fun PersonScreen(person: Person, onOpen: (Title) -> Unit) {
+    val (state, retry) = load(person.id) { Tmdb.person(person.id) }
+    var more by remember { mutableStateOf(false) }
+    LazyVerticalGrid(
+        GridCells.Adaptive(108.dp), Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = Gutter, end = Gutter, top = barSpace(), bottom = dockSpace()),
+        horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(18.dp),
+    ) {
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                Avatar((state as? Load.Done)?.value?.person ?: person, 120.dp)
+                Spacer(Modifier.height(14.dp))
+                Text(person.name, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, style = jakarta())
+                val d = (state as? Load.Done)?.value
+                if (d != null && d.person.role.isNotBlank()) Text(d.person.role, fontSize = 13.sp, color = Muted, style = jakarta())
+                if (d != null && d.bio.isNotBlank()) {
+                    Spacer(Modifier.height(12.dp))
+                    Text(d.bio, fontSize = 14.sp, lineHeight = 20.sp, color = Soft, style = jakarta(), maxLines = if (more) 40 else 4,
+                        overflow = TextOverflow.Ellipsis, modifier = Modifier.tappable { more = !more })
+                }
+                Spacer(Modifier.height(6.dp))
+                SectionTitle("Known for")
+            }
+        }
+        when (val s = state) {
+            Load.Loading -> items(6) { Box(Modifier.aspectRatio(2f / 3f).shimmer()) }
+            is Load.Failed -> item(span = { GridItemSpan(maxLineSpan) }) { Failed(retry) }
+            is Load.Done -> items(s.value.known, key = { it.key }) { t -> PosterCard(t, 108.dp) { onOpen(t) } }
+        }
+    }
+}
+
+
+/** iOS-style switch row. */
+@Composable
+fun ToggleRow(title: String, body: String, on: Boolean, onChange: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).focusGlow(RoundedCornerShape(12.dp)).clickableNoRipple { onChange(!on) }.padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White, style = jakarta())
+            Text(body, fontSize = 12.sp, color = Muted, style = jakarta())
+        }
+        Spacer(Modifier.width(12.dp))
+        val x by androidx.compose.animation.core.animateDpAsState(if (on) 22.dp else 2.dp, label = "toggle")
+        Box(Modifier.width(51.dp).height(31.dp).clip(RoundedCornerShape(50)).background(if (on) Color(0xFF34C759) else Color.White.copy(alpha = .16f))) {
+            Box(Modifier.padding(start = x, top = 2.dp).size(27.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Color.White))
+        }
+    }
+}
+
+fun Modifier.clickableNoRipple(onClick: () -> Unit): Modifier = this.then(
+    Modifier.clickable(interactionSource = null, indication = null, onClick = onClick)
+)
+
+// ---------- Downloads ----------
+
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+@Composable
+fun DownloadsScreen(onPlay: (DownloadInfo, String) -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var items by remember { mutableStateOf(Downloads.all(context)) }
+    LaunchedEffect(Unit) { while (true) { items = Downloads.all(context); delay(1000) } }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = Gutter, end = Gutter, top = barSpace(), bottom = dockSpace())) {
+        if (items.isEmpty()) item { Message("No downloads yet", "Tap Download in the player to save a movie or episode for offline viewing.") }
+        items(items, key = { it.request.id }) { d ->
+            val info = DownloadInfo.from(d.request.data) ?: return@items
+            val done = d.state == androidx.media3.exoplayer.offline.Download.STATE_COMPLETED
+            val failed = d.state == androidx.media3.exoplayer.offline.Download.STATE_FAILED
+            Row(Modifier.fillMaxWidth().padding(vertical = 7.dp).tappable { if (done) onPlay(info, d.request.id) }, verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.width(132.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)).background(Panel)) {
+                    AsyncImage(Tmdb.img(info.title.backdrop ?: info.title.poster, "w300"), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                    if (done) Box(Modifier.align(Alignment.Center).size(32.dp).clip(RoundedCornerShape(50)).background(Ink.copy(alpha = .65f)), contentAlignment = Alignment.Center) {
+                        Icon(painterResource(R.drawable.ic_play_fill), null, tint = Color.White, modifier = Modifier.size(15.dp))
+                    }
+                }
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(info.label, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White, style = jakarta(), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Spacer(Modifier.height(4.dp))
+                    val mb = d.bytesDownloaded / 1_048_576
+                    Text(when {
+                        done -> "Downloaded · $mb MB"
+                        failed -> "Download failed"
+                        else -> "Downloading ${d.percentDownloaded.toInt().coerceAtLeast(0)}% · $mb MB"
+                    }, fontSize = 12.sp, color = if (failed) Pink else if (done) Color(0xFF5EE6A8) else Muted, style = jakarta())
+                    if (!done && !failed) {
+                        Spacer(Modifier.height(6.dp))
+                        LinearProgressIndicator({ (d.percentDownloaded / 100f).coerceIn(0f, 1f) }, Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(50)), color = Violet, trackColor = Glass)
+                    }
+                }
+                Spacer(Modifier.width(8.dp))
+                GlassIcon(R.drawable.ic_close, size = 34.dp) { Downloads.remove(context, d.request.id) }
             }
         }
     }

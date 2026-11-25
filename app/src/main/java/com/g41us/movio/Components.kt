@@ -73,6 +73,7 @@ fun GlassIcon(icon: Int, active: Boolean = false, size: Dp = 42.dp, onClick: () 
         Modifier.size(size).clip(CircleShape)
             .background(if (active) Brand else Brush.linearGradient(listOf(Glass, Glass)))
             .border(1.dp, if (active) Color.Transparent else Hairline, CircleShape)
+            .focusGlow(CircleShape)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) { Icon(painterResource(icon), null, tint = if (active) Color.White else Soft, modifier = Modifier.size(size * .5f)) }
@@ -80,7 +81,7 @@ fun GlassIcon(icon: Int, active: Boolean = false, size: Dp = 42.dp, onClick: () 
 
 /** Top bar over a scrim so it stays readable on hero artwork; sits below the status bar. */
 @Composable
-fun TopBar(title: String? = null, onBack: (() -> Unit)? = null, settingsActive: Boolean = false, onSettings: () -> Unit) {
+fun TopBar(title: String? = null, onBack: (() -> Unit)? = null, settingsActive: Boolean = false, tab: Tab? = null, onTab: ((Tab) -> Unit)? = null, onSettings: () -> Unit) {
     Row(
         Modifier.fillMaxWidth()
             .background(Brush.verticalGradient(listOf(Ink.copy(alpha = .92f), Ink.copy(alpha = .55f), Color.Transparent)))
@@ -93,8 +94,20 @@ fun TopBar(title: String? = null, onBack: (() -> Unit)? = null, settingsActive: 
             Spacer(Modifier.width(12.dp))
         }
         Box(Modifier.weight(1f)) {
-            if (title != null) Text(title, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, style = jakarta())
+            if (title != null && !(LocalWide.current && onTab != null)) Text(title, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, style = jakarta())
             else Logo()
+        }
+        if (LocalWide.current && onTab != null) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Tab.entries.forEach { t ->
+                    val active = t == tab
+                    Text(t.label, fontSize = 16.sp, style = jakarta(), fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                        color = if (active) Color.White else Muted,
+                        modifier = Modifier.clip(RoundedCornerShape(50)).background(if (active) Brush.linearGradient(listOf(Violet.copy(alpha = .45f), Pink.copy(alpha = .35f))) else Brush.linearGradient(listOf(Color.Transparent, Color.Transparent)))
+                            .focusGlow(RoundedCornerShape(50)).clickable { onTab(t) }.padding(horizontal = 16.dp, vertical = 9.dp))
+                }
+            }
+            Spacer(Modifier.width(16.dp))
         }
         GlassIcon(R.drawable.ic_settings, active = settingsActive, onClick = onSettings)
     }
@@ -136,7 +149,7 @@ fun Dock(tab: Tab?, onTab: (Tab) -> Unit, modifier: Modifier = Modifier) {
 private fun DockItem(t: Tab, active: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val pill by animateDpAsState(if (active) 46.dp else 0.dp, label = "dock")
     Column(
-        modifier.clip(RoundedCornerShape(18.dp)).clickable(onClick = onClick).padding(vertical = 6.dp),
+        modifier.clip(RoundedCornerShape(18.dp)).focusGlow(RoundedCornerShape(18.dp)).clickable(onClick = onClick).padding(vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.height(30.dp).width(50.dp)) {
@@ -202,6 +215,7 @@ fun Chip(label: String, active: Boolean, onClick: () -> Unit) {
         modifier = Modifier.clip(RoundedCornerShape(50))
             .background(if (active) Brand else Brush.linearGradient(listOf(Glass, Glass)))
             .border(1.dp, if (active) Color.Transparent else Hairline, RoundedCornerShape(50))
+            .focusGlow(RoundedCornerShape(50))
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 9.dp),
     )
@@ -312,24 +326,32 @@ fun Hero(items: List<Title>, saved: (Title) -> Boolean, onPlay: (Title) -> Unit,
     if (items.isEmpty()) return
     var index by remember(items) { mutableIntStateOf(0) }
     LaunchedEffect(items) { while (items.size > 1) { delay(7000); index = (index + 1) % items.size } }
-    Box(Modifier.fillMaxWidth().height(560.dp)) {
+    val wide = LocalWide.current
+    val heroH = if (wide) (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * .82f).dp else 560.dp
+    Box(Modifier.fillMaxWidth().height(heroH)) {
         AnimatedContent(items[index], transitionSpec = { fadeIn(tween(700)) togetherWith fadeOut(tween(700)) }, label = "hero") { t ->
             Box(Modifier.fillMaxSize()) {
                 AsyncImage(
-                    Tmdb.img(t.poster, "w780"), null, contentScale = ContentScale.Crop,
+                    if (wide) Tmdb.img(t.backdrop ?: t.poster, "w1280") else Tmdb.img(t.poster, "w780"), null, contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize().kenBurns(),
                 )
+                if (wide) Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Ink.copy(alpha = .85f), .55f to Color.Transparent)))
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Ink.copy(alpha = .35f), .3f to Color.Transparent, .62f to Ink.copy(alpha = .55f), 1f to Ink)))
             }
         }
         val t = items[index]
-        Column(Modifier.align(Alignment.BottomStart).padding(start = Gutter, end = Gutter, bottom = 18.dp).enterUp()) {
+        Column(Modifier.align(Alignment.BottomStart).padding(start = if (wide) 48.dp else Gutter, end = Gutter, bottom = 18.dp)
+            .then(if (wide) Modifier.width(560.dp) else Modifier).enterUp()) {
             Badge(if (t.kind == Kind.TV) "SERIES" else "MOVIE")
             Spacer(Modifier.height(12.dp))
-            Text(t.name, fontSize = 34.sp, lineHeight = 38.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-1).sp, color = Color.White,
+            Text(t.name, fontSize = if (wide) 40.sp else 34.sp, lineHeight = if (wide) 44.sp else 38.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-1).sp, color = Color.White,
                 style = jakarta(), maxLines = 2, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(8.dp))
             Meta(t)
+            if (wide && t.overview.isNotBlank()) {
+                Spacer(Modifier.height(10.dp))
+                Text(t.overview, fontSize = 14.sp, lineHeight = 20.sp, color = Soft, style = jakarta(), maxLines = 3, overflow = TextOverflow.Ellipsis)
+            }
             Spacer(Modifier.height(18.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 PrimaryButton("Play", R.drawable.ic_play_fill, Modifier.weight(1f)) { onPlay(t) }

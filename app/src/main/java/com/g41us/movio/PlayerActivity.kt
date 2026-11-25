@@ -11,7 +11,10 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Rational
+import android.view.KeyEvent
 import android.view.MotionEvent
+import android.media.AudioManager
+import android.widget.Toast
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -57,6 +60,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -85,6 +89,9 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.CaptionStyleCompat
+import androidx.media3.ui.SubtitleView
+import androidx.core.content.res.ResourcesCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import kotlinx.coroutines.CancellationException
@@ -102,12 +109,12 @@ import java.io.ByteArrayInputStream
 class PlayerActivity : ComponentActivity() {
 
     companion object {
-        fun start(context: Context, t: Title, season: Int, episode: Int) {
+        fun start(context: Context, t: Title, season: Int, episode: Int, offline: String? = null) {
             Store.get(context).watched(t, season, episode)
             context.startActivity(
                 Intent(context, PlayerActivity::class.java)
                     .putExtra("id", t.id).putExtra("kind", t.kind.name).putExtra("name", t.name)
-                    .putExtra("s", season).putExtra("e", episode)
+                    .putExtra("s", season).putExtra("e", episode).putExtra("offline", offline)
             )
         }
     }
@@ -137,6 +144,16 @@ class PlayerActivity : ComponentActivity() {
     private var sourceIndex by mutableIntStateOf(0)
     private var status by mutableStateOf("Getting your stream ready")
     private val failedSources = mutableSetOf<Int>()
+    private var controlsVisible by mutableStateOf(true)
+    private var episodesList by mutableStateOf<List<Episode>>(emptyList())
+    private var episodeCount = 0
+    private var seasonCount = 0
+    private var aspect by mutableIntStateOf(0)
+    private var subSizeState by mutableIntStateOf(1)
+    private var subBoxState by mutableStateOf(true)
+    private var subOffsetState by mutableLongStateOf(0L)
+    private var downloadLabelState by mutableStateOf<String?>(null)
+    private var offlineId: String? = null
 
     private var id = 0
     private var kind = Kind.MOVIE
@@ -183,6 +200,9 @@ class PlayerActivity : ComponentActivity() {
         episode = intent.getIntExtra("e", 1)
         title = store.continueWatching.firstOrNull { it.title.id == id && it.title.kind == kind }?.title
         updateLabel()
+        offlineId = intent.getStringExtra("offline")
+        subSizeState = store.subSize; subBoxState = store.subBox
+        if (kind == Kind.TV) lifecycleScope.launch { loadEpisodeInfo() }
         lifecycleScope.launch {
             runtimeMs = try {
                 val t = title ?: Title(id, kind, name, "", null, null, null, 0.0)
@@ -208,6 +228,7 @@ class PlayerActivity : ComponentActivity() {
             setKeepContentOnPlayerReset(true)
             visibility = View.GONE
         }
+        applySubtitleStyle()
         fullscreen = FrameLayout(this).apply { visibility = View.GONE; setBackgroundColor(android.graphics.Color.BLACK) }
         val overlay = ComposeView(this)
         root.addView(webView, FrameLayout.LayoutParams(-1, -1))
@@ -218,8 +239,13 @@ class PlayerActivity : ComponentActivity() {
         overlay.setContent { Overlay() }
 
         setupWebView()
-        val preferred = Sources.index(prefs.getString("source2", null))
-        start(preferred, automatic = true)
+        val off = offlineId
+        if (off != null) playOffline(off) else {
+            val t = title
+            val perTitle = t?.let { store.sourceFor(it) }
+            start(Sources.index(perTitle ?: prefs.getString("source2", null)), automatic = true)
+        }
+        lifecycleScope.launch { while (true) { refreshDownloadLabel(); kotlinx.coroutines.delay(2000) } }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -239,12 +265,7 @@ class PlayerActivity : ComponentActivity() {
         if (pip) return
         Box(Modifier.fillMaxSize()) {
             when (phase) {
-                Phase.NATIVE -> PlayerControls(
-                    exo, label, showNext = kind == Kind.TV, fill = fill,
-                    onFill = { fill = !fill; playerView.resizeMode = if (fill) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT },
-                    onBack = { finish() }, onNext = { nextEpisode() }, onWeb = { showWeb(reload = true) },
-                    onSources = { sourcesOpen = true }, source = source.name,
-                )
+                Phase.NATIVE -> PlayerControls(exo, host, controlsVisible) { controlsVisible = it }
                 Phase.WEB -> AnimatedVisibility(webBar, enter = fadeIn(), exit = fadeOut()) {
                     Row(
                         Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = .75f), Color.Transparent)))
@@ -449,7 +470,8 @@ class PlayerActivity : ComponentActivity() {
             .setConnectTimeoutMs(15_000).setReadTimeoutMs(20_000)
         val pageTracks = pageSubs.filter { u -> subtitleTracks.none { it.url == u } }.take(4).mapIndexed { i, u -> Subtitle("Source ${i + 1}", "und", u) }
         val subs = (subtitleTracks + pageTracks).map { t ->
-            MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(t.url))
+            val local = shiftedSubs[t.url]
+            MediaItem.SubtitleConfiguration.Builder(if (local != null) android.net.Uri.fromFile(java.io.File(local)) else android.net.Uri.parse(t.url))
                 .setMimeType(if (t.srt) MimeTypes.APPLICATION_SUBRIP else MimeTypes.TEXT_VTT)
                 .setLanguage(t.lang.takeIf { it != "und" }).setLabel(t.label)
                 .build()
@@ -458,15 +480,20 @@ class PlayerActivity : ComponentActivity() {
             .setMimeType(if (s.hls) MimeTypes.APPLICATION_M3U8 else null)
             .setSubtitleConfigurations(subs)
             .build()
-        exo.setMediaSource(DefaultMediaSourceFactory(http).createMediaSource(item))
+        exo.setMediaSource(DefaultMediaSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(this, http)).createMediaSource(item))
         exo.prepare()
+        lastHeaders = headers
     }
+
+    private val shiftedSubs = mutableMapOf<String, String>()
+    private var lastHeaders: Map<String, String> = emptyMap()
 
     /** Short clips from a page are ads; anything real takes the screen and the page is shut down. */
     private fun onReady() {
         val s = trying ?: return
         if (phase == Phase.NATIVE) return
         val d = exo.duration
+        if (offlineId != null) { phase = Phase.NATIVE; playerView.visibility = View.VISIBLE; store.position(posKey())?.let { (p, _) -> if (p > 30_000) exo.seekTo(p) }; exo.play(); return }
         if (!source.direct && d != C.TIME_UNSET && d in 1 until 150_000) {
             rejected.add(s.url); trying = null; exo.stop(); tryNext(); return
         }
@@ -483,6 +510,8 @@ class PlayerActivity : ComponentActivity() {
         exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon().setPreferredTextLanguage("en").build()
         exo.play()
         failedSources.remove(sourceIndex)
+        if (offlineId == null) store.setSourceFor(title ?: Title(id, kind, name, "", null, null, null, 0.0), source.name)
+        controlsVisible = true
         webView.stopLoading()
         webView.loadUrl("about:blank")
         webView.onPause()
@@ -498,7 +527,8 @@ class PlayerActivity : ComponentActivity() {
 
     private fun nextEpisode() {
         savePosition()
-        episode += 1
+        if (episodeCount in 1..episode && season < seasonCount) { season += 1; episode = 1; lifecycleScope.launch { loadEpisodeInfo() } }
+        else episode += 1
         updateLabel()
         title?.let { store.watched(it, season, episode) }
         failedSources.clear()
@@ -509,6 +539,163 @@ class PlayerActivity : ComponentActivity() {
     private fun savePosition() {
         if (phase != Phase.NATIVE) return
         store.savePosition(posKey(), exo.currentPosition, exo.duration.takeIf { it != C.TIME_UNSET } ?: 0)
+    }
+
+    private suspend fun loadEpisodeInfo() {
+        try {
+            episodesList = Tmdb.episodes(id, season)
+            episodeCount = episodesList.size.takeIf { it > 0 } ?: Tmdb.episodeCount(id, season)
+            seasonCount = Tmdb.seasonCount(id)
+        } catch (_: Exception) { }
+    }
+
+    private fun playEpisode(e: Int) {
+        savePosition()
+        episode = e
+        updateLabel()
+        title?.let { store.watched(it, season, episode) }
+        failedSources.clear(); autoTried = 0
+        start(sourceIndex, automatic = true)
+    }
+
+    /** Plays a finished download straight from the phone. */
+    private fun playOffline(id: String) {
+        val d = Downloads.find(this, id) ?: run { phase = Phase.FAILED; return }
+        val info = DownloadInfo.from(d.request.data)
+        val sub = info?.subtitle?.let { path ->
+            MediaItem.SubtitleConfiguration.Builder(android.net.Uri.fromFile(java.io.File(path)))
+                .setMimeType(MimeTypes.TEXT_VTT).setLanguage("en").setLabel("English").build()
+        }
+        val item = d.request.toMediaItem().buildUpon().setSubtitleConfigurations(listOfNotNull(sub)).build()
+        exo.setMediaSource(DefaultMediaSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(this, Downloads.offlineFactory(this))).createMediaSource(item))
+        exo.prepare()
+        trying = Stream(d.request.uri.toString(), emptyMap(), hls = true)
+        status = "Playing from Downloads"
+    }
+
+    private fun refreshDownloadLabel() {
+        val t = title ?: return
+        val d = Downloads.find(this, Downloads.idFor(t, season, episode))
+        downloadLabelState = when {
+            offlineId != null -> "Downloaded"
+            d == null -> null
+            d.state == androidx.media3.exoplayer.offline.Download.STATE_COMPLETED -> "Downloaded"
+            d.state == androidx.media3.exoplayer.offline.Download.STATE_FAILED -> "Retry download"
+            else -> "Downloading ${d.percentDownloaded.toInt().coerceAtLeast(0)}%"
+        }
+    }
+
+    private fun startDownload() {
+        val t = title ?: Title(id, kind, name, "", null, null, null, 0.0)
+        val s = trying ?: return
+        val existing = Downloads.find(this, Downloads.idFor(t, season, episode))
+        if (existing != null && existing.state != androidx.media3.exoplayer.offline.Download.STATE_FAILED) {
+            Toast.makeText(this, if (existing.state == androidx.media3.exoplayer.offline.Download.STATE_COMPLETED) "Already downloaded" else "Already downloading", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val english = subtitleTracks.firstOrNull { it.lang == "en" } ?: subtitleTracks.firstOrNull()
+        Downloads.notificationChannel(this)
+        Downloads.start(this, DownloadInfo(t, season, episode, lastHeaders, null), s.url, s.hls, english?.url) { err ->
+            Toast.makeText(this, err ?: "Downloading — see Downloads", Toast.LENGTH_SHORT).show()
+            refreshDownloadLabel()
+        }
+    }
+
+    private fun applySubtitleStyle() {
+        val sv: SubtitleView = playerView.subtitleView ?: return
+        val face = ResourcesCompat.getFont(this, R.font.jakarta_semibold)
+        sv.setStyle(
+            CaptionStyleCompat(
+                android.graphics.Color.WHITE,
+                if (subBoxState) 0x99000000.toInt() else android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT,
+                if (subBoxState) CaptionStyleCompat.EDGE_TYPE_NONE else CaptionStyleCompat.EDGE_TYPE_OUTLINE,
+                android.graphics.Color.BLACK, face,
+            )
+        )
+        sv.setFractionalTextSize(SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * listOf(.85f, 1f, 1.25f, 1.5f)[subSizeState])
+        sv.setApplyEmbeddedStyles(false)
+    }
+
+    /** Re-times the external subtitles by [ms] and reloads them in place. */
+    private fun shiftSubtitles(ms: Long) {
+        subOffsetState = ms
+        val s = trying ?: return
+        val tracks = subtitleTracks
+        if (tracks.isEmpty()) { Toast.makeText(this, "Timing works on Movio's subtitles; pick one in CC", Toast.LENGTH_SHORT).show(); return }
+        lifecycleScope.launch {
+            val dir = java.io.File(cacheDir, "subs").apply { mkdirs() }
+            shiftedSubs.clear()
+            tracks.forEach { t -> SubtitleSync.shifted(dir, t, lastHeaders, ms)?.let { shiftedSubs[t.url] = it } }
+            val pos = exo.currentPosition
+            val lang = exo.trackSelectionParameters.preferredTextLanguages.firstOrNull()
+            play(s)
+            exo.seekTo(pos)
+            if (lang != null) exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon().setPreferredTextLanguage(lang).build()
+        }
+    }
+
+    private val audio by lazy { getSystemService(AUDIO_SERVICE) as AudioManager }
+
+    private val host = object : PlayerHost {
+        override val label get() = this@PlayerActivity.label
+        override val source get() = if (offlineId != null) "Downloaded" else this@PlayerActivity.source.name
+        override val isTv get() = kind == Kind.TV
+        override val season get() = this@PlayerActivity.season
+        override val episode get() = this@PlayerActivity.episode
+        override val episodes get() = episodesList
+        override val hasNext get() = kind == Kind.TV && offlineId == null && (episodeCount == 0 || episode < episodeCount || season < seasonCount)
+        override val aspectName get() = listOf("Fit", "Fill", "Stretch")[aspect]
+        override val downloadLabel get() = downloadLabelState
+        override val subSize get() = subSizeState
+        override val subBox get() = subBoxState
+        override val subOffset get() = subOffsetState
+        override val autoplay get() = store.autoplayNext
+        override fun back() = finish()
+        override fun next() = nextEpisode()
+        override fun web() = showWeb(reload = true)
+        override fun sources() { sourcesOpen = true }
+        override fun download() = startDownload()
+        override fun playEpisode(e: Int) = this@PlayerActivity.playEpisode(e)
+        override fun cycleAspect() {
+            aspect = (aspect + 1) % 3
+            playerView.resizeMode = listOf(AspectRatioFrameLayout.RESIZE_MODE_FIT, AspectRatioFrameLayout.RESIZE_MODE_ZOOM, AspectRatioFrameLayout.RESIZE_MODE_FILL)[aspect]
+        }
+        override fun brightness(delta: Float): Float {
+            val lp = window.attributes
+            val cur = if (lp.screenBrightness < 0) .5f else lp.screenBrightness
+            lp.screenBrightness = (cur + delta).coerceIn(.02f, 1f)
+            window.attributes = lp
+            return lp.screenBrightness
+        }
+        private var vol = -1f
+        override fun volume(delta: Float): Float {
+            val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+            if (vol < 0) vol = audio.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / max
+            vol = (vol + delta).coerceIn(0f, 1f)
+            audio.setStreamVolume(AudioManager.STREAM_MUSIC, (vol * max).toInt(), 0)
+            return vol
+        }
+        override fun setSubSize(i: Int) { subSizeState = i; store.subSize = i; applySubtitleStyle() }
+        override fun setSubBox(b: Boolean) { subBoxState = b; store.subBox = b; applySubtitleStyle() }
+        override fun setSubOffset(ms: Long) = shiftSubtitles(ms)
+    }
+
+    /** TV remote: left/right seek and select shows the controls while they're hidden. */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_DOWN && phase == Phase.NATIVE && !sourcesOpen) {
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_SPACE -> { if (exo.isPlaying) exo.pause() else exo.play(); controlsVisible = true; return true }
+                KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { exo.seekTo(exo.currentPosition + 10_000); return true }
+                KeyEvent.KEYCODE_MEDIA_REWIND -> { exo.seekTo((exo.currentPosition - 10_000).coerceAtLeast(0)); return true }
+            }
+            if (!controlsVisible) when (event.keyCode) {
+                KeyEvent.KEYCODE_DPAD_LEFT -> { exo.seekTo((exo.currentPosition - 10_000).coerceAtLeast(0)); return true }
+                KeyEvent.KEYCODE_DPAD_RIGHT -> { exo.seekTo(exo.currentPosition + 10_000); return true }
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> { controlsVisible = true; return true }
+            }
+        }
+        return super.dispatchKeyEvent(event)
     }
 
     private fun immersive() {

@@ -55,6 +55,28 @@ class Store private constructor(context: Context) {
         p to d
     }
 
+    private val misc = context.getSharedPreferences("movio_misc", Context.MODE_PRIVATE)
+
+    /** The source that last played this title, tried first next time. */
+    fun sourceFor(t: Title): String? = misc.getString("src:${t.key}", null)
+    fun setSourceFor(t: Title, name: String) = misc.edit().putString("src:${t.key}", name).apply()
+
+    var subSize: Int
+        get() = misc.getInt("sub_size", 1)
+        set(v) = misc.edit().putInt("sub_size", v).apply()
+    var subBox: Boolean
+        get() = misc.getBoolean("sub_box", true)
+        set(v) = misc.edit().putBoolean("sub_box", v).apply()
+    var autoplayNext: Boolean
+        get() = misc.getBoolean("autoplay", true)
+        set(v) = misc.edit().putBoolean("autoplay", v).apply()
+    var alerts: Boolean
+        get() = misc.getBoolean("alerts", true)
+        set(v) = misc.edit().putBoolean("alerts", v).apply()
+
+    fun lastSeen(showKey: String): String? = misc.getString("aired:$showKey", null)
+    fun setLastSeen(showKey: String, v: String) = misc.edit().putString("aired:$showKey", v).apply()
+
     fun lastEpisode(t: Title): Progress? = continueWatching.firstOrNull { it.title.key == t.key }
 
     private fun toJson(t: Title) = JSONObject()
