@@ -51,6 +51,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.offset
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -115,6 +117,7 @@ class PlayerActivity : ComponentActivity() {
                 Intent(context, PlayerActivity::class.java)
                     .putExtra("id", t.id).putExtra("kind", t.kind.name).putExtra("name", t.name)
                     .putExtra("s", season).putExtra("e", episode).putExtra("offline", offline)
+                    .putExtra("art", t.backdrop ?: t.poster)
             )
         }
     }
@@ -142,7 +145,7 @@ class PlayerActivity : ComponentActivity() {
     private var pip by mutableStateOf(false)
     private var sourcesOpen by mutableStateOf(false)
     private var sourceIndex by mutableIntStateOf(0)
-    private var status by mutableStateOf("Getting your stream ready")
+    private var status by mutableStateOf("Loading")
     private val failedSources = mutableSetOf<Int>()
     private var controlsVisible by mutableStateOf(true)
     private var episodesList by mutableStateOf<List<Episode>>(emptyList())
@@ -150,7 +153,9 @@ class PlayerActivity : ComponentActivity() {
     private var seasonCount = 0
     private var aspect by mutableIntStateOf(0)
     private var subSizeState by mutableIntStateOf(1)
-    private var subBoxState by mutableStateOf(true)
+    private var subStyleState by mutableIntStateOf(1)
+    private var subColorState by mutableIntStateOf(0)
+    private var art: String? = null
     private var subOffsetState by mutableLongStateOf(0L)
     private var downloadLabelState by mutableStateOf<String?>(null)
     private var offlineId: String? = null
@@ -201,7 +206,7 @@ class PlayerActivity : ComponentActivity() {
         title = store.continueWatching.firstOrNull { it.title.id == id && it.title.kind == kind }?.title
         updateLabel()
         offlineId = intent.getStringExtra("offline")
-        subSizeState = store.subSize; subBoxState = store.subBox
+        subSizeState = store.subSize; subStyleState = store.subStyle; subColorState = store.subColor; art = intent.getStringExtra("art")
         if (kind == Kind.TV) lifecycleScope.launch { loadEpisodeInfo() }
         lifecycleScope.launch {
             runtimeMs = try {
@@ -265,7 +270,7 @@ class PlayerActivity : ComponentActivity() {
         if (pip) return
         Box(Modifier.fillMaxSize()) {
             when (phase) {
-                Phase.NATIVE -> PlayerControls(exo, host, controlsVisible) { controlsVisible = it }
+                Phase.NATIVE -> PlayerControls(exo, host, controlsVisible) { controlsVisible = it; placeSubtitles() }
                 Phase.WEB -> AnimatedVisibility(webBar, enter = fadeIn(), exit = fadeOut()) {
                     Row(
                         Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = .75f), Color.Transparent)))
@@ -282,26 +287,33 @@ class PlayerActivity : ComponentActivity() {
                         GhostButton("Sources", R.drawable.ic_servers) { sourcesOpen = true }
                     }
                 }
-                Phase.FINDING, Phase.FAILED -> Column(
-                    Modifier.fillMaxSize().background(Ink), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
+                Phase.FINDING, Phase.FAILED -> Box(Modifier.fillMaxSize().background(Ink)) {
+                    if (art != null) coil.compose.AsyncImage(Tmdb.img(art, "w1280"), null, contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize().kenBurns())
+                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Ink.copy(alpha = .55f), .5f to Ink.copy(alpha = .7f), 1f to Ink)))
+                Column(
+                    Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
                 ) {
                     if (phase == Phase.FAILED) {
                         Message("Can't play right now", "None of the sources could play this. Check your connection or pick a source.", "Try again") {
                             failedSources.clear(); autoTried = 0; start(Sources.fallbackOrder.first(), automatic = true)
                         }
                     } else {
-                        CircularProgressIndicator(color = Violet, trackColor = Glass, strokeWidth = 3.dp, modifier = Modifier.size(42.dp))
+                        Text(label, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, style = jakarta(),
+                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 40.dp))
                         Spacer(Modifier.height(18.dp))
-                        Text(label, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold, style = jakarta())
-                        Text(status, color = Muted, fontSize = 13.sp, style = jakarta())
+                        LoadingBar()
+                        Spacer(Modifier.height(12.dp))
+                        Text(status, color = Soft, fontSize = 13.sp, style = jakarta())
                     }
+                }
                 }
             }
             if (phase == Phase.FINDING || phase == Phase.FAILED) {
                 Row(Modifier.fillMaxWidth().safeDrawingPadding().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     GlassIcon(R.drawable.ic_back, size = 42.dp) { finish() }
                     Spacer(Modifier.weight(1f))
-                    GhostButton(source.name, R.drawable.ic_servers) { sourcesOpen = true }
+                    GlassIcon(R.drawable.ic_servers, size = 42.dp) { sourcesOpen = true }
                 }
             }
             AnimatedVisibility(
@@ -374,7 +386,7 @@ class PlayerActivity : ComponentActivity() {
         exo.stop(); exo.clearMediaItems()
         playerView.visibility = View.GONE
         phase = Phase.FINDING
-        status = if (source.direct) "Getting your stream ready" else "Connecting to ${source.name}"
+        status = if (autoTried > 0) "Finding the best stream" else "Loading"
         webView.stopLoading()
 
         if (source.direct) {
@@ -450,7 +462,7 @@ class PlayerActivity : ComponentActivity() {
     private fun tryNext() {
         val next = candidates.sortedByDescending { it.hls }.firstOrNull { it.url !in rejected } ?: run { trying = null; return }
         trying = next
-        status = "Starting ${source.name}"
+        status = "Almost ready"
         val token = attempt
         lifecycleScope.launch {
             kotlinx.coroutines.withTimeoutOrNull(4_000) { subtitleJob?.join() }
@@ -512,6 +524,7 @@ class PlayerActivity : ComponentActivity() {
         failedSources.remove(sourceIndex)
         if (offlineId == null) store.setSourceFor(title ?: Title(id, kind, name, "", null, null, null, 0.0), source.name)
         controlsVisible = true
+        placeSubtitles()
         webView.stopLoading()
         webView.loadUrl("about:blank")
         webView.onPause()
@@ -604,17 +617,21 @@ class PlayerActivity : ComponentActivity() {
     private fun applySubtitleStyle() {
         val sv: SubtitleView = playerView.subtitleView ?: return
         val face = ResourcesCompat.getFont(this, R.font.jakarta_semibold)
-        sv.setStyle(
-            CaptionStyleCompat(
-                android.graphics.Color.WHITE,
-                if (subBoxState) 0x99000000.toInt() else android.graphics.Color.TRANSPARENT,
-                android.graphics.Color.TRANSPARENT,
-                if (subBoxState) CaptionStyleCompat.EDGE_TYPE_NONE else CaptionStyleCompat.EDGE_TYPE_OUTLINE,
-                android.graphics.Color.BLACK, face,
-            )
-        )
+        val fg = SubColors[subColorState].let { android.graphics.Color.argb((it.alpha * 255).toInt(), (it.red * 255).toInt(), (it.green * 255).toInt(), (it.blue * 255).toInt()) }
+        val (bg, edge) = when (subStyleState) {
+            0 -> android.graphics.Color.TRANSPARENT to CaptionStyleCompat.EDGE_TYPE_OUTLINE
+            1 -> android.graphics.Color.TRANSPARENT to CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW
+            2 -> 0x8C000000.toInt() to CaptionStyleCompat.EDGE_TYPE_NONE
+            else -> android.graphics.Color.BLACK to CaptionStyleCompat.EDGE_TYPE_NONE
+        }
+        sv.setStyle(CaptionStyleCompat(fg, bg, android.graphics.Color.TRANSPARENT, edge, android.graphics.Color.BLACK, face))
         sv.setFractionalTextSize(SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * listOf(.85f, 1f, 1.25f, 1.5f)[subSizeState])
         sv.setApplyEmbeddedStyles(false)
+    }
+
+    /** Subtitles sit higher while the controls are showing so they never collide. */
+    private fun placeSubtitles() {
+        playerView.subtitleView?.setBottomPaddingFraction(if (controlsVisible && phase == Phase.NATIVE) .24f else SubtitleView.DEFAULT_BOTTOM_PADDING_FRACTION)
     }
 
     /** Re-times the external subtitles by [ms] and reloads them in place. */
@@ -648,7 +665,8 @@ class PlayerActivity : ComponentActivity() {
         override val aspectName get() = listOf("Fit", "Fill", "Stretch")[aspect]
         override val downloadLabel get() = downloadLabelState
         override val subSize get() = subSizeState
-        override val subBox get() = subBoxState
+        override val subStyle get() = subStyleState
+        override val subColor get() = subColorState
         override val subOffset get() = subOffsetState
         override val autoplay get() = store.autoplayNext
         override fun back() = finish()
@@ -677,7 +695,8 @@ class PlayerActivity : ComponentActivity() {
             return vol
         }
         override fun setSubSize(i: Int) { subSizeState = i; store.subSize = i; applySubtitleStyle() }
-        override fun setSubBox(b: Boolean) { subBoxState = b; store.subBox = b; applySubtitleStyle() }
+        override fun setSubStyle(i: Int) { subStyleState = i; store.subStyle = i; applySubtitleStyle() }
+        override fun setSubColor(i: Int) { subColorState = i; store.subColor = i; applySubtitleStyle() }
         override fun setSubOffset(ms: Long) = shiftSubtitles(ms)
     }
 
@@ -873,5 +892,16 @@ class PlayerActivity : ComponentActivity() {
             webView.destroy()
         } catch (_: Exception) { }
         super.onDestroy()
+    }
+}
+
+
+/** Thin sweeping gradient bar for the loading screen. */
+@Composable
+private fun LoadingBar() {
+    val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "load")
+    val x by t.animateFloat(-.4f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(1100)), label = "x")
+    Box(Modifier.width(180.dp).height(3.dp).clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = .15f))) {
+        Box(Modifier.offset(x = 180.dp * x).width(72.dp).height(3.dp).background(Brand, RoundedCornerShape(50)))
     }
 }

@@ -52,13 +52,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.C
@@ -86,7 +90,8 @@ interface PlayerHost {
     val aspectName: String
     val downloadLabel: String?
     val subSize: Int
-    val subBox: Boolean
+    val subStyle: Int
+    val subColor: Int
     val subOffset: Long
     val autoplay: Boolean
     fun back()
@@ -99,18 +104,41 @@ interface PlayerHost {
     fun brightness(delta: Float): Float
     fun volume(delta: Float): Float
     fun setSubSize(i: Int)
-    fun setSubBox(b: Boolean)
+    fun setSubStyle(i: Int)
+    fun setSubColor(i: Int)
     fun setSubOffset(ms: Long)
 }
 
+/** Subtitle colours offered in the style panel. */
+val SubColors = listOf(Color.White, Color(0xFFFFE14D), Color(0xFF6FE7FF), Color(0xFF7DFF9B), Color(0xFFFF8CC6))
+val SubColorNames = listOf("White", "Yellow", "Cyan", "Green", "Pink")
+val SubStyleNames = listOf("None", "Shadow", "Box", "Solid")
+
 private data class Choice(val label: String, val selected: Boolean, val apply: () -> Unit)
 
-private enum class Sheet { QUALITY, SPEED, SUBTITLES, EPISODES }
+private enum class Sheet { SETTINGS, QUALITY, SPEED, SUBTITLES, STYLE, EPISODES }
 
 fun clock(ms: Long): String {
     if (ms < 0) return "0:00"
     val s = ms / 1000
     return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, s / 60 % 60, s % 60) else "%d:%02d".format(s / 60, s % 60)
+}
+
+/** Readable on any picture: white with a soft dark shadow, no background. */
+private val shade = Shadow(Color.Black.copy(alpha = .6f), Offset(0f, 2f), 8f)
+
+@Composable
+private fun Plain(icon: Int, label: String?, size: Dp = 24.dp, onClick: () -> Unit) {
+    Row(
+        Modifier.clip(RoundedCornerShape(12.dp)).focusGlow(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(painterResource(icon), label, tint = Color.White, modifier = Modifier.size(size))
+        if (label != null) {
+            Spacer(Modifier.width(8.dp))
+            Text(label, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, style = TextStyle(fontFamily = Jakarta, shadow = shade))
+        }
+    }
 }
 
 /** Movio's own player controls, drawn over the video. */
@@ -125,7 +153,7 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
     var duration by remember { mutableLongStateOf(0L) }
     var dragging by remember { mutableStateOf(false) }
     var dragValue by remember { mutableFloatStateOf(0f) }
-    var panel by remember { mutableStateOf<Sheet?>(null) }
+    var sheet by remember { mutableStateOf<Sheet?>(null) }
     var hint by remember { mutableStateOf<String?>(null) }
     var gauge by remember { mutableStateOf<Pair<Int, Float>?>(null) }
     var locked by remember { mutableStateOf(false) }
@@ -140,8 +168,7 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
             buffering = player.playbackState == Player.STATE_BUFFERING
             if (!dragging) position = player.currentPosition
             duration = player.duration.takeIf { it > 0 } ?: 0L
-            if (visible && panel == null && player.isPlaying && System.currentTimeMillis() - lastTouch > 3500) onVisible(false)
-            // Up-next countdown over the last 20 seconds of an episode.
+            if (visible && sheet == null && player.isPlaying && System.currentTimeMillis() - lastTouch > 3500) onVisible(false)
             val left = duration - position
             countdown = if (host.isTv && host.hasNext && host.autoplay && !countdownDismissed && duration > 0 &&
                 (left in 1..20_000 || player.playbackState == Player.STATE_ENDED)) (left / 1000).toInt().coerceAtLeast(0) else -1
@@ -161,18 +188,14 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
 
     Box(
         Modifier.fillMaxSize()
-            .pointerInput(locked, visible, panel) {
+            .pointerInput(locked, visible, sheet) {
                 if (locked) { detectTapGestures(onTap = { onVisible(!visible) }); return@pointerInput }
                 var job: Job? = null
                 detectTapGestures(
-                    onTap = { if (panel != null) panel = null else { onVisible(!visible); touch() } },
+                    onTap = { if (sheet != null) sheet = null else { onVisible(!visible); touch() } },
                     onDoubleTap = { o -> seekBy(if (o.x < size.width / 2) -10_000 else 10_000) },
                     onPress = {
-                        job = scope.launch {
-                            delay(550)
-                            boosting = true
-                            player.setPlaybackSpeed(2f)
-                        }
+                        job = scope.launch { delay(550); boosting = true; player.setPlaybackSpeed(2f) }
                         tryAwaitRelease()
                         job?.cancel()
                         if (boosting) { boosting = false; player.setPlaybackSpeed(1f) }
@@ -181,7 +204,6 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
             }
             .pointerInput(locked) {
                 if (locked) return@pointerInput
-                // Vertical: brightness (left) / volume (right). Horizontal: scrub.
                 var mode = 0
                 var side = 0
                 var startPos = 0L
@@ -205,120 +227,127 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
                 }
             },
     ) {
-        if (buffering) CircularProgressIndicator(color = Violet, trackColor = Glass, strokeWidth = 3.dp, modifier = Modifier.align(Alignment.Center).size(46.dp))
+        if (buffering) CircularProgressIndicator(color = Color.White, trackColor = Color.White.copy(alpha = .15f), strokeWidth = 3.dp, modifier = Modifier.align(Alignment.Center).size(52.dp))
         hint?.let { Bubble(it, Modifier.align(Alignment.Center)) }
         if (boosting) Bubble("2× speed", Modifier.align(Alignment.TopCenter).safeDrawingPadding().padding(top = 18.dp))
-        gauge?.let { (kind, v) ->
-            Bubble("${if (kind == 1) "Brightness" else "Volume"}  ${(v * 100).toInt()}%", Modifier.align(Alignment.Center))
-        }
+        gauge?.let { (kind, v) -> Bubble("${if (kind == 1) "Brightness" else "Volume"}  ${(v * 100).toInt()}%", Modifier.align(Alignment.Center)) }
 
         if (locked) {
-            AnimatedVisibility(visible, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.CenterStart)) {
-                Box(Modifier.safeDrawingPadding().padding(24.dp)) {
-                    GhostButton("Unlock", R.drawable.ic_lock) { locked = false; touch() }
-                }
+            AnimatedVisibility(visible, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.BottomCenter)) {
+                Box(Modifier.safeDrawingPadding().padding(28.dp)) { Plain(R.drawable.ic_lock, "Tap to unlock") { locked = false; touch() } }
             }
         } else AnimatedVisibility(visible, enter = fadeIn(), exit = fadeOut()) {
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(alpha = .72f), .3f to Color.Transparent, .62f to Color.Transparent, 1f to Color.Black.copy(alpha = .82f)))) {
-                // Top
-                Row(Modifier.fillMaxWidth().safeDrawingPadding().padding(horizontal = 18.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    GlassIcon(R.drawable.ic_back, size = 44.dp) { host.back() }
-                    Spacer(Modifier.width(14.dp))
+            Box(
+                Modifier.fillMaxSize().background(
+                    Brush.verticalGradient(0f to Color.Black.copy(alpha = .8f), .22f to Color.Black.copy(alpha = .25f), .5f to Color.Black.copy(alpha = .15f),
+                        .78f to Color.Black.copy(alpha = .3f), 1f to Color.Black.copy(alpha = .88f))
+                ),
+            ) {
+                // Top: back, title, settings
+                Row(Modifier.fillMaxWidth().safeDrawingPadding().padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Plain(R.drawable.ic_back, null, 26.dp) { host.back() }
+                    Spacer(Modifier.width(6.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(host.label, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold, style = jakarta(), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        val ends = if (duration > 0) " · Ends at " + SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(System.currentTimeMillis() + duration - position)) else ""
-                        Text(host.source + ends, color = Muted, fontSize = 12.sp, style = jakarta(), maxLines = 1)
+                        Text(host.label, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            style = TextStyle(fontFamily = Jakarta, shadow = shade))
+                        if (duration > 0) Text("Ends at " + SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(System.currentTimeMillis() + duration - position)),
+                            color = Soft, fontSize = 12.sp, style = TextStyle(fontFamily = Jakarta, shadow = shade))
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        GhostButton("Sources", R.drawable.ic_servers) { host.sources(); touch() }
-                        GlassIcon(R.drawable.ic_cc, active = panel == Sheet.SUBTITLES, size = 44.dp) { panel = Sheet.SUBTITLES; touch() }
-                        GlassIcon(R.drawable.ic_speed, active = panel == Sheet.SPEED, size = 44.dp) { panel = Sheet.SPEED; touch() }
-                        GlassIcon(R.drawable.ic_settings, active = panel == Sheet.QUALITY, size = 44.dp) { panel = Sheet.QUALITY; touch() }
-                        GlassIcon(R.drawable.ic_lock, size = 44.dp) { locked = true; panel = null; touch() }
-                    }
+                    Plain(R.drawable.ic_settings, null, 26.dp) { sheet = Sheet.SETTINGS; touch() }
                 }
                 // Centre
-                Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(44.dp)) {
-                    SeekButton(R.drawable.ic_back10) { seekBy(-10_000) }
+                Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(64.dp)) {
+                    SeekIcon(R.drawable.ic_back10) { seekBy(-10_000) }
                     Box(
-                        Modifier.size(78.dp).clip(CircleShape).background(Color.White).focusGlow(CircleShape).clickable {
-                            if (player.isPlaying) player.pause() else player.play(); touch()
-                        },
+                        Modifier.size(76.dp).clip(CircleShape).focusGlow(CircleShape).clickable { if (player.isPlaying) player.pause() else player.play(); touch() },
                         contentAlignment = Alignment.Center,
-                    ) { Icon(painterResource(if (playing) R.drawable.ic_pause else R.drawable.ic_play_fill), null, tint = Ink, modifier = Modifier.size(34.dp)) }
-                    SeekButton(R.drawable.ic_fwd10) { seekBy(10_000) }
+                    ) { Icon(painterResource(if (playing) R.drawable.ic_pause else R.drawable.ic_play_fill), null, tint = Color.White, modifier = Modifier.size(54.dp)) }
+                    SeekIcon(R.drawable.ic_fwd10) { seekBy(10_000) }
                 }
-                // Bottom
-                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().safeDrawingPadding().padding(horizontal = 22.dp, vertical = 8.dp)) {
+                // Bottom: seek bar, then one quiet row
+                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().safeDrawingPadding().padding(horizontal = 18.dp, vertical = 4.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(clock(if (dragging) (dragValue * duration).toLong() else position), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, style = jakarta())
+                        Text(clock(if (dragging) (dragValue * duration).toLong() else position), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                            style = TextStyle(fontFamily = Jakarta, shadow = shade))
                         Slider(
                             value = if (dragging) dragValue else if (duration > 0) position.toFloat() / duration else 0f,
                             onValueChange = { dragging = true; dragValue = it; touch() },
                             onValueChangeFinished = { player.seekTo((dragValue * duration).toLong()); dragging = false },
-                            colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Violet, inactiveTrackColor = Color.White.copy(alpha = .25f)),
-                            modifier = Modifier.weight(1f).padding(horizontal = 14.dp),
+                            colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Violet, inactiveTrackColor = Color.White.copy(alpha = .3f)),
+                            modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
                         )
-                        Text("−" + clock(duration - position), color = Muted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, style = jakarta())
+                        Text("−" + clock(duration - position), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                            style = TextStyle(fontFamily = Jakarta, shadow = shade))
                     }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        if (host.isTv && host.hasNext) GhostButton("Next episode", R.drawable.ic_next) { host.next() }
-                        if (host.isTv && host.episodes.isNotEmpty()) GhostButton("Episodes", R.drawable.ic_list) { panel = Sheet.EPISODES; touch() }
-                        Spacer(Modifier.weight(1f))
-                        GhostButton(host.aspectName, R.drawable.ic_fit) { host.cycleAspect(); touch() }
-                        GhostButton(host.downloadLabel ?: "Download", R.drawable.ic_download) { host.download(); touch() }
-                        GhostButton("Web", R.drawable.ic_web) { host.web() }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                        Plain(R.drawable.ic_lock, "Lock") { locked = true; sheet = null; touch() }
+                        if (host.isTv && host.episodes.isNotEmpty()) Plain(R.drawable.ic_list, "Episodes") { sheet = Sheet.EPISODES; touch() }
+                        Plain(R.drawable.ic_cc, "Subtitles") { sheet = Sheet.SUBTITLES; touch() }
+                        if (host.isTv && host.hasNext) Plain(R.drawable.ic_next, "Next episode") { host.next() }
                     }
                 }
             }
         }
 
-        // Skip intro: shown early in episodes, even when controls are hidden.
-        if (!locked && host.isTv && position in 20_000..240_000 && countdown < 0 && panel == null) {
-            Box(Modifier.align(Alignment.BottomEnd).safeDrawingPadding().padding(end = 22.dp, bottom = if (visible) 120.dp else 28.dp)) {
-                PrimaryButton("Skip intro", R.drawable.ic_next) { seekBy(85_000) }
+        // Skip intro: early in episodes, even when the controls are hidden.
+        if (!locked && host.isTv && position in 20_000..240_000 && countdown < 0 && sheet == null) {
+            Box(Modifier.align(Alignment.BottomEnd).safeDrawingPadding().padding(end = 24.dp, bottom = if (visible) 110.dp else 28.dp)) {
+                Text("Skip intro", color = Ink, fontSize = 14.sp, fontWeight = FontWeight.Bold, style = jakarta(),
+                    modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(Color.White).focusGlow(RoundedCornerShape(10.dp))
+                        .clickable { seekBy(85_000) }.padding(horizontal = 18.dp, vertical = 11.dp))
             }
         }
 
         // Up next
         AnimatedVisibility(countdown >= 0, modifier = Modifier.align(Alignment.BottomEnd), enter = slideInVertically { it } + fadeIn(), exit = slideOutVertically { it } + fadeOut()) {
-            Column(
-                Modifier.safeDrawingPadding().padding(22.dp).width(300.dp).clip(RoundedCornerShape(20.dp)).background(Color(0xF2101219))
-                    .border(1.dp, Hairline, RoundedCornerShape(20.dp)).padding(16.dp),
-            ) {
-                Label("Up next")
-                Spacer(Modifier.height(6.dp))
+            Column(Modifier.safeDrawingPadding().padding(22.dp).width(290.dp).clip(RoundedCornerShape(18.dp)).background(Color(0xF00E1017)).padding(16.dp)) {
+                Text("Up next", color = Muted, fontSize = 12.sp, fontWeight = FontWeight.Bold, style = jakarta())
+                Spacer(Modifier.height(4.dp))
                 val nextEp = host.episodes.firstOrNull { it.number == host.episode + 1 }
                 Text(nextEp?.let { "E${it.number} · ${it.name}" } ?: "Next episode", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold,
                     style = jakarta(), maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PrimaryButton("Play in ${countdown.coerceAtLeast(0)}", R.drawable.ic_play_fill) { countdownDismissed = true; host.next() }
-                    GhostButton("Cancel", null) { countdownDismissed = true }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Play in ${countdown.coerceAtLeast(0)}", color = Ink, fontSize = 14.sp, fontWeight = FontWeight.Bold, style = jakarta(),
+                        modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(Color.White).clickable { countdownDismissed = true; host.next() }.padding(horizontal = 16.dp, vertical = 10.dp))
+                    Text("Cancel", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, style = jakarta(),
+                        modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable { countdownDismissed = true }.padding(horizontal = 12.dp, vertical = 10.dp))
                 }
             }
         }
 
-        // Side panels
-        AnimatedVisibility(
-            panel != null, modifier = Modifier.align(Alignment.CenterEnd),
-            enter = slideInHorizontally { it } + fadeIn(), exit = slideOutHorizontally { it } + fadeOut(),
-        ) {
-            val p = panel ?: Sheet.SPEED
-            Column(Modifier.fillMaxHeight().width(if (p == Sheet.EPISODES) 360.dp else 300.dp).background(Color(0xF2101219)).safeDrawingPadding().padding(18.dp)) {
+        // Side sheet
+        AnimatedVisibility(sheet != null, modifier = Modifier.align(Alignment.CenterEnd),
+            enter = slideInHorizontally { it } + fadeIn(), exit = slideOutHorizontally { it } + fadeOut()) {
+            val p = sheet ?: Sheet.SETTINGS
+            Column(Modifier.fillMaxHeight().width(if (p == Sheet.EPISODES || p == Sheet.STYLE) 360.dp else 310.dp).background(Color(0xF50D0F15)).safeDrawingPadding().padding(18.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Label(when (p) { Sheet.QUALITY -> "Quality"; Sheet.SPEED -> "Playback speed"; Sheet.SUBTITLES -> "Subtitles"; Sheet.EPISODES -> "Season ${host.season}" })
-                    Spacer(Modifier.weight(1f))
-                    GlassIcon(R.drawable.ic_close, size = 34.dp) { panel = null }
+                    if (p in setOf(Sheet.QUALITY, Sheet.SPEED, Sheet.STYLE)) {
+                        Plain(R.drawable.ic_back, null, 20.dp) { sheet = if (p == Sheet.STYLE) Sheet.SUBTITLES else Sheet.SETTINGS }
+                    }
+                    Text(when (p) {
+                        Sheet.SETTINGS -> "Settings"; Sheet.QUALITY -> "Quality"; Sheet.SPEED -> "Speed"
+                        Sheet.SUBTITLES -> "Subtitles"; Sheet.STYLE -> "Subtitle style"; Sheet.EPISODES -> "Season ${host.season}"
+                    }, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, style = jakarta(), modifier = Modifier.weight(1f))
+                    Plain(R.drawable.ic_close, null, 20.dp) { sheet = null }
                 }
                 Spacer(Modifier.height(10.dp))
                 when (p) {
+                    Sheet.SETTINGS -> Column(Modifier.verticalScroll(rememberScrollState())) {
+                        val q = currentQuality(player)
+                        SettingRow("Quality", q, R.drawable.ic_settings) { sheet = Sheet.QUALITY }
+                        SettingRow("Speed", if (player.playbackParameters.speed == 1f) "Normal" else "${player.playbackParameters.speed}x", R.drawable.ic_speed) { sheet = Sheet.SPEED }
+                        SettingRow("Picture", host.aspectName, R.drawable.ic_fit) { host.cycleAspect() }
+                        SettingRow("Source", host.source, R.drawable.ic_servers) { sheet = null; host.sources() }
+                        SettingRow("Download", host.downloadLabel ?: "Save for offline", R.drawable.ic_download) { host.download() }
+                        SettingRow("Web player", "If this stream has trouble", R.drawable.ic_web) { sheet = null; host.web() }
+                    }
                     Sheet.EPISODES -> LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(host.episodes, key = { it.number }) { e ->
                             val current = e.number == host.episode
-                            Row(
-                                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (current) Violet.copy(alpha = .25f) else Color.Transparent)
-                                    .focusGlow(RoundedCornerShape(12.dp)).clickable { panel = null; host.playEpisode(e.number) }.padding(6.dp),
+                            androidx.compose.foundation.layout.Row(
+                                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (current) Color.White.copy(alpha = .1f) else Color.Transparent)
+                                    .focusGlow(RoundedCornerShape(12.dp)).clickable { sheet = null; host.playEpisode(e.number) }.padding(6.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Box(Modifier.width(110.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp)).background(Panel)) {
@@ -333,36 +362,45 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
                         }
                     }
                     Sheet.SUBTITLES -> Column(Modifier.verticalScroll(rememberScrollState())) {
-                        Options(choices(player, Sheet.SUBTITLES)) { panel = null; touch() }
-                        Spacer(Modifier.height(14.dp))
-                        Label("Size")
+                        Options(choices(player, Sheet.SUBTITLES)) { sheet = null; touch() }
                         Spacer(Modifier.height(8.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            listOf("S", "M", "L", "XL").forEachIndexed { i, l -> Chip(l, host.subSize == i) { host.setSubSize(i) } }
+                        SettingRow("Subtitle style", "${SubStyleNames[host.subStyle]} · ${SubColorNames[host.subColor]} · ${listOf("S", "M", "L", "XL")[host.subSize]}", R.drawable.ic_cc) { sheet = Sheet.STYLE }
+                        SettingRow("Timing", if (host.subOffset == 0L) "In sync" else "%+.1fs".format(host.subOffset / 1000f), R.drawable.ic_speed) { sheet = Sheet.STYLE }
+                    }
+                    Sheet.STYLE -> Column(Modifier.verticalScroll(rememberScrollState())) {
+                        SubtitlePreview(host)
+                        Spacer(Modifier.height(16.dp))
+                        Caption("Size")
+                        androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf("S", "M", "L", "XL").forEachIndexed { i, l -> Pick(l, host.subSize == i) { host.setSubSize(i) } }
                         }
                         Spacer(Modifier.height(14.dp))
-                        Label("Background")
-                        Spacer(Modifier.height(8.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Chip("Box", host.subBox) { host.setSubBox(true) }
-                            Chip("Outline", !host.subBox) { host.setSubBox(false) }
+                        Caption("Background")
+                        androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            SubStyleNames.forEachIndexed { i, l -> Pick(l, host.subStyle == i) { host.setSubStyle(i) } }
                         }
                         Spacer(Modifier.height(14.dp))
-                        Label("Timing")
-                        Spacer(Modifier.height(4.dp))
-                        Text("Subtitles too early? Press +. Too late? Press −.", color = Muted, fontSize = 12.sp, style = jakarta())
-                        Spacer(Modifier.height(8.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            GhostButton("−0.5s", null) { host.setSubOffset(host.subOffset - 500) }
-                            Text("%+.1fs".format(host.subOffset / 1000f), color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, style = jakarta())
-                            GhostButton("+0.5s", null) { host.setSubOffset(host.subOffset + 500) }
+                        Caption("Text colour")
+                        androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            SubColors.forEachIndexed { i, c ->
+                                Box(Modifier.size(34.dp).clip(CircleShape).background(c)
+                                    .border(if (host.subColor == i) 3.dp else 1.dp, if (host.subColor == i) Violet else Hairline, CircleShape)
+                                    .focusGlow(CircleShape).clickable { host.setSubColor(i) })
+                            }
                         }
-                        if (host.subOffset != 0L) {
-                            Spacer(Modifier.height(6.dp))
-                            Text("Reset", color = Violet, fontSize = 13.sp, fontWeight = FontWeight.Bold, style = jakarta(), modifier = Modifier.clickable { host.setSubOffset(0) }.padding(6.dp))
+                        Spacer(Modifier.height(14.dp))
+                        Caption("Timing")
+                        Text("Too early? Press +. Too late? Press −.", color = Muted, fontSize = 12.sp, style = jakarta())
+                        Spacer(Modifier.height(8.dp))
+                        androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Pick("−0.5s", false) { host.setSubOffset(host.subOffset - 500) }
+                            Text("%+.1fs".format(host.subOffset / 1000f), color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, style = jakarta(),
+                                modifier = Modifier.width(56.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                            Pick("+0.5s", false) { host.setSubOffset(host.subOffset + 500) }
+                            if (host.subOffset != 0L) Pick("Reset", false) { host.setSubOffset(0) }
                         }
                     }
-                    else -> Column(Modifier.verticalScroll(rememberScrollState())) { Options(choices(player, p)) { panel = null; touch() } }
+                    else -> Column(Modifier.verticalScroll(rememberScrollState())) { Options(choices(player, p)) { sheet = Sheet.SETTINGS; touch() } }
                 }
             }
         }
@@ -370,16 +408,59 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
 }
 
 @Composable
-private fun Bubble(text: String, modifier: Modifier) {
-    Text(text, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, style = jakarta(),
-        modifier = modifier.clip(RoundedCornerShape(50)).background(Ink.copy(alpha = .7f)).padding(horizontal = 18.dp, vertical = 10.dp))
+private fun SubtitlePreview(host: PlayerHost) {
+    val color = SubColors[host.subColor]
+    val size = listOf(14, 17, 20, 24)[host.subSize].sp
+    Box(Modifier.fillMaxWidth().height(96.dp).clip(RoundedCornerShape(14.dp)).background(Brush.linearGradient(listOf(Color(0xFF3B5B7A), Color(0xFF8A6A4A)))),
+        contentAlignment = Alignment.BottomCenter) {
+        val textStyle = when (host.subStyle) {
+            0 -> TextStyle(fontFamily = Jakarta, shadow = Shadow(Color.Black, Offset.Zero, 6f))
+            1 -> TextStyle(fontFamily = Jakarta, shadow = Shadow(Color.Black.copy(alpha = .9f), Offset(2f, 3f), 6f))
+            else -> TextStyle(fontFamily = Jakarta)
+        }
+        val bg = when (host.subStyle) { 2 -> Color.Black.copy(alpha = .55f); 3 -> Color.Black; else -> Color.Transparent }
+        Text("This is how subtitles will look", color = color, fontSize = size, fontWeight = FontWeight.SemiBold, style = textStyle,
+            modifier = Modifier.padding(bottom = 14.dp).background(bg).padding(horizontal = 6.dp, vertical = 2.dp))
+    }
 }
 
 @Composable
-private fun SeekButton(icon: Int, onClick: () -> Unit) {
-    Box(contentAlignment = Alignment.Center) {
-        GlassIcon(icon, size = 56.dp, onClick = onClick)
-        Text("10", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold, style = jakarta(), modifier = Modifier.padding(top = 2.dp))
+private fun Caption(text: String) {
+    Text(text, color = Muted, fontSize = 12.sp, fontWeight = FontWeight.Bold, style = jakarta(), modifier = Modifier.padding(bottom = 8.dp))
+}
+
+@Composable
+private fun Pick(label: String, selected: Boolean, onClick: () -> Unit) {
+    Text(label, color = if (selected) Ink else Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, style = jakarta(),
+        modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(if (selected) Color.White else Color.White.copy(alpha = .1f))
+            .focusGlow(RoundedCornerShape(10.dp)).clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 8.dp))
+}
+
+@Composable
+private fun SettingRow(title: String, value: String, icon: Int, onClick: () -> Unit) {
+    androidx.compose.foundation.layout.Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).focusGlow(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(horizontal = 6.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(painterResource(icon), null, tint = Soft, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(14.dp))
+        Text(title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, style = jakarta(), modifier = Modifier.weight(1f))
+        Text(value, color = Muted, fontSize = 13.sp, style = jakarta(), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp).width(130.dp),
+            textAlign = androidx.compose.ui.text.style.TextAlign.End)
+    }
+}
+
+@Composable
+private fun Bubble(text: String, modifier: Modifier) {
+    Text(text, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, style = jakarta(),
+        modifier = modifier.clip(RoundedCornerShape(50)).background(Color.Black.copy(alpha = .6f)).padding(horizontal = 18.dp, vertical = 10.dp))
+}
+
+@Composable
+private fun SeekIcon(icon: Int, onClick: () -> Unit) {
+    Box(Modifier.size(58.dp).clip(CircleShape).focusGlow(CircleShape).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Icon(painterResource(icon), null, tint = Color.White, modifier = Modifier.size(38.dp))
+        Text("10", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold, style = jakarta(), modifier = Modifier.padding(top = 3.dp))
     }
 }
 
@@ -387,25 +468,30 @@ private fun SeekButton(icon: Int, onClick: () -> Unit) {
 private fun Options(choices: List<Choice>, onPicked: () -> Unit) {
     if (choices.isEmpty()) Text("Not available for this video", color = Muted, fontSize = 14.sp, style = jakarta())
     choices.forEach { c ->
-        Row(
-            Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(12.dp))
-                .background(if (c.selected) Violet.copy(alpha = .28f) else Color.Transparent)
-                .border(1.dp, if (c.selected) Violet.copy(alpha = .6f) else Color.Transparent, RoundedCornerShape(12.dp))
-                .focusGlow(RoundedCornerShape(12.dp))
-                .clickable { c.apply(); onPicked() }
-                .padding(horizontal = 14.dp, vertical = 12.dp),
+        androidx.compose.foundation.layout.Row(
+            Modifier.fillMaxWidth().padding(vertical = 2.dp).clip(RoundedCornerShape(12.dp))
+                .background(if (c.selected) Color.White.copy(alpha = .1f) else Color.Transparent)
+                .focusGlow(RoundedCornerShape(12.dp)).clickable { c.apply(); onPicked() }
+                .padding(horizontal = 12.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(c.label, color = Color.White, fontSize = 15.sp, fontWeight = if (c.selected) FontWeight.Bold else FontWeight.Medium, style = jakarta(), modifier = Modifier.weight(1f))
-            if (c.selected) Icon(painterResource(R.drawable.ic_check), null, tint = Color.White, modifier = Modifier.size(18.dp))
+            if (c.selected) Icon(painterResource(R.drawable.ic_check), null, tint = Violet, modifier = Modifier.size(18.dp))
         }
     }
 }
 
 @OptIn(UnstableApi::class)
-private fun choices(player: Player, panel: Sheet): List<Choice> {
+private fun currentQuality(player: Player): String {
+    val group = player.currentTracks.groups.firstOrNull { it.type == C.TRACK_TYPE_VIDEO } ?: return "Auto"
+    val override = player.trackSelectionParameters.overrides[group.mediaTrackGroup] ?: return "Auto"
+    return override.trackIndices.firstOrNull()?.let { "${group.getTrackFormat(it).height}p" } ?: "Auto"
+}
+
+@OptIn(UnstableApi::class)
+private fun choices(player: Player, sheet: Sheet): List<Choice> {
     val params = player.trackSelectionParameters
-    return when (panel) {
+    return when (sheet) {
         Sheet.SPEED -> listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f).map { s ->
             Choice(if (s == 1f) "Normal" else "${s}x", player.playbackParameters.speed == s) { player.setPlaybackSpeed(s) }
         }
@@ -443,6 +529,6 @@ private fun choices(player: Player, panel: Sheet): List<Choice> {
                 }
             }.distinctBy { it.label }
         }
-        Sheet.EPISODES -> emptyList()
+        else -> emptyList()
     }
 }

@@ -64,9 +64,13 @@ class Store private constructor(context: Context) {
     var subSize: Int
         get() = misc.getInt("sub_size", 1)
         set(v) = misc.edit().putInt("sub_size", v).apply()
-    var subBox: Boolean
-        get() = misc.getBoolean("sub_box", true)
-        set(v) = misc.edit().putBoolean("sub_box", v).apply()
+    /** 0 none (outline), 1 shadow, 2 see-through box, 3 solid box */
+    var subStyle: Int
+        get() = misc.getInt("sub_style", 1)
+        set(v) = misc.edit().putInt("sub_style", v).apply()
+    var subColor: Int
+        get() = misc.getInt("sub_color", 0)
+        set(v) = misc.edit().putInt("sub_color", v).apply()
     var autoplayNext: Boolean
         get() = misc.getBoolean("autoplay", true)
         set(v) = misc.edit().putBoolean("autoplay", v).apply()
