@@ -110,7 +110,7 @@ fun TopBar(title: String? = null, onBack: (() -> Unit)? = null, settingsActive: 
                     Text(t.label, fontSize = if (tight) 14.sp else 16.sp, maxLines = 1, softWrap = false, style = jakarta(), fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
                         color = if (active) Color.White else Muted,
                         modifier = Modifier.clip(RoundedCornerShape(50)).background(if (active) Brush.linearGradient(listOf(Violet.copy(alpha = .45f), Pink.copy(alpha = .35f))) else Brush.linearGradient(listOf(Color.Transparent, Color.Transparent)))
-                            .focusGlow(RoundedCornerShape(50)).clickable { onTab(t) }.padding(horizontal = if (tight) 11.dp else 16.dp, vertical = 9.dp))
+                            .then(if (active) Modifier.tvFirstFocus(t) else Modifier).focusGlow(RoundedCornerShape(50)).clickable { onTab(t) }.padding(horizontal = if (tight) 11.dp else 16.dp, vertical = 9.dp))
                 }
             }
             Spacer(Modifier.width(16.dp))
@@ -368,7 +368,7 @@ fun Hero(items: List<Title>, saved: (Title) -> Boolean, onPlay: (Title) -> Unit,
             }
             Spacer(Modifier.height(18.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                PrimaryButton("Play", R.drawable.ic_play_fill, Modifier.weight(1f).tvFirstFocus(items)) { onPlay(t) }
+                PrimaryButton("Play", R.drawable.ic_play_fill, Modifier.weight(1f)) { onPlay(t) }
                 GhostButton(if (saved(t)) "Saved" else "My List", if (saved(t)) R.drawable.ic_check else R.drawable.ic_plus) { onToggle(t) }
                 GlassIcon(R.drawable.ic_info, size = 50.dp) { onOpen(t) }
             }
