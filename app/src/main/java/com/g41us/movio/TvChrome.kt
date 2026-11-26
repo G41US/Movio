@@ -16,7 +16,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.foundation.focusGroup
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -40,7 +44,7 @@ private class RailItem(val label: String, val icon: Int, val active: Boolean, va
  */
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
-fun TvRail(tab: Tab, top: Screen?, onTab: (Tab) -> Unit, onDownloads: () -> Unit, onSettings: () -> Unit, open: Boolean, onOpen: (Boolean) -> Unit) {
+fun TvRail(tab: Tab, top: Screen?, onTab: (Tab) -> Unit, onDownloads: () -> Unit, onSettings: () -> Unit, open: Boolean, onOpen: (Boolean) -> Unit, onRight: () -> Unit) {
     val w by animateDpAsState(if (open) 270.dp else TvRailWidth, tween(220), label = "rail")
     val items = listOf(
         RailItem("Home", R.drawable.ic_home, top == null && tab == Tab.HOME) { onTab(Tab.HOME) },
@@ -59,6 +63,9 @@ fun TvRail(tab: Tab, top: Screen?, onTab: (Tab) -> Unit, onDownloads: () -> Unit
             .background(if (open) Brush.horizontalGradient(0f to Ink, .72f to Ink.copy(alpha = .94f), 1f to Color.Transparent)
                 else Brush.horizontalGradient(listOf(Color.Transparent, Color.Transparent)))
             .onFocusChanged { onOpen(it.hasFocus) }
+            .onPreviewKeyEvent { e ->
+                if (e.type == androidx.compose.ui.input.key.KeyEventType.KeyDown && e.key == androidx.compose.ui.input.key.Key.DirectionRight) { onRight(); true } else false
+            }
             // ◀ into the menu lands on the page you're on, not whatever icon happens to be level with you.
             .focusProperties {
                 @Suppress("DEPRECATION")
@@ -131,6 +138,11 @@ private fun Profile(open: Boolean, onClick: () -> Unit) {
         }
     }
 }
+
+/** The page area on TV: remembers what you were on, so coming back from the menu lands there. */
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+fun Modifier.tvPage(r: androidx.compose.ui.focus.FocusRequester): Modifier =
+    this.focusRequester(r).focusRestorer().focusGroup()
 
 /** Movio's logo and name, always at the top-left of the TV screen (outside the menu, so it's never cut off). */
 @Composable
