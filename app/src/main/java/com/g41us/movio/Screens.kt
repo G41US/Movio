@@ -646,6 +646,7 @@ fun DownloadsScreen(onPlay: (DownloadInfo, String) -> Unit) {
  * A plain scrolling page that takes LazyColumn-style item {} calls. Every row exists at once,
  * so the TV remote can always find the next thing below and the page follows it.
  */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun ScrollList(state: androidx.compose.foundation.ScrollState, padding: PaddingValues, narrow: Boolean = false, content: @Composable ListShim.() -> Unit) {
     val bar = LocalTopBar.current
