@@ -249,24 +249,9 @@ async function details(kind, id) {
 }
 
 // ---------- Player ----------
-const EMBEDS = [
-  ["Nero", "https://vidfast.pro"], ["Flixify", "https://vidflix.club"], ["Club", "https://moviesapi.to"], ["Cine", "https://cinesrc.st/embed"],
-  ["Main", "https://player.vidzee.wtf/embed"], ["Vid", "https://embed.wplay.me/embed"], ["Peach", "https://peachify.net/embed"],
-  ["Mist", "https://play.xpass.top/e"], ["Nest", "https://vidnest.fun"], ["Pass", "https://vidcore.net"], ["Azute", "https://vidrock.to"],
-  ["Vidmux", "https://vidlux.site/embed"], ["Vix", "https://vixsrc.to"],
-];
-function embedUrl(name, base, kind, id, s, e) {
-  if (kind === "movie") return `${base}/movie/${id}${name === "Vix" ? "?autoplay=true" : ""}`;
-  if (name === "Club") return `${base}/tv/${id}-${s}-${e}`;
-  return `${base}/tv/${id}/${s}/${e}${name === "Vix" ? "?autoplay=true" : ""}`;
-}
-/** Movio's own player first (Club, then Movio Direct: no ads, Movio subtitles), then the sources' own players. */
+/** Only sources that play in Movio's own player (no ads). Main has films only. */
 const OWN = ["Club", "Movio Direct", "Peach", "Mist", "Main"];
-function sourceOrder(kind) {
-  const first = ["Nero", "Flixify"];
-  const rest = EMBEDS.map((x) => x[0]).filter((n) => !first.includes(n) && !OWN.includes(n));
-  return [...OWN, ...first, ...rest];
-}
+const sourceOrder = (kind) => OWN.filter((n) => kind !== "tv" || n !== "Main");
 const canHls = () => !!document.createElement("video").canPlayType("application/vnd.apple.mpegurl");
 
 let P = null; // the open player
@@ -324,7 +309,6 @@ async function start(name, auto = true) {
   savePlayer();
   me.source = name; me.auto = auto; me.tried.add(name); me.video = null;
   footer();
-  if (!OWN.includes(name)) return embed(name);
   if (!canHls()) return next();
   if (name !== "Movio Direct") return viaHelper(name.toLowerCase());
   finding("Finding the best stream");
@@ -379,19 +363,9 @@ async function partySubs(path) {
 function next() {
   if (!P) return;
   const n = P.order.find((x) => !P.tried.has(x));
-  if (P.auto && n) start(n, true);
-  else embed(OWN.includes(P.source) ? P.order.find((n) => !OWN.includes(n)) : P.source);
-}
-
-function embed(name) {
-  const me = P;
-  const [, base] = EMBEDS.find((x) => x[0] === name) || EMBEDS[0];
-  me.source = name;
+  if (n) return start(n, P.auto);
   const st = document.getElementById("stage");
-  st.innerHTML = `<iframe src="${embedUrl(name, base, me.t.kind, me.t.id, me.s, me.e)}" allow="autoplay; fullscreen; picture-in-picture; encrypted-media" allowfullscreen referrerpolicy="origin"></iframe>`;
-  // We can't see inside their player; keep it on Continue watching.
-  if (!recent[key(me.t)]) { recent[key(me.t)] = { t: me.t, s: me.s, e: me.e, pos: 0, dur: 1, at: Date.now() }; db.set("recent", recent); }
-  footer();
+  if (st) st.innerHTML = `<div class="finding"><img src="${img(P.t.backdrop, "w1280")}" alt=""><b style="font-size:22px">${esc(P.t.name)}</b><span class="soft" style="font-size:13px;font-weight:600">No stream found right now. Try again later.</span></div>`;
 }
 
 function play(url) {
