@@ -972,7 +972,9 @@ class PlayerActivity : ComponentActivity() {
         val now = if (off) emptyList() else cues.filter { t >= it.start && t < it.end && !SubAd.containsMatchIn(it.text) }
         if (now == shownCues) return
         shownCues = now
-        view.setCues(now.map { androidx.media3.common.text.Cue.Builder().setText(it.text).build() })
+        // Lines that overlap in time become one block (stacked), never drawn on top of each other.
+        val text = now.takeLast(2).map { it.text }.distinct().joinToString("\n")
+        view.setCues(if (text.isEmpty()) emptyList() else listOf(androidx.media3.common.text.Cue.Builder().setText(text).build()))
     }
 
     // ---------- Seek preview: a tiny muted second player at the lowest quality ----------
