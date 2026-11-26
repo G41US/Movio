@@ -55,7 +55,7 @@ body.playing #tabs { display: none; }
 .card { flex: 0 0 auto; scroll-snap-align: start; transition: transform .15s; }
 .poster { width: 116px; height: 174px; border-radius: 12px; object-fit: cover; background: var(--panel); }
 .ranked { display: flex; align-items: flex-end; }
-.ranked b { font-size: 112px; font-weight: 800; line-height: .8; letter-spacing: -6px; margin-right: -4px; padding-left: 2px; transform: translateY(10px);
+.ranked b { font-size: 112px; font-weight: 800; line-height: .8; letter-spacing: -6px; margin-right: -4px; padding-left: 10px; transform: translateY(10px);
   background: linear-gradient(#fff, #E3DEFF 55%, #8F86C2); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .ranked .poster { width: 108px; height: 162px; position: relative; }
 .cont { position: relative; width: 236px; height: 133px; border-radius: 14px; overflow: hidden; background: var(--panel); }
