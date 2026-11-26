@@ -329,7 +329,7 @@ new MutationObserver(() => {
 
 // ---------- Player ----------
 /** Only sources that play in Movio's own player (no ads). Main has films only. */
-const OWN = ["Club", "Movio Direct", "Peach", "Mist", "Main"];
+const OWN = ["Club", "Peach", "Mist", "Main"];
 const sourceOrder = (kind) => OWN.filter((n) => kind !== "tv" || n !== "Main");
 const nativeHls = () => !!document.createElement("video").canPlayType("application/vnd.apple.mpegurl");
 const canHls = () => nativeHls() || !!window.MediaSource;
@@ -395,26 +395,7 @@ async function start(name, auto = true) {
   me.source = name; me.auto = auto; me.tried.add(name); me.video = null;
   footer();
   if (!canHls()) return next();
-  if (name !== "Movio Direct") return viaHelper(name.toLowerCase());
-  finding("Finding the best stream");
-  try {
-    const path = me.t.kind === "tv" ? `tv/${me.t.id}/${me.s}/${me.e}` : `movie/${me.t.id}`;
-    let file = null;
-    for (let i = 0; i < 8 && me === P && !me.dead; i++) {
-      const o = await fetch(`${HELPER}/party/api/play/${path}?async=1&wait=1`).then((r) => r.json());
-      file = o?.result?.file || null;
-      if (file && o.status === "ready") break;
-      if (["error", "failed", "not_found"].includes(o?.status)) { file = null; break; }
-      finding("Preparing the stream…");
-      await sleep(5000);
-    }
-    if (me !== P || me.dead) return;
-    const pl = file && (file.playlist || file.stream);
-    if (!pl) return next();
-    const url = pl.startsWith("http") ? pl : "https://vidsrc.party" + pl;
-    play(url);
-    loadSubtitles(file.subtitles ? "https://vidsrc.party" + file.subtitles : null);
-  } catch { if (me === P) next(); }
+  return viaHelper(name.toLowerCase());
 }
 
 /** Club / Peach streams, played through the helper so they play here in Movio's own player (no ads). */

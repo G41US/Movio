@@ -413,7 +413,7 @@ fun Hero(items: List<Title>, saved: (Title) -> Boolean, onPlay: (Title) -> Unit,
                 Text(t.overview, fontSize = 14.sp, lineHeight = 20.sp, color = if (tvx) Soft.copy(alpha = .8f) else Soft, style = jakarta(), maxLines = if (tvx) 2 else 3, overflow = TextOverflow.Ellipsis)
             }
             Spacer(Modifier.height(18.dp))
-            Row(Modifier.onFocusChanged { paused = it.hasFocus }, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 PrimaryButton("Play", R.drawable.ic_play_fill, if (wide) Modifier.widthIn(min = 200.dp).tvFirstFocus("hero") else Modifier.weight(1f)) { onPlay(t) }
                 GhostButton(if (saved(t)) "Saved" else "My List", if (saved(t)) R.drawable.ic_check else R.drawable.ic_plus) { onToggle(t) }
                 GlassIcon(R.drawable.ic_info, size = 50.dp) { onOpen(t) }

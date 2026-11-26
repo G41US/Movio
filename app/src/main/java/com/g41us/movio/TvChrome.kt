@@ -77,7 +77,6 @@ fun TvRail(tab: Tab, top: Screen?, onTab: (Tab) -> Unit, onDownloads: () -> Unit
             Spacer(Modifier.weight(1f))
             items.forEach { RailButton(it, open) }
             Spacer(Modifier.weight(1f))
-            Profile(open, onSettings)
         }
     }
 }

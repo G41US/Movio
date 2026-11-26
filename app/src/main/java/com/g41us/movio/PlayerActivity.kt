@@ -798,6 +798,7 @@ class PlayerActivity : ComponentActivity() {
         // Reaching the credits counts as finished, so it won't "resume" into them.
         val pos = if (credits != null && exo.currentPosition >= credits) dur else exo.currentPosition
         store.savePosition(posKey(), pos, dur)
+        if (dur > 0 && pos > dur - 90_000 && title?.kind == Kind.MOVIE) title?.let { store.finished(it) }
     }
 
     private suspend fun loadEpisodeInfo() {

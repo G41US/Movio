@@ -150,7 +150,8 @@ fun FeedScreen(kind: Kind?, store: Store, onOpen: (Title) -> Unit, onPlay: (Titl
                     LazyRow(contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(if (LocalWide.current) 18.dp else 12.dp)) {
                         items(store.continueWatching, key = { it.title.key }) { p ->
                             val pos = store.position(store.posKey(p.title, p.season, p.episode))
-                            ContinueCard(p, pos?.let { (a, b) -> if (b > 0) a.toFloat() / b else null }, pos?.let { (a, b) -> (b - a).takeIf { b > 0 && it > 0 } }) { onPlay(p.title) }
+                            // a < 0 means that episode was finished: no "time left", it'll play on from the next one.
+                            ContinueCard(p, pos?.let { (a, b) -> if (b > 0 && a >= 0) a.toFloat() / b else null }, pos?.let { (a, b) -> (b - a).takeIf { b > 0 && a >= 0 && it > 0 } }) { onPlay(p.title) }
                         }
                     }
                 }

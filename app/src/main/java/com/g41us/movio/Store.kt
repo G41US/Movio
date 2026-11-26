@@ -46,7 +46,13 @@ class Store private constructor(context: Context) {
     fun savePosition(key: String, positionMs: Long, durationMs: Long) {
         if (durationMs <= 0) return
         val done = positionMs > durationMs - 90_000
-        positions.edit().putString(key, if (done) "0:$durationMs" else "$positionMs:$durationMs").apply()
+        positions.edit().putString(key, if (done) "-1:$durationMs" else "$positionMs:$durationMs").apply()
+    }
+
+    /** Finished films drop off Continue watching. */
+    fun finished(t: Title) {
+        continueWatching.removeAll { it.title.key == t.key }
+        save("continue", continueWatching.map { p -> toJson(p.title).put("s", p.season).put("e", p.episode) })
     }
 
     fun position(key: String): Pair<Long, Long>? = positions.getString(key, null)?.split(":")?.let {
