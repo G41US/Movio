@@ -58,6 +58,14 @@ enum Sources {
         UserDefaults.standard.set(old.map { ($0 * 2 + seconds) / 3 } ?? seconds, forKey: k)
     }
 
+    /// Shows go Club → Nero → Peach → Flixify, then the rest by speed. Films go fastest first.
+    static func order(_ kind: Kind) -> [Int] {
+        guard kind == .tv else { return fastest }
+        var fixed: [Int] = []
+        for n in ["Club", "Nero", "Peach", "Flixify"] { let i = index(n); if !fixed.contains(i) { fixed.append(i) } }
+        return fixed + fastest.filter { !fixed.contains($0) }
+    }
+
     static var fastest: [Int] {
         fallback.sorted { (UserDefaults.standard.object(forKey: "speed:\(all[$0].name)") as? Double ?? 12) < (UserDefaults.standard.object(forKey: "speed:\(all[$1].name)") as? Double ?? 12) }
     }

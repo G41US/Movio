@@ -112,7 +112,8 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
         })
 
         let perTitle = UserDefaults.standard.string(forKey: "src:\(title.key)")
-        let first = perTitle ?? store.sourceName ?? Sources.fastest.first.map { Sources.all[$0].name }
+        // Shows: your pick for this show, else Club first. Films: your pick, your default, else the fastest.
+        let first = perTitle ?? (req.title.kind == .tv ? nil : store.sourceName) ?? Sources.order(req.title.kind).first.map { Sources.all[$0].name }
         Task {
             runtime = await TMDB.runtime(title.kind, title.id, season, episode)
             if title.kind == .tv { episodes = (try? await TMDB.episodes(title.id, season)) ?? [] }
@@ -309,7 +310,7 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
     private func sourceFailed() {
         failedSources.insert(sourceIndex)
         Sources.score(sourceIndex, 30)
-        if auto && autoTried < 5, let next = Sources.fastest.first(where: { !failedSources.contains($0) }) {
+        if auto && autoTried < 6, let next = Sources.order(title.kind).first(where: { !failedSources.contains($0) }) {
             autoTried += 1
             start(next, automatic: true)
             return

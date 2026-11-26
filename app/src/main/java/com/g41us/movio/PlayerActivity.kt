@@ -314,7 +314,9 @@ class PlayerActivity : ComponentActivity() {
             val t = title
             val perTitle = t?.let { store.sourceFor(it) }
             // Per-title pick, then the one you chose, then whichever source has been fastest lately.
-            start(Sources.index(perTitle ?: prefs.getString("source2", null) ?: fastest().firstOrNull()?.let { Sources.all[it].name }), automatic = true)
+            // Shows: your pick for this show, else Club first. Films: your pick, your default, else the fastest.
+            val default = if (kind == Kind.TV) null else prefs.getString("source2", null)
+            start(Sources.index(perTitle ?: default ?: order().firstOrNull()?.let { Sources.all[it].name }), automatic = true)
         }
         lifecycleScope.launch { while (true) { refreshDownloadLabel(); kotlinx.coroutines.delay(2000) } }
 
@@ -528,7 +530,7 @@ class PlayerActivity : ComponentActivity() {
         score(sourceIndex, 30_000)
         if (auto && autoTried < 5) {
             autoTried++
-            val next = fastest().firstOrNull { it !in failedSources }
+            val next = order().firstOrNull { it !in failedSources }
             if (next != null) { start(next, automatic = true); return }
         }
         if (source.direct) { phase = Phase.FAILED; return }
@@ -625,6 +627,13 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun fastest(): List<Int> = Sources.fallbackOrder.sortedBy { prefs.getLong("speed:${Sources.all[it].name}", 12_000L) }
+
+    /** Shows go Club → Nero → Peach → Flixify, then the rest by speed. Films go fastest first. */
+    private fun order(): List<Int> {
+        if (kind != Kind.TV) return fastest()
+        val fixed = listOf("Club", "Nero", "Peach", "Flixify").map { Sources.index(it) }.distinct()
+        return fixed + fastest().filter { it !in fixed }
+    }
 
     private fun tapCentre() {
         val x = webView.width / 2f; val y = webView.height / 2f
@@ -729,7 +738,8 @@ class PlayerActivity : ComponentActivity() {
         exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon().setPreferredTextLanguage("en").build()
         exo.play()
         failedSources.remove(sourceIndex)
-        if (offlineId == null) store.setSourceFor(title ?: Title(id, kind, name, "", null, null, null, 0.0), source.name)
+        // A show only remembers a source you picked yourself, so it keeps starting on Club.
+        if (offlineId == null && (kind != Kind.TV || !auto)) store.setSourceFor(title ?: Title(id, kind, name, "", null, null, null, 0.0), source.name)
         if (offlineId == null) saveLink(s)
         reconnects = 0
         controlsVisible = true
