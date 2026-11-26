@@ -906,7 +906,7 @@ class PlayerActivity : ComponentActivity() {
         val key = ownKey ?: run { syncStatus = "Pick a subtitle in CC"; return }
         if (speech.heard == 0 && exo.currentPosition > 60_000) { syncStatus = "Can't hear the film on this device; use Timing"; return }
         if (speech.heard < 600) { syncStatus = "Listening to the film…"; return }
-        val cands = allSubs.filter { it.url == key || it.lang == "en" || it.lang == "und" }.take(7)
+        val cands = allSubs.filter { it.url == key || it.lang == "en" || it.lang == "und" }.take(10)
         val dir = java.io.File(cacheDir, "subs").apply { mkdirs() }
         val results = cands.mapNotNull { sub ->
             val cues = candidateCues[sub.url] ?: SubLoad.cues(dir, sub, lastHeaders).also { candidateCues[sub.url] = it }

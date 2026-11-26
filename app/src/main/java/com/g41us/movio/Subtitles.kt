@@ -1,6 +1,7 @@
 package com.g41us.movio
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import java.net.HttpURLConnection
@@ -22,11 +23,16 @@ object Subtitles {
         lookup(kind, id, season, episode).also { if (it.isNotEmpty()) found[key] = it }
     }
 
-    private suspend fun lookup(kind: Kind, id: Int, season: Int, episode: Int): List<Subtitle> = withContext(Dispatchers.IO) {
-        val wyzie = if (BuildConfig.WYZIE_KEY.isNotBlank()) try { wyzie(kind, id, season, episode) } catch (_: Exception) { emptyList() } else emptyList()
-        wyzie.ifEmpty {
-            try { Source.resolve(kind, id, season, episode).subtitles } catch (_: Exception) { emptyList() }
-        }
+    /**
+     * Both lists, like the iPhone app: Wyzie's versions plus the "Alt" versions from the player service.
+     * One of the English versions nearly always matches the stream; auto-sync picks it.
+     */
+    private suspend fun lookup(kind: Kind, id: Int, season: Int, episode: Int): List<Subtitle> = kotlinx.coroutines.coroutineScope {
+        val w = async(Dispatchers.IO) { if (BuildConfig.WYZIE_KEY.isNotBlank()) try { wyzie(kind, id, season, episode) } catch (_: Exception) { emptyList() } else emptyList() }
+        val p = async(Dispatchers.IO) { kotlinx.coroutines.withTimeoutOrNull(25_000) { try { Source.subtitles(kind, id, season, episode) } catch (_: Exception) { emptyList() } } ?: emptyList() }
+        val all = (w.await() + p.await()).distinctBy { it.url }
+        // English first (Wyzie then Alt), then other languages.
+        all.sortedBy { if (it.lang == "en") 0 else 1 }
     }
 
     private fun wyzie(kind: Kind, id: Int, season: Int, episode: Int): List<Subtitle> {

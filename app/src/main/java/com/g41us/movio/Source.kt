@@ -46,15 +46,39 @@ object Source {
         }
         val f = file ?: throw IOException("Stream not ready")
         val stream = f.optString("playlist").ifBlank { f.optString("stream") }.ifBlank { throw IOException("No stream") }
-        val subs = try {
-            val a = JSONArray(get(BASE + f.optString("subtitles")))
-            (0 until a.length()).map { a.getJSONObject(it) }
-                .map { Subtitle(it.optString("label"), it.optString("lang"), BASE + it.optString("src")) }
-                .filter { it.url.endsWith(".vtt") || it.url.endsWith(".srt") }
-                .distinctBy { it.lang }
-                .sortedBy { if (it.lang == "en") 0 else 1 }
-                .take(16)
-        } catch (_: Exception) { emptyList() }
+        val subs = try { subsFrom(f) } catch (_: Exception) { emptyList() }
         Playable(if (stream.startsWith("http")) stream else BASE + stream, subs, headers)
+    }
+
+    /** The service's subtitle list only (used next to Wyzie for every source). */
+    suspend fun subtitles(kind: Kind, id: Int, season: Int, episode: Int): List<Subtitle> = withContext(Dispatchers.IO) {
+        val path = if (kind == Kind.TV) "api/play/tv/$id/$season/$episode" else "api/play/movie/$id"
+        var file: JSONObject? = null
+        for (attempt in 0 until 5) {
+            val o = JSONObject(get("$BASE/$path?async=1&wait=1"))
+            file = o.optJSONObject("result")?.optJSONObject("file")
+            if (file != null && o.optString("status") == "ready") break
+            if (o.optString("status") in setOf("error", "failed", "not_found")) return@withContext emptyList()
+            delay(4_000)
+        }
+        file?.let { subsFrom(it) } ?: emptyList()
+    }
+
+    /** Up to 5 English versions ("English · Alt", "English · Alt 2"…) and one of each other language. */
+    private fun subsFrom(f: JSONObject): List<Subtitle> {
+        val a = JSONArray(get(BASE + f.optString("subtitles")))
+        val count = HashMap<String, Int>()
+        return (0 until a.length()).map { a.getJSONObject(it) }
+            .map { Subtitle(it.optString("label"), it.optString("lang"), BASE + it.optString("src")) }
+            .filter { it.url.endsWith(".vtt") || it.url.endsWith(".srt") }
+            .mapNotNull { s ->
+                val n = count.getOrDefault(s.lang, 0)
+                if (n >= (if (s.lang == "en") 5 else 1)) return@mapNotNull null
+                count[s.lang] = n + 1
+                val name = java.util.Locale(s.lang).displayLanguage.ifBlank { s.label }
+                s.copy(label = "$name · Alt" + if (n == 0) "" else " ${n + 1}")
+            }
+            .sortedBy { if (it.lang == "en") 0 else 1 }
+            .take(20)
     }
 }
