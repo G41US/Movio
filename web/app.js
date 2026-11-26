@@ -736,7 +736,7 @@ async function route() {
   if (parts[0] !== "play") closePlayer();
   const tab = { "": "home", movies: "movies", tv: "tv", search: "search", list: "list" }[parts[0] || ""] || "";
   document.querySelectorAll("#tabs a").forEach((a) => a.classList.toggle("on", a.dataset.tab === tab));
-  window.scrollTo(0, 0);
+  view.scrollTo(0, 0);
   if (!HELPER) { view.innerHTML = `<div class="empty pad-top"><b>Movio is almost ready</b><span class="muted">The helper server isn't set up yet.</span></div>`; return; }
   try {
     if (parts[0] === "movies") await browse("movie");
