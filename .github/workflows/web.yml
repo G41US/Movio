@@ -43,7 +43,10 @@ jobs:
           echo "Helper: $url"
           echo "url=$url" >> "$GITHUB_OUTPUT"
       - name: App config
-        run: printf 'window.MOVIO = { helper: "%s" };\n' "${{ steps.helper.outputs.url }}" > web/config.js
+        env:
+          HELPER_URL: ${{ steps.helper.outputs.url }}
+        run: |
+          printf 'window.MOVIO = { helper: "%s" };\n' "$HELPER_URL" > web/config.js
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
