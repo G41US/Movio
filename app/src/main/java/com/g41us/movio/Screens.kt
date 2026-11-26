@@ -140,14 +140,14 @@ fun FeedScreen(kind: Kind?, store: Store, onOpen: (Title) -> Unit, onPlay: (Titl
                     )
                 }
                 if (kind != null) item(key = "genres") {
-                    LazyRow(contentPadding = PaddingValues(horizontal = Gutter), horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 18.dp)) {
+                    LazyRow(contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 18.dp)) {
                         item { Chip("All", genre == null) { genre = null } }
                         items(if (kind == Kind.MOVIE) Tmdb.movieGenres else Tmdb.tvGenres) { g -> Chip(g.name, genre == g) { genre = g } }
                     }
                 }
                 if (kind == null && store.continueWatching.isNotEmpty()) item(key = "continue") {
                     SectionTitle("Continue watching")
-                    LazyRow(contentPadding = PaddingValues(horizontal = Gutter), horizontalArrangement = Arrangement.spacedBy(if (LocalWide.current) 18.dp else 12.dp)) {
+                    LazyRow(contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(if (LocalWide.current) 18.dp else 12.dp)) {
                         items(store.continueWatching, key = { it.title.key }) { p ->
                             val pos = store.position(store.posKey(p.title, p.season, p.episode))
                             ContinueCard(p, pos?.let { (a, b) -> if (b > 0) a.toFloat() / b else null }, pos?.let { (a, b) -> (b - a).takeIf { b > 0 && it > 0 } }) { onPlay(p.title) }
@@ -178,10 +178,10 @@ fun SearchScreen(onOpen: (Title) -> Unit) {
     val tvBar = LocalTopBar.current
     LazyVerticalGrid(
         GridCells.Adaptive(if (LocalWide.current) 200.dp else 108.dp), Modifier.fillMaxSize().dpadScroll(tv2), state = tv2,
-        contentPadding = PaddingValues(start = Gutter, end = Gutter, top = if (tvBar != null) 0.dp else barSpace(), bottom = dockSpace()),
+        contentPadding = PaddingValues(start = Gutter, end = GutterEnd, top = if (tvBar != null) 0.dp else barSpace(), bottom = dockSpace()),
         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        if (tvBar != null) item(span = { GridItemSpan(maxLineSpan) }) { Box(Modifier.bleed(Gutter)) { tvBar() } }
+        if (tvBar != null) item(span = { GridItemSpan(maxLineSpan) }) { Box(Modifier.bleed(Gutter, GutterEnd)) { tvBar() } }
         item(span = { GridItemSpan(maxLineSpan) }) {
             Row(
                 Modifier.fillMaxWidth().height(52.dp).clip(RoundedCornerShape(16.dp)).background(Glass)
@@ -228,10 +228,10 @@ fun MyListScreen(store: Store, onOpen: (Title) -> Unit, onDownloads: () -> Unit)
     val tvBar = LocalTopBar.current
     LazyVerticalGrid(
         GridCells.Adaptive(if (LocalWide.current) 200.dp else 108.dp), Modifier.fillMaxSize().dpadScroll(tv3), state = tv3,
-        contentPadding = PaddingValues(start = Gutter, end = Gutter, top = if (tvBar != null) 0.dp else barSpace(), bottom = dockSpace()),
+        contentPadding = PaddingValues(start = Gutter, end = GutterEnd, top = if (tvBar != null) 0.dp else barSpace(), bottom = dockSpace()),
         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        if (tvBar != null) item(span = { GridItemSpan(maxLineSpan) }) { Box(Modifier.bleed(Gutter)) { tvBar() } }
+        if (tvBar != null) item(span = { GridItemSpan(maxLineSpan) }) { Box(Modifier.bleed(Gutter, GutterEnd)) { tvBar() } }
         item(span = { GridItemSpan(maxLineSpan) }) {
             Row { GhostButton("Downloads", R.drawable.ic_download, onClick = onDownloads) }
         }
@@ -271,7 +271,7 @@ fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPerson:
                 if (image != null) NetImage(image, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().kenBurns())
                 if (wide) Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Ink.copy(alpha = .85f), .6f to Color.Transparent)))
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Ink.copy(alpha = .4f), .35f to Color.Transparent, .7f to Ink.copy(alpha = .7f), 1f to Ink)))
-                Column(Modifier.align(Alignment.BottomStart).padding(horizontal = if (wide) 48.dp else Gutter).enterUp()) {
+                Column(Modifier.align(Alignment.BottomStart).padding(start = Gutter, end = GutterEnd).enterUp()) {
                     if (d?.logo != null) NetImage(Tmdb.img(d.logo, "w500"), t.name, contentScale = ContentScale.Fit,
                         alignment = Alignment.BottomStart, modifier = Modifier.width(260.dp).height(84.dp))
                     else Text(t.name, fontSize = 32.sp, lineHeight = 36.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-1).sp, color = Color.White, style = jakarta())
@@ -288,7 +288,7 @@ fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPerson:
                 val t = d.title
                 item(key = "actions") {
                     val wide = LocalWide.current
-                    Column(Modifier.padding(horizontal = if (wide) 48.dp else Gutter).padding(top = 18.dp).then(if (wide) Modifier.widthIn(max = 720.dp) else Modifier)) {
+                    Column(Modifier.padding(start = Gutter, end = GutterEnd).padding(top = 18.dp).then(if (wide) Modifier.widthIn(max = 720.dp) else Modifier)) {
                         val label = when {
                             t.kind == Kind.TV && last != null -> "Resume S${last.season} E${last.episode}"
                             t.kind == Kind.TV -> "Play S1 E1"
@@ -324,14 +324,14 @@ fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPerson:
                 }
                 if (d.cast.isNotEmpty()) item(key = "cast") {
                     SectionTitle("Cast")
-                    LazyRow(contentPadding = PaddingValues(horizontal = Gutter), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    LazyRow(contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                         items(d.cast, key = { it.id }) { p -> CastCard(p) { onPerson(p) } }
                     }
                 }
                 if (t.kind == Kind.TV && d.seasons.isNotEmpty()) {
                     item(key = "seasons") {
                         SectionTitle("Episodes")
-                        LazyRow(contentPadding = PaddingValues(horizontal = Gutter), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        LazyRow(contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             items(d.seasons) { se -> Chip("Season ${se.number}", se.number == season) { season = se.number } }
                         }
                         Spacer(Modifier.height(8.dp))
@@ -349,7 +349,7 @@ fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPerson:
 private fun EpisodeList(show: Title, season: Int, last: Progress?, onPlay: (Int) -> Unit) {
     val (state, retry) = load(show.id to season) { Tmdb.episodes(show.id, season) }
     val wide = LocalWide.current
-    Column(Modifier.padding(horizontal = if (wide) 48.dp else Gutter).then(if (wide) Modifier.widthIn(max = 900.dp) else Modifier)) {
+    Column(Modifier.padding(start = Gutter, end = GutterEnd).then(if (wide) Modifier.widthIn(max = 900.dp) else Modifier)) {
         when (val s = state) {
             Load.Loading -> repeat(3) { Box(Modifier.padding(vertical = 6.dp).fillMaxWidth().height(78.dp).shimmer()) }
             is Load.Failed -> Failed(retry)
@@ -398,7 +398,7 @@ sealed interface UpdateState {
 @Composable
 fun SettingsScreen(version: String, update: UpdateState, blocked: Int, store: Store, onLanguage: () -> Unit, onDownloads: () -> Unit, onAlerts: (Boolean) -> Unit, onUpdate: () -> Unit, onClearCache: () -> Unit) {
     val tv5 = rememberScrollState()
-    ScrollList(tv5, PaddingValues(start = Gutter, end = Gutter, top = barSpace(), bottom = dockSpace()), narrow = true) {
+    ScrollList(tv5, PaddingValues(start = Gutter, end = GutterEnd, top = barSpace(), bottom = dockSpace()), narrow = true) {
         item { ProfileCard(onLanguage) }
         item {
             Card {
@@ -513,10 +513,10 @@ fun PersonScreen(person: Person, onOpen: (Title) -> Unit) {
     val d = (state as? Load.Done)?.value
     LazyVerticalGrid(
         GridCells.Adaptive(if (wide) 170.dp else 104.dp), Modifier.fillMaxSize().dpadScroll(tv6), state = tv6,
-        contentPadding = PaddingValues(start = Gutter, end = Gutter, top = if (tvBar != null) 0.dp else barSpace(), bottom = dockSpace()),
+        contentPadding = PaddingValues(start = Gutter, end = GutterEnd, top = if (tvBar != null) 0.dp else barSpace(), bottom = dockSpace()),
         horizontalArrangement = Arrangement.spacedBy(if (wide) 18.dp else 12.dp), verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        if (tvBar != null) item(span = { GridItemSpan(maxLineSpan) }) { Box(Modifier.bleed(Gutter)) { tvBar() } }
+        if (tvBar != null) item(span = { GridItemSpan(maxLineSpan) }) { Box(Modifier.bleed(Gutter, GutterEnd)) { tvBar() } }
         item(span = { GridItemSpan(maxLineSpan) }) {
             val head: @Composable () -> Unit = {
                 Text(person.name, fontSize = if (wide) 34.sp else 24.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, style = jakarta())
@@ -607,7 +607,7 @@ fun DownloadsScreen(onPlay: (DownloadInfo, String) -> Unit) {
     var items by remember { mutableStateOf(Downloads.all(context)) }
     LaunchedEffect(Unit) { while (true) { items = Downloads.all(context); delay(1000) } }
     val tv7 = rememberScrollState()
-    ScrollList(tv7, PaddingValues(start = Gutter, end = Gutter, top = barSpace(), bottom = dockSpace()), narrow = true) {
+    ScrollList(tv7, PaddingValues(start = Gutter, end = GutterEnd, top = barSpace(), bottom = dockSpace()), narrow = true) {
         if (items.isEmpty()) item { Message("No downloads yet", "Save a movie or episode from the player to watch it offline.") }
         items(items, key = { it.request.id }) { d ->
             val info = DownloadInfo.from(d.request.data) ?: return@items
@@ -673,8 +673,8 @@ private object ListShim {
 }
 
 /** Lets a full-width row ignore the grid's side padding. */
-private fun Modifier.bleed(side: Dp) = layout { m, c ->
-    val extra = (side * 2).roundToPx()
+private fun Modifier.bleed(start: Dp, end: Dp) = layout { m, c ->
+    val s = start.roundToPx(); val extra = s + end.roundToPx()
     val p = m.measure(c.copy(minWidth = c.minWidth + extra, maxWidth = c.maxWidth + extra))
-    layout(c.maxWidth, p.height) { p.place(-extra / 2, 0) }
+    layout(c.maxWidth, p.height) { p.place(-s, 0) }
 }

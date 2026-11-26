@@ -42,6 +42,16 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           script: |
             adb install -r app/build/outputs/apk/debug/app-debug.apk
+            mkdir -p shots
+            adb shell am start -n com.g41us.movio/.MainActivity
+            sleep 12
+            adb exec-out screencap -p > shots/0a_setup.png
+            adb shell input keyevent KEYCODE_DPAD_DOWN
+            adb shell input keyevent KEYCODE_DPAD_DOWN
+            adb shell input keyevent KEYCODE_DPAD_CENTER
+            sleep 3
+            adb exec-out screencap -p > shots/0b_setup_lang.png
+            adb shell am force-stop com.g41us.movio
             adb shell run-as com.g41us.movio mkdir -p shared_prefs
             adb shell "run-as com.g41us.movio sh -c 'echo \"<?xml version=\\\"1.0\\\" encoding=\\\"utf-8\\\" standalone=\\\"yes\\\" ?><map><boolean name=\\\"setup_done\\\" value=\\\"true\\\" /><string name=\\\"lang\\\">en</string><string name=\\\"sub_lang\\\">en</string><string name=\\\"name\\\">Marvelous</string></map>\" > shared_prefs/movio_profile.xml'"
             adb shell am start -n com.g41us.movio/.MainActivity

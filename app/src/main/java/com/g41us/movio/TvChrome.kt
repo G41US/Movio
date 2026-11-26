@@ -55,8 +55,9 @@ fun TvRail(tab: Tab, top: Screen?, onTab: (Tab) -> Unit, onDownloads: () -> Unit
     items.forEachIndexed { i, it -> it.focus = reqs[i] }
     Box(
         Modifier.fillMaxHeight().width(w)
+            // Folded: no panel at all, just the icons over the picture. Open: a dark wash so the names read.
             .background(if (open) Brush.horizontalGradient(0f to Ink, .72f to Ink.copy(alpha = .94f), 1f to Color.Transparent)
-                else Brush.horizontalGradient(listOf(Ink, Ink.copy(alpha = .0f))))
+                else Brush.horizontalGradient(listOf(Color.Transparent, Color.Transparent)))
             .onFocusChanged { onOpen(it.hasFocus) }
             // ◀ into the menu lands on the page you're on, not whatever icon happens to be level with you.
             .focusProperties {
@@ -134,8 +135,12 @@ private fun Profile(open: Boolean, onClick: () -> Unit) {
 /** Movio's logo and name, always at the top-left of the TV screen (outside the menu, so it's never cut off). */
 @Composable
 fun TvLogo() {
-    // A soft dark band behind it, so page text scrolling up never runs into the logo.
-    Box(Modifier.fillMaxWidth().height(92.dp).background(Brush.verticalGradient(0f to Ink, .62f to Ink.copy(alpha = .9f), 1f to Color.Transparent)))
+    // Only once the page has scrolled: a dark band so text moving up never runs into the logo.
+    // At the top of a page the picture shows in full.
+    val scrolled = TvScroll.target?.canScrollBackward == true
+    androidx.compose.animation.AnimatedVisibility(scrolled, enter = androidx.compose.animation.fadeIn(tween(200)), exit = androidx.compose.animation.fadeOut(tween(200))) {
+        Box(Modifier.fillMaxWidth().height(92.dp).background(Brush.verticalGradient(0f to Ink, .62f to Ink.copy(alpha = .9f), 1f to Color.Transparent)))
+    }
     Box(Modifier.padding(start = 20.dp, top = 20.dp)) { Logo(size = 20, anchor = true) }
 }
 

@@ -206,8 +206,8 @@ fun App(openRequest: androidx.compose.runtime.MutableState<Title?>) {
         }
         var railOpen by remember { mutableStateOf(false) }
         Box(Modifier.fillMaxSize().background(Ink)) {
-            // TV: pages sit to the right of the left menu; the clock heads each page.
-            Box(if (isTv) Modifier.fillMaxSize().padding(start = TvRailWidth) else Modifier.fillMaxSize()) {
+            // TV: pages run full width (pictures go behind the menu icons); the clock heads each page.
+            Box(Modifier.fillMaxSize()) {
             CompositionLocalProvider(LocalTopBar provides if (isTv) ({ TvHeader() }) else null) {
             AnimatedContent(top ?: tab, transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(160)) }, label = "screen") { s ->
                 when (s) {

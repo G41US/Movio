@@ -39,9 +39,11 @@ fun SetupScreen(onDone: () -> Unit) {
     var step by remember { mutableIntStateOf(0) }
     var name by remember { mutableStateOf(I18n.name) }
     val wide = LocalWide.current
-    Box(Modifier.fillMaxSize().background(Ink).systemBarsPadding().imePadding(), contentAlignment = Alignment.Center) {
+    val tv = LocalTv.current
+    // TV: kept well inside the screen edges (TVs crop the borders) and choices two per row so all fit without scrolling.
+    Box(Modifier.fillMaxSize().background(Ink).systemBarsPadding().imePadding().padding(horizontal = if (tv) 56.dp else 0.dp, vertical = if (tv) 28.dp else 0.dp), contentAlignment = Alignment.Center) {
         Column(
-            Modifier.widthIn(max = if (wide) 560.dp else 460.dp).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 28.dp),
+            Modifier.widthIn(max = if (tv) 760.dp else if (wide) 560.dp else 460.dp).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = if (tv) 8.dp else 28.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Image(painterResource(R.drawable.logo_tile), null, Modifier.size(44.dp))
@@ -52,7 +54,7 @@ fun SetupScreen(onDone: () -> Unit) {
                         .background(if (i <= step) Color.White else Color.White.copy(alpha = .25f)))
                 }
             }
-            Spacer(Modifier.height(30.dp))
+            Spacer(Modifier.height(if (tv) 18.dp else 30.dp))
             AnimatedContent(step, transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(140)) }, label = "setup") { s ->
                 Column {
                     when (s) {
@@ -81,20 +83,20 @@ fun SetupScreen(onDone: () -> Unit) {
                             Heading("App language", "Menus, buttons and film descriptions will use this language.")
                             Spacer(Modifier.height(20.dp))
                             // Each language written in itself, so anyone can find theirs.
-                            I18n.langs.forEach { l ->
-                                Choice(l.native, if (l.code == "en") null else l.english.let { t(it) }.takeIf { it != l.native }, I18n.lang == l.code) {
+                            Choices(I18n.langs.map { l ->
+                                ChoiceSpec(l.native, if (l.code == "en") null else t(l.english).takeIf { it != l.native }, I18n.lang == l.code) {
                                     I18n.lang = l.code
                                     if (I18n.subLang == "en" || I18n.langs.any { it.code == I18n.subLang }) I18n.subLang = l.code
                                 }
-                            }
+                            })
                             Spacer(Modifier.height(22.dp))
                             Buttons({ step = 0 }) { step = 2 }
                         }
                         else -> {
                             Heading("Subtitle language", "Movio will turn these subtitles on by default.")
                             Spacer(Modifier.height(20.dp))
-                            I18n.langs.forEach { l -> Choice(t(l.english), l.native.takeIf { t(l.english) != it }, I18n.subLang == l.code) { I18n.subLang = l.code } }
-                            Choice(t("No subtitles"), null, I18n.subLang == "off") { I18n.subLang = "off" }
+                            Choices(I18n.langs.map { l -> ChoiceSpec(t(l.english), l.native.takeIf { t(l.english) != it }, I18n.subLang == l.code) { I18n.subLang = l.code } } +
+                                ChoiceSpec(t("No subtitles"), null, I18n.subLang == "off") { I18n.subLang = "off" })
                             Spacer(Modifier.height(22.dp))
                             Buttons({ step = 1 }, "Start watching") {
                                 I18n.name = name.trim(); I18n.setupDone = true; I18n.save(); onDone()
@@ -107,9 +109,23 @@ fun SetupScreen(onDone: () -> Unit) {
     }
 }
 
+private class ChoiceSpec(val label: String, val sub: String?, val on: Boolean, val onClick: () -> Unit)
+
+/** Phone: one per row. TV: two per row so the whole list fits on screen. */
+@Composable
+private fun Choices(list: List<ChoiceSpec>) {
+    if (!LocalTv.current) { list.forEach { Choice(it.label, it.sub, it.on, it.onClick) }; return }
+    list.chunked(2).forEach { pair ->
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            pair.forEach { Box(Modifier.weight(1f)) { Choice(it.label, it.sub, it.on, it.onClick) } }
+            if (pair.size == 1) Spacer(Modifier.weight(1f))
+        }
+    }
+}
+
 @Composable
 private fun Heading(title: String, body: String) {
-    Text(title, fontSize = 30.sp, lineHeight = 36.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, style = jakarta())
+    Text(title, fontSize = if (LocalTv.current) 26.sp else 30.sp, lineHeight = 36.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, style = jakarta())
     Spacer(Modifier.height(8.dp))
     Text(body, fontSize = 15.sp, lineHeight = 21.sp, color = Muted, style = jakarta())
 }
@@ -121,7 +137,7 @@ private fun Choice(label: String, sub: String?, on: Boolean, onClick: () -> Unit
             .background(if (on) Violet.copy(alpha = .2f) else Glass)
             .border(1.5.dp, if (on) Violet else Color.Transparent, RoundedCornerShape(16.dp))
             .focusGlow(RoundedCornerShape(16.dp), grow = false)
-            .clickableNoRipple(onClick).padding(horizontal = 18.dp, vertical = 15.dp),
+            .clickableNoRipple(onClick).padding(horizontal = 18.dp, vertical = if (LocalTv.current) 11.dp else 15.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {

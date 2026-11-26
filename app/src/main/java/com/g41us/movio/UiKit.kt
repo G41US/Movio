@@ -54,7 +54,10 @@ val Glass = Color.White.copy(alpha = .09f)
 val Hairline = Color.White.copy(alpha = .12f)
 val Brand = Brush.linearGradient(listOf(Violet, Pink))
 /** Page margin: roomier on TV so everything lines up with the hero. */
-val Gutter: androidx.compose.ui.unit.Dp @androidx.compose.runtime.Composable get() = if (LocalWide.current) 48.dp else 18.dp
+/** Left margin. On TV it clears the menu icons, so pictures can run full width behind them. */
+val Gutter: androidx.compose.ui.unit.Dp @androidx.compose.runtime.Composable get() = if (LocalTv.current) 116.dp else if (LocalWide.current) 48.dp else 18.dp
+/** Right margin. */
+val GutterEnd: androidx.compose.ui.unit.Dp @androidx.compose.runtime.Composable get() = if (LocalWide.current) 48.dp else 18.dp
 
 val Jakarta = FontFamily(
     Font(R.font.jakarta_regular, FontWeight.Normal),
@@ -196,7 +199,7 @@ object MinimalScroll : androidx.compose.foundation.gestures.BringIntoViewSpec {
 
 /** The list on screen right now, so the TV remote can always scroll it. */
 object TvScroll {
-    var target: androidx.compose.foundation.gestures.ScrollableState? = null
+    var target by androidx.compose.runtime.mutableStateOf<androidx.compose.foundation.gestures.ScrollableState?>(null)
     var scope: kotlinx.coroutines.CoroutineScope? = null
     var focus: androidx.compose.ui.focus.FocusManager? = null
     var step = 600f

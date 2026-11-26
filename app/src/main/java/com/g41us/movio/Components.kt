@@ -178,7 +178,7 @@ private fun DockItem(t: Tab, active: Boolean, modifier: Modifier, onClick: () ->
 
 @Composable
 fun SectionTitle(text: String, caption: String? = null) {
-    Row(Modifier.fillMaxWidth().padding(start = Gutter, end = Gutter, top = 26.dp, bottom = 12.dp), verticalAlignment = Alignment.Bottom) {
+    Row(Modifier.fillMaxWidth().padding(start = Gutter, end = GutterEnd, top = 26.dp, bottom = 12.dp), verticalAlignment = Alignment.Bottom) {
         Text(text, fontSize = if (LocalWide.current) 22.sp else 19.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.4).sp, color = Color.White, style = jakarta())
         if (caption != null) {
             Spacer(Modifier.width(10.dp))
@@ -293,7 +293,7 @@ fun PosterCard(t: Title, width: Dp, onClick: () -> Unit) {
 @Composable
 fun PosterRow(row: Row, onOpen: (Title) -> Unit) {
     SectionTitle(rowTitle(row.name))
-    LazyRow(contentPadding = PaddingValues(horizontal = Gutter), horizontalArrangement = Arrangement.spacedBy(if (row.ranked) 4.dp else if (LocalWide.current) 16.dp else 12.dp)) {
+    LazyRow(contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(if (row.ranked) 4.dp else if (LocalWide.current) 16.dp else 12.dp)) {
         itemsIndexed(row.items, key = { _, t -> t.key }) { i, t ->
             if (row.ranked) RankedCard(i + 1, t) { onOpen(t) } else PosterCard(t, if (LocalWide.current) 176.dp else 118.dp) { onOpen(t) }
         }
@@ -398,7 +398,7 @@ fun Hero(items: List<Title>, saved: (Title) -> Boolean, onPlay: (Title) -> Unit,
             }
         }
         val t = items[index]
-        Column(Modifier.align(Alignment.BottomStart).padding(start = if (wide) 48.dp else Gutter, end = Gutter, bottom = 18.dp)
+        Column(Modifier.align(Alignment.BottomStart).padding(start = Gutter, end = GutterEnd, bottom = 18.dp)
             .then(if (wide) Modifier.width(560.dp) else Modifier).enterUp()) {
             val logo = arts[t.key]?.logo
             val tvx = LocalTv.current
@@ -445,7 +445,7 @@ fun Hero(items: List<Title>, saved: (Title) -> Boolean, onPlay: (Title) -> Unit,
 fun RowSkeleton() {
     Column {
         Box(Modifier.padding(start = Gutter, top = 28.dp, bottom = 12.dp).width(160.dp).height(18.dp).shimmer(RoundedCornerShape(6.dp)))
-        Row(Modifier.padding(horizontal = Gutter), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.padding(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             repeat(4) { Box(Modifier.width(118.dp).aspectRatio(2f / 3f).shimmer()) }
         }
     }
