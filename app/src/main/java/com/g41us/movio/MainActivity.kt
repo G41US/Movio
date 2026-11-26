@@ -244,6 +244,7 @@ fun App(openRequest: androidx.compose.runtime.MutableState<Title?>) {
                 }
                 TvRail(tab, top, onTab = { t -> stack.clear(); tab = t }, onDownloads = { if (top !is Screen.Downloads) stack.add(Screen.Downloads) },
                     onSettings = { if (top !is Screen.Settings) stack.add(Screen.Settings) }, open = railOpen, onOpen = { railOpen = it })
+                TvLogo()
             }
             if (!isTv) bar()
             if (!wide) Dock(if (top == null) tab else null, { t -> stack.clear(); tab = t }, Modifier.align(Alignment.BottomCenter))

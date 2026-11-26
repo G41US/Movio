@@ -51,27 +51,25 @@ fun TvRail(tab: Tab, top: Screen?, onTab: (Tab) -> Unit, onDownloads: () -> Unit
                 else Brush.horizontalGradient(listOf(Ink, Ink.copy(alpha = .0f))))
             .onFocusChanged { onOpen(it.hasFocus) },
     ) {
-        Column(Modifier.fillMaxSize().padding(top = 84.dp, bottom = 26.dp)) {
+        Column(Modifier.fillMaxSize().padding(top = 64.dp, bottom = 14.dp)) {
             Spacer(Modifier.weight(1f))
             items.forEach { RailButton(it, open) }
             Spacer(Modifier.weight(1f))
             Profile(open, onSettings)
         }
-        // Movio's logo and name, always at the top-left.
-        Box(Modifier.padding(start = 20.dp, top = 22.dp)) { Logo(size = 20, anchor = true) }
     }
 }
 
 @Composable
 private fun RailButton(item: RailItem, open: Boolean) {
     var focused by remember { mutableStateOf(false) }
-    Box(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+    Box(Modifier.fillMaxWidth().padding(vertical = 1.dp)) {
         // The page you're on: a short white bar at the screen edge.
         if (item.active) Box(Modifier.align(Alignment.CenterStart).width(3.dp).height(22.dp).clip(RoundedCornerShape(topEnd = 3.dp, bottomEnd = 3.dp)).background(Color.White))
         Row(
             Modifier.padding(start = 14.dp, end = if (open) 18.dp else 0.dp)
-                .then(if (open) Modifier.fillMaxWidth() else Modifier.width(48.dp))
-                .height(48.dp)
+                .then(if (open) Modifier.fillMaxWidth() else Modifier.width(46.dp))
+                .height(42.dp)
                 .clip(RoundedCornerShape(16.dp))
                 .background(if (focused) Color.White else Color.Transparent)
                 .onFocusChanged { focused = it.isFocused }
@@ -80,7 +78,7 @@ private fun RailButton(item: RailItem, open: Boolean) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             val tint = when { focused -> Ink; item.active -> Color.White; else -> Color.White.copy(alpha = .45f) }
-            Icon(painterResource(item.icon), null, tint = tint, modifier = Modifier.size(26.dp))
+            Icon(painterResource(item.icon), null, tint = tint, modifier = Modifier.size(24.dp))
             if (open) {
                 Spacer(Modifier.width(16.dp))
                 Text(item.label, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = if (focused) Ink else if (item.active) Color.White else Soft,
@@ -102,7 +100,7 @@ private fun Profile(open: Boolean, onClick: () -> Unit) {
             .padding(4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(40.dp).clip(CircleShape).background(Brand), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(38.dp).clip(CircleShape).background(Brand), contentAlignment = Alignment.Center) {
             if (initial != null) Text(initial, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, style = jakarta())
             else Icon(painterResource(R.drawable.ic_settings), null, tint = Color.White, modifier = Modifier.size(20.dp))
         }
@@ -117,6 +115,10 @@ private fun Profile(open: Boolean, onClick: () -> Unit) {
         }
     }
 }
+
+/** Movio's logo and name, always at the top-left of the TV screen (outside the menu, so it's never cut off). */
+@Composable
+fun TvLogo() { Box(Modifier.padding(start = 20.dp, top = 20.dp)) { Logo(size = 20, anchor = true) } }
 
 /** TV pages: the clock at the top-right (Movio's logo sits in the menu). */
 @Composable

@@ -649,6 +649,8 @@ fun DownloadsScreen(onPlay: (DownloadInfo, String) -> Unit) {
 @Composable
 private fun ScrollList(state: androidx.compose.foundation.ScrollState, padding: PaddingValues, narrow: Boolean = false, content: @Composable ListShim.() -> Unit) {
     val bar = LocalTopBar.current
+    // TV: the page only moves as far as needed, so the banner stays in full view while its buttons are selected.
+    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides MinimalScroll) {
     Column(Modifier.fillMaxSize().verticalScroll(state).dpadScroll(state)) {
         // On TV the top bar is part of the page (not floating over it), so Down from the tabs reaches the content.
         Box {
@@ -657,6 +659,7 @@ private fun ScrollList(state: androidx.compose.foundation.ScrollState, padding: 
             }
             bar?.invoke()
         }
+    }
     }
 }
 
