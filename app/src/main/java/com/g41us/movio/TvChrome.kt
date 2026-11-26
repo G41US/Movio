@@ -14,6 +14,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -27,7 +30,9 @@ import kotlinx.coroutines.delay
 /** Width of the TV menu when folded to icons; pages start to the right of it. */
 val TvRailWidth = 76.dp
 
-private class RailItem(val label: String, val icon: Int, val active: Boolean, val onClick: () -> Unit)
+private class RailItem(val label: String, val icon: Int, val active: Boolean, val onClick: () -> Unit) {
+    lateinit var focus: androidx.compose.ui.focus.FocusRequester
+}
 
 /**
  * TV menu down the left edge: soft icons grouped in the middle. When the remote moves onto it (◀),
@@ -45,11 +50,19 @@ fun TvRail(tab: Tab, top: Screen?, onTab: (Tab) -> Unit, onDownloads: () -> Unit
         RailItem("Downloads", R.drawable.ic_download, top is Screen.Downloads, onDownloads),
         RailItem("Settings", R.drawable.ic_settings, top is Screen.Settings, onSettings),
     )
+    val reqs = remember { List(items.size) { androidx.compose.ui.focus.FocusRequester() } }
+    items.forEachIndexed { i, it -> it.focus = reqs[i] }
     Box(
         Modifier.fillMaxHeight().width(w)
             .background(if (open) Brush.horizontalGradient(0f to Ink, .72f to Ink.copy(alpha = .94f), 1f to Color.Transparent)
                 else Brush.horizontalGradient(listOf(Ink, Ink.copy(alpha = .0f))))
-            .onFocusChanged { onOpen(it.hasFocus) },
+            .onFocusChanged { onOpen(it.hasFocus) }
+            // ◀ into the menu lands on the page you're on, not whatever icon happens to be level with you.
+            .focusProperties {
+                @Suppress("DEPRECATION")
+                enter = { (items.firstOrNull { it.active } ?: items.first()).focus }
+            }
+            .focusGroup(),
     ) {
         Column(Modifier.fillMaxSize().padding(top = 64.dp, bottom = 14.dp)) {
             Spacer(Modifier.weight(1f))
@@ -72,6 +85,7 @@ private fun RailButton(item: RailItem, open: Boolean) {
                 .height(42.dp)
                 .clip(RoundedCornerShape(16.dp))
                 .background(if (focused) Color.White else Color.Transparent)
+                .focusRequester(item.focus)
                 .onFocusChanged { focused = it.isFocused }
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = item.onClick)
                 .padding(horizontal = 11.dp),
