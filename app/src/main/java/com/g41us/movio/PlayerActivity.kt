@@ -61,7 +61,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -197,6 +196,7 @@ class PlayerActivity : ComponentActivity() {
 
     @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
     override fun onCreate(savedInstanceState: Bundle?) {
+        I18n.init(this)
         super.onCreate(savedInstanceState)
         AdBlock.warm(this)
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -588,7 +588,7 @@ class PlayerActivity : ComponentActivity() {
             dp.setEnabled(true)
             night = dp
         } catch (_: Exception) {
-            Toast.makeText(this, "Night mode isn't supported on this device", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, t("Night mode isn't supported on this device"), Toast.LENGTH_SHORT).show()
             nightOn = false
         }
     }
@@ -735,7 +735,10 @@ class PlayerActivity : ComponentActivity() {
         score(sourceIndex, SystemClock.uptimeMillis() - startedAt)
         playerView.visibility = View.VISIBLE
         store.position(posKey())?.let { (p, dur) -> if (p > 30_000 && (dur <= 0 || p < dur - 60_000)) { exo.seekTo(p); resumedAt = p; main.postDelayed({ resumedAt = 0L }, 7000) } }
-        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon().setPreferredTextLanguage("en").build()
+        // Subtitles in the language picked at setup (or none).
+        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+            .setPreferredTextLanguage(I18n.subLang.takeIf { it != "off" } ?: "en")
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, I18n.subLang == "off").build()
         exo.play()
         failedSources.remove(sourceIndex)
         // A show only remembers a source you picked yourself, so it keeps starting on Club.
@@ -758,7 +761,7 @@ class PlayerActivity : ComponentActivity() {
             val pos = exo.currentPosition
             if (reconnects < 2) {
                 reconnects++
-                Toast.makeText(this, "Reconnecting…", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, t("Reconnecting…"), Toast.LENGTH_SHORT).show()
                 exo.prepare(); exo.seekTo(pos); exo.play()
                 return
             }
@@ -767,7 +770,7 @@ class PlayerActivity : ComponentActivity() {
             trying = null
             dropLink()
             savePosition()
-            Toast.makeText(this, "Switching to another source…", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, t("Switching to another source…"), Toast.LENGTH_SHORT).show()
             auto = true; autoTried = 0
             sourceFailed(); return
         }
@@ -849,13 +852,13 @@ class PlayerActivity : ComponentActivity() {
         val s = trying ?: return
         val existing = Downloads.find(this, Downloads.idFor(t, season, episode))
         if (existing != null && existing.state != androidx.media3.exoplayer.offline.Download.STATE_FAILED) {
-            Toast.makeText(this, if (existing.state == androidx.media3.exoplayer.offline.Download.STATE_COMPLETED) "Already downloaded" else "Already downloading", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, t(if (existing.state == androidx.media3.exoplayer.offline.Download.STATE_COMPLETED) "Already downloaded" else "Already downloading"), Toast.LENGTH_SHORT).show()
             return
         }
-        val english = subtitleTracks.firstOrNull { it.lang == "en" } ?: subtitleTracks.firstOrNull()
+        val english = subtitleTracks.firstOrNull { it.lang == I18n.subLang } ?: subtitleTracks.firstOrNull { it.lang == "en" } ?: subtitleTracks.firstOrNull()
         Downloads.notificationChannel(this)
         Downloads.start(this, DownloadInfo(t, season, episode, lastHeaders, null), s.url, s.hls, english?.url) { err ->
-            Toast.makeText(this, err ?: "Downloading — see Downloads", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, t(err ?: "Downloading — see Downloads"), Toast.LENGTH_SHORT).show()
             refreshDownloadLabel()
         }
     }
@@ -883,7 +886,7 @@ class PlayerActivity : ComponentActivity() {
     /** Manual timing on top of the automatic sync; applies instantly, no reload. */
     private fun shiftSubtitles(ms: Long) {
         subOffsetState = ms
-        if (ownCues == null) Toast.makeText(this, "Timing works on Movio's subtitles; pick one in CC", Toast.LENGTH_SHORT).show()
+        if (ownCues == null) Toast.makeText(this, t("Timing works on Movio's subtitles; pick one in CC"), Toast.LENGTH_SHORT).show()
         shownCues = null
     }
 
@@ -906,7 +909,7 @@ class PlayerActivity : ComponentActivity() {
         val key = ownKey ?: run { syncStatus = "Pick a subtitle in CC"; return }
         if (speech.heard == 0 && exo.currentPosition > 60_000) { syncStatus = "Can't hear the film on this device; use Timing"; return }
         if (speech.heard < 600) { syncStatus = "Listening to the film…"; return }
-        val cands = allSubs.filter { it.url == key || it.lang == "en" || it.lang == "und" }.take(10)
+        val cands = allSubs.filter { it.url == key || it.lang == (I18n.subLang.takeIf { l -> l != "off" } ?: "en") || it.lang == "und" }.take(10)
         val dir = java.io.File(cacheDir, "subs").apply { mkdirs() }
         val results = cands.mapNotNull { sub ->
             val cues = candidateCues[sub.url] ?: SubLoad.cues(dir, sub, lastHeaders).also { candidateCues[sub.url] = it }

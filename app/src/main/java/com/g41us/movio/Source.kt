@@ -73,12 +73,12 @@ object Source {
             .filter { it.url.endsWith(".vtt") || it.url.endsWith(".srt") }
             .mapNotNull { s ->
                 val n = count.getOrDefault(s.lang, 0)
-                if (n >= (if (s.lang == "en") 5 else 1)) return@mapNotNull null
+                if (n >= (if (s.lang == "en" || s.lang == I18n.subLang) 5 else 1)) return@mapNotNull null
                 count[s.lang] = n + 1
                 val name = java.util.Locale(s.lang).displayLanguage.ifBlank { s.label }
                 s.copy(label = "$name · Alt" + if (n == 0) "" else " ${n + 1}")
             }
-            .sortedBy { if (it.lang == "en") 0 else 1 }
+            .sortedBy { if (it.lang == I18n.subLang) 0 else if (it.lang == "en") 1 else 2 }
             .take(20)
     }
 }

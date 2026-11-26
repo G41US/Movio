@@ -32,7 +32,8 @@ object Subtitles {
         val p = async(Dispatchers.IO) { kotlinx.coroutines.withTimeoutOrNull(25_000) { try { Source.subtitles(kind, id, season, episode) } catch (_: Exception) { emptyList() } } ?: emptyList() }
         val all = (w.await() + p.await()).distinctBy { it.url }
         // English first (Wyzie then Alt), then other languages.
-        all.sortedBy { if (it.lang == "en") 0 else 1 }
+        // The viewer's subtitle language first, then English, then the rest.
+        all.sortedBy { if (it.lang == I18n.subLang) 0 else if (it.lang == "en") 1 else 2 }
     }
 
     private fun wyzie(kind: Kind, id: Int, season: Int, episode: Int): List<Subtitle> {
@@ -51,7 +52,7 @@ object Subtitles {
                 .entries.sortedBy { (lang, _) -> wanted.indexOf(lang).let { if (it < 0) 99 else it } }
                 .flatMap { (lang, list) ->
                     list.sortedWith(compareBy<org.json.JSONObject> { it.optBoolean("isHearingImpaired") }.thenByDescending { it.optLong("downloadCount") })
-                        .take(if (lang == "en") 5 else 1)
+                        .take(if (lang == "en" || lang == I18n.subLang) 5 else 1)
                         .mapIndexed { i, o ->
                             val name = o.optString("display").ifBlank { Locale(lang).displayLanguage.ifBlank { lang } }
                             Subtitle(if (i == 0) name else "$name · ${i + 1}", lang, o.optString("url"), srt = o.optString("format").equals("srt", true))

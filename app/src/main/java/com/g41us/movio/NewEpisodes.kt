@@ -39,6 +39,7 @@ class NewEpisodesWorker(context: Context, params: WorkerParameters) : CoroutineW
 
     private fun notify(show: Title, ep: String, @Suppress("UNUSED_PARAMETER") date: String) {
         val ctx = applicationContext
+        I18n.init(ctx)
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val (s, e) = ep.split(":")
@@ -49,8 +50,8 @@ class NewEpisodesWorker(context: Context, params: WorkerParameters) : CoroutineW
         )
         val n = NotificationCompat.Builder(ctx, CHANNEL)
             .setSmallIcon(R.drawable.ic_play_fill)
-            .setContentTitle("New episode of ${show.name}")
-            .setContentText("Season $s, Episode $e is out now")
+            .setContentTitle(tf("New episode of {1}", show.name))
+            .setContentText(tf("Season {1}, Episode {2} is out now", s, e))
             .setContentIntent(open).setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .build()
@@ -63,7 +64,7 @@ class NewEpisodesWorker(context: Context, params: WorkerParameters) : CoroutineW
         fun schedule(context: Context) {
             if (Build.VERSION.SDK_INT >= 26) {
                 context.getSystemService(NotificationManager::class.java)
-                    .createNotificationChannel(NotificationChannel(CHANNEL, "New episodes", NotificationManager.IMPORTANCE_DEFAULT))
+                    .createNotificationChannel(NotificationChannel(CHANNEL, t("New episodes"), NotificationManager.IMPORTANCE_DEFAULT))
             }
             val req = PeriodicWorkRequestBuilder<NewEpisodesWorker>(12, TimeUnit.HOURS)
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())

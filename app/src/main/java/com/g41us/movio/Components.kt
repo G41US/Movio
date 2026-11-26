@@ -33,7 +33,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -292,7 +291,7 @@ fun PosterCard(t: Title, width: Dp, onClick: () -> Unit) {
 
 @Composable
 fun PosterRow(row: Row, onOpen: (Title) -> Unit) {
-    SectionTitle(row.name)
+    SectionTitle(rowTitle(row.name))
     LazyRow(contentPadding = PaddingValues(horizontal = Gutter), horizontalArrangement = Arrangement.spacedBy(if (row.ranked) 4.dp else if (LocalWide.current) 16.dp else 12.dp)) {
         itemsIndexed(row.items, key = { _, t -> t.key }) { i, t ->
             if (row.ranked) RankedCard(i + 1, t) { onOpen(t) } else PosterCard(t, if (LocalWide.current) 176.dp else 118.dp) { onOpen(t) }
@@ -472,7 +471,7 @@ fun Card(content: @Composable () -> Unit) {
 
 @Composable
 fun Label(text: String) {
-    Text(text.uppercase(), fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp, color = Violet, style = jakarta())
+    Text(t(text).uppercase(), fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp, color = Violet, style = jakarta())
 }
 
 @Suppress("unused")

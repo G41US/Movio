@@ -40,7 +40,6 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -397,9 +396,10 @@ sealed interface UpdateState {
 }
 
 @Composable
-fun SettingsScreen(version: String, update: UpdateState, blocked: Int, store: Store, onDownloads: () -> Unit, onAlerts: (Boolean) -> Unit, onUpdate: () -> Unit, onClearCache: () -> Unit) {
+fun SettingsScreen(version: String, update: UpdateState, blocked: Int, store: Store, onLanguage: () -> Unit, onDownloads: () -> Unit, onAlerts: (Boolean) -> Unit, onUpdate: () -> Unit, onClearCache: () -> Unit) {
     val tv5 = rememberScrollState()
     ScrollList(tv5, PaddingValues(start = Gutter, end = Gutter, top = barSpace(), bottom = dockSpace()), narrow = true) {
+        item { ProfileCard(onLanguage) }
         item {
             Card {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -459,7 +459,7 @@ fun SettingsScreen(version: String, update: UpdateState, blocked: Int, store: St
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(painterResource(R.drawable.ic_shield), null, tint = Color(0xFF5EE6A8), modifier = Modifier.size(22.dp))
                     Spacer(Modifier.width(10.dp))
-                    Text(if (blocked > 0) "On · ${"%,d".format(blocked)} ad and tracker sites blocked" else "On",
+                    Text(if (blocked > 0) tf("On · {1} ad and tracker sites blocked", "%,d".format(blocked)) else "On",
                         fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White, style = jakarta())
                 }
                 Spacer(Modifier.height(6.dp))

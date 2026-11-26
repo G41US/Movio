@@ -84,7 +84,8 @@ object Tmdb {
      * and with no internet the last saved copy is used however old it is.
      */
     private suspend fun get(path: String, params: Map<String, String> = emptyMap()): JSONObject = withContext(Dispatchers.IO) {
-        val q = (params + ("api_key" to BuildConfig.TMDB_KEY)).entries
+        // Titles and descriptions in the viewer's language (TMDB falls back to English where it has none).
+        val q = (mapOf("language" to I18n.tmdbLang) + params + ("api_key" to BuildConfig.TMDB_KEY)).entries
             .joinToString("&") { "${it.key}=${URLEncoder.encode(it.value, "UTF-8")}" }
         val url = "$API$path?$q"
         cache[url]?.let { return@withContext it }
@@ -202,7 +203,7 @@ object Tmdb {
     suspend fun search(q: String): List<Title> = list("search/multi", null, mapOf("query" to q, "include_adult" to "false"))
 
     suspend fun details(t: Title): Details {
-        val o = get("${t.kind.api}/${t.id}", mapOf("append_to_response" to "credits,similar,recommendations,images,videos", "include_image_language" to "en,null"))
+        val o = get("${t.kind.api}/${t.id}", mapOf("append_to_response" to "credits,similar,recommendations,images,videos", "include_image_language" to "${I18n.lang},en,null"))
         val full = parse(o, t.kind) ?: t
         val genres = o.optJSONArray("genres")?.let { a -> (0 until a.length()).map { a.getJSONObject(it).optString("name") } } ?: emptyList()
         val runtime = if (t.kind == Kind.MOVIE) o.optInt("runtime").takeIf { it > 0 }
@@ -269,8 +270,8 @@ object Tmdb {
         val born = o.optString("birthday").takeIf { it.length >= 4 }
         val died = o.optString("deathday").takeIf { it.length >= 4 }
         val age = born?.let { runCatching { java.time.Period.between(java.time.LocalDate.parse(it), java.time.LocalDate.now()).years }.getOrNull() }
-        val facts = listOfNotNull(dept.ifBlank { null },
-            when { born == null -> null; died != null -> "${born.take(4)}–${died.take(4)}"; age != null -> "Born ${born.take(4)} · $age"; else -> "Born ${born.take(4)}" },
+        val facts = listOfNotNull(dept.ifBlank { null }?.let { t(it) },
+            when { born == null -> null; died != null -> "${born.take(4)}–${died.take(4)}"; age != null -> tf("Born {1} · {2}", born.take(4), age); else -> tf("Born {1}", born.take(4)) },
             o.optString("place_of_birth").ifBlank { null }).joinToString("  ·  ")
         return PersonDetails(
             Person(id, o.optString("name"), dept, o.optString("profile_path").takeIf { it.startsWith("/") }),

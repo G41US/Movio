@@ -64,6 +64,7 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(AColor.TRANSPARENT),
         )
         super.onCreate(savedInstanceState)
+        I18n.init(this)
         AdBlock.warm(this)
         Tmdb.diskDir = File(filesDir, "tmdb").apply { mkdirs() }
         // Load the browser engine now, so the first Play doesn't pay for it.
@@ -164,7 +165,7 @@ fun App(openRequest: androidx.compose.runtime.MutableState<Title?>) {
                         Updates.download(context, info) { pct -> scope.launch { update = UpdateState.Downloading(info.versionName, pct) } }
                     }
                     apk = file
-                    if (!Updates.install(context, file)) Toast.makeText(context, "Allow Movio to install updates, then tap Install update", Toast.LENGTH_LONG).show()
+                    if (!Updates.install(context, file)) Toast.makeText(context, t("Allow Movio to install updates, then tap Install update"), Toast.LENGTH_LONG).show()
                     UpdateState.Ready(info.versionName)
                 }
             } catch (e: Exception) { UpdateState.Failed(e.message ?: "Couldn't check for updates. Try again.") }
@@ -174,7 +175,17 @@ fun App(openRequest: androidx.compose.runtime.MutableState<Title?>) {
     // TV is watched from across the room: everything a size up.
     val base = androidx.compose.ui.platform.LocalDensity.current
     val density = if (isTv) androidx.compose.ui.unit.Density(base.density * 1.15f, base.fontScale) else base
-    CompositionLocalProvider(LocalWide provides wide, LocalTv provides isTv, androidx.compose.ui.platform.LocalDensity provides density) {
+    val dir = if (I18n.rtl) androidx.compose.ui.unit.LayoutDirection.Rtl else androidx.compose.ui.unit.LayoutDirection.Ltr
+    CompositionLocalProvider(LocalWide provides wide, LocalTv provides isTv, androidx.compose.ui.platform.LocalDensity provides density,
+        androidx.compose.ui.platform.LocalLayoutDirection provides dir) {
+    // First launch: name, language and subtitles before anything loads, so it all comes in the right language.
+    if (!I18n.setupDone) {
+        Box(Modifier.fillMaxSize().background(Ink)) {
+            SetupScreen { }
+            if (splash) Splash { splash = false }
+        }
+        return@CompositionLocalProvider
+    }
         val bar: @Composable () -> Unit = {
                 TopBar(
                     title = when {
@@ -201,6 +212,7 @@ fun App(openRequest: androidx.compose.runtime.MutableState<Title?>) {
                     Screen.Downloads -> DownloadsScreen { info, id -> PlayerActivity.start(context, info.title, info.season, info.episode, offline = id) }
                     Screen.Settings -> SettingsScreen(
                         Updates.installedName(context), update, AdBlock.size, store,
+                        onLanguage = { (context as? android.app.Activity)?.recreate() },
                         onDownloads = { stack.add(Screen.Downloads) },
                         onAlerts = { on ->
                             if (on && Build.VERSION.SDK_INT >= 33) askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -209,7 +221,7 @@ fun App(openRequest: androidx.compose.runtime.MutableState<Title?>) {
                     ) {
                         context.cacheDir.resolve("images").deleteRecursively()
                         WebStorage.getInstance().deleteAllData()
-                        Toast.makeText(context, "Cache cleared", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, t("Cache cleared"), Toast.LENGTH_SHORT).show()
                     }
                     Tab.HOME -> FeedScreen(null, store, ::open, ::play) { stack.add(Screen.Downloads) }
                     Tab.MOVIES -> FeedScreen(Kind.MOVIE, store, ::open, ::play) { stack.add(Screen.Downloads) }
@@ -223,7 +235,7 @@ fun App(openRequest: androidx.compose.runtime.MutableState<Title?>) {
             if (!isTv) bar()
             if (!wide) Dock(if (top == null) tab else null, { t -> stack.clear(); tab = t }, Modifier.align(Alignment.BottomCenter))
 
-            if (splash) Splash { splash = false }
+            if (splash) Splash { splash = false } else Greeting()
         }
     }
 }
