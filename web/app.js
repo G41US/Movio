@@ -371,7 +371,7 @@ function next() {
 function play(url) {
   const me = P;
   const st = document.getElementById("stage");
-  st.innerHTML = `<video playsinline controls autoplay preload="auto" x-webkit-airplay="allow" src="${esc(url)}"></video>`;
+  st.innerHTML = `<video playsinline controls autoplay preload="auto" x-webkit-airplay="allow" src="${esc(url)}"></video><div class="subs"></div>`;
   setSideways(!localStorage.getItem("upright"));
   const v = st.querySelector("video");
   me.video = v;
@@ -392,6 +392,15 @@ function play(url) {
     footerSkip();
   });
   v.addEventListener("pause", savePlayer);
+  // iPhone's own full screen player can't see Movio's subtitle layer, so it shows the chosen track itself.
+  v.addEventListener("webkitbeginfullscreen", () => P?.sub?.node && (P.sub.node.track.mode = "showing"));
+  v.addEventListener("webkitendfullscreen", () => P?.tracks.forEach((y) => y.node && (y.node.track.mode = "hidden")));
+  // Picking from the video's own captions menu works too.
+  v.textTracks.addEventListener("change", () => {
+    if (!P || v.webkitDisplayingFullscreen) return;
+    const on = [...v.textTracks].find((t) => t.mode === "showing");
+    if (on) pickSub(P.tracks.find((y) => y.node?.track === on) || null);
+  });
   v.addEventListener("ended", () => { savePlayer(); if (me.t.kind === "tv") nextEpisode(); });
 }
 
@@ -476,16 +485,53 @@ function build(x) {
   if (!v) return;
   if (x.blob) URL.revokeObjectURL(x.blob);
   x.blob = URL.createObjectURL(new Blob([toVtt(x.text, P.offset)], { type: "text/vtt" }));
-  const wasOn = x.node && x.node.track.mode === "showing";
   x.node?.remove();
   const tr = document.createElement("track");
   tr.kind = "subtitles"; tr.label = x.label; tr.srclang = x.lang; tr.src = x.blob;
   v.appendChild(tr);
   x.node = tr;
+  // Movio draws the subtitles itself (right size, turns with the player); the track only times the lines.
+  tr.track.mode = v.webkitDisplayingFullscreen && P.sub === x ? "showing" : "hidden";
+  tr.track.oncuechange = () => P?.sub === x && renderSub();
   // First English version shows by default, until you pick another.
-  const any = [...v.textTracks].some((t) => t.mode === "showing");
-  if (wasOn || (!any && x.lang === "en" && !P.userPicked)) { tr.track.mode = "showing"; tr.default = true; }
-  v.textTracks.onchange = () => { P && (P.userPicked = true); };
+  if (!P.sub && !P.userPicked && x.lang === "en") P.sub = x;
+  renderSub();
+  footer();
+}
+
+/** Draws the chosen subtitle line over the video. */
+function renderSub() {
+  const box = document.querySelector("#stage .subs");
+  if (!box || !P) return;
+  const cues = P.sub?.node?.track?.activeCues;
+  const lines = cues ? [...cues].map((c) => esc(c.text.replace(/<[^>]+>/g, "")).replace(/\n/g, "<br>")) : [];
+  box.innerHTML = lines.length ? `<span>${lines.join("<br>")}</span>` : "";
+}
+
+function pickSub(x) {
+  if (!P) return;
+  P.sub = x; P.userPicked = true;
+  const fs = P.video?.webkitDisplayingFullscreen;
+  P.tracks.forEach((y) => y.node && (y.node.track.mode = fs && y === x ? "showing" : "hidden"));
+  renderSub(); footer();
+}
+
+function subsMenu() {
+  const ready = P.tracks.filter((x) => x.node);
+  sheet("Subtitles", [
+    { label: "Off", on: !P.sub, fn: () => pickSub(null) },
+    ...ready.map((x) => ({ label: x.label, on: x === P.sub, fn: () => pickSub(x) })),
+    ...[["Size: Small", 0.8], ["Size: Medium", 1], ["Size: Large", 1.25]].map(([label, k]) => ({ label, on: subSize() === k, fn: () => setSubSize(k) })),
+    { label: "Timing…", on: false, fn: () => setTimeout(timingMenu, 50) },
+  ]);
+}
+const subSize = () => +(localStorage.getItem("subSize") || 0.8);
+function setSubSize(k) { localStorage.setItem("subSize", k); document.documentElement.style.setProperty("--sub", k); }
+document.documentElement.style.setProperty("--sub", subSize());
+function timingMenu() {
+  sheet("Subtitle timing", [
+    ["Show 1s earlier", -1], ["Show 0.5s earlier", -0.5], ["Show 0.5s later", 0.5], ["Show 1s later", 1], ["Reset", 0],
+  ].map(([label, d]) => ({ label, on: false, fn: () => shiftSubs(d) })));
 }
 
 function shiftSubs(d) {
@@ -505,7 +551,7 @@ function footer() {
     <button class="chip" id="fsrc">${esc(P.source || "Source")} ▾</button>
     <button class="chip" id="frot">${sideways() ? "Upright" : "Sideways"}</button>
     <button class="chip" id="ffull">Full screen</button>
-    <button class="chip" id="fsub">Subs${P.offset ? ` ${P.offset > 0 ? "+" : ""}${P.offset.toFixed(1)}s` : ""}</button>
+    <button class="chip" id="fsub">Subs · ${P.sub ? esc(P.sub.label.split(" · ")[0].slice(0, 10)) : "Off"}${P.offset ? ` ${P.offset > 0 ? "+" : ""}${P.offset.toFixed(1)}s` : ""}</button>
     ${tv && P.episodes?.length ? `<button class="chip" id="feps">Episodes</button>` : ""}
     ${tv ? `<button class="chip" id="fnext">Next ›</button>` : ""}
     <button class="chip on" id="fskip" style="display:none"></button>`;
@@ -514,9 +560,7 @@ function footer() {
   } })));
   f.querySelector("#ffull").onclick = fullScreen;
   f.querySelector("#frot").onclick = () => { localStorage.setItem("upright", sideways() ? "1" : ""); setSideways(!sideways()); };
-  f.querySelector("#fsub").onclick = () => sheet("Subtitle timing", [
-    ["Show 1s earlier", -1], ["Show 0.5s earlier", -0.5], ["Show 0.5s later", 0.5], ["Show 1s later", 1], ["Reset", 0],
-  ].map(([label, d]) => ({ label, on: false, fn: () => shiftSubs(d) })));
+  f.querySelector("#fsub").onclick = subsMenu;
   f.querySelector("#feps") && (f.querySelector("#feps").onclick = () => sheet(`Season ${P.s}`, P.episodes.map((e) => ({
     label: `${e.episode_number}. ${e.name}`, on: e.episode_number === P.e, fn: () => location.replace(playHref(P.t, P.s, e.episode_number)),
   }))));
