@@ -87,6 +87,23 @@ jobs:
             "news": []
           }
           JSON
+          # Scarlet reads its own format.
+          cat > scarlet.json <<JSON
+          {
+            "META": { "repoName": "Movio", "repoIcon": "$ICON" },
+            "Other": [{
+              "name": "Movio",
+              "version": "$VER",
+              "down": "$URL",
+              "dev": "G41US",
+              "icon": "$ICON",
+              "category": "Other",
+              "description": "Movies and TV shows, with My List, Continue watching, downloads and subtitles.",
+              "bundleID": "com.g41us.movio"
+            }]
+          }
+          JSON
           python3 -m json.tool altstore.json > /dev/null
+          python3 -m json.tool scarlet.json > /dev/null
           gh release view ios-source >/dev/null 2>&1 || gh release create ios-source --title "Movio for iPhone · AltStore source" --notes "" --latest=false
-          gh release upload ios-source altstore.json --clobber
+          gh release upload ios-source altstore.json scarlet.json --clobber
