@@ -815,4 +815,10 @@ document.addEventListener("error", (e) => { if (e.target.tagName === "IMG") e.ta
 window.addEventListener("hashchange", route);
 window.addEventListener("pagehide", savePlayer);
 route();
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").then((r) => r.update()).catch(() => {});
+  // A new version took over: reload once so it shows straight away (not in the middle of a film).
+  const hadOld = !!navigator.serviceWorker.controller;
+  let reloading = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => { if (hadOld && !reloading && !P) { reloading = true; location.reload(); } });
+}
