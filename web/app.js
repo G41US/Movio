@@ -54,7 +54,8 @@ function toast(msg) {
 // ---------- Catalogue ----------
 const cache = new Map();
 function tmdb(path, params = {}) {
-  const q = new URLSearchParams(params).toString();
+  // Titles and descriptions in the viewer's language (TMDB falls back to English where it has none).
+  const q = new URLSearchParams({ language: I.tmdb(), ...params }).toString();
   const u = `${HELPER}/tmdb/${path}${q ? "?" + q : ""}`;
   if (!cache.has(u)) {
     const p = fetch(u).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); });
@@ -131,11 +132,13 @@ async function home() {
   const rs = await homeRows();
   const trending = (rs.find((r) => r.name.startsWith("Trending")) || rs[0])?.items.filter((t) => t.backdrop && t.overview).slice(0, 6) || [];
   const cw = continueWatching();
+  const initial = (I.name || "").trim().charAt(0).toUpperCase();
   view.innerHTML = `
+    <button class="pfp ${initial ? "named" : ""}" onclick="I.edit()" aria-label="Profile">${initial ? esc(initial) : '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7z"/></svg>'}</button>
     <section class="hero"><div class="slides">${trending.map((t) => `
       <div class="slide"><img src="${img(t.backdrop, "w1280")}" alt=""><div class="shade"></div>
         <div class="info"><h3>${esc(t.name)}</h3>
-          <div class="meta">${[t.year, t.kind === "tv" ? "Series" : "Movie", "★ " + t.rating.toFixed(1)].filter(Boolean).join("  ·  ")}</div>
+          <div class="meta">${[t.year, I.t(t.kind === "tv" ? "Series" : "Movie"), "★ " + t.rating.toFixed(1)].filter(Boolean).join("  ·  ")}</div>
           <p class="ov">${esc(t.overview)}</p>
           <div class="btns">
             <a class="btn white" href="${playTarget(t)}">${ICON.play}Play</a>
@@ -201,10 +204,10 @@ function myListView() {
 async function details(kind, id) {
   const known = titles[`${kind}:${id}`];
   view.innerHTML = `<a class="back" href="javascript:history.back()">${ICON.back}</a>${known ? `<div class="dhead"><img class="bg" src="${img(known.backdrop || known.poster, "w1280")}" alt=""><div class="shade"></div></div>` : ""}${loading()}`;
-  const o = await tmdb(`${kind}/${id}`, { append_to_response: "credits,similar,images", include_image_language: "en,null" });
+  const o = await tmdb(`${kind}/${id}`, { append_to_response: "credits,similar,images", include_image_language: `${I.lang},en,null` });
   const t = parse(o, kind);
   const logos = o.images?.logos || [];
-  const logo = (logos.find((l) => l.iso_639_1 === "en") || logos[0])?.file_path;
+  const logo = (logos.find((l) => l.iso_639_1 === I.lang) || logos.find((l) => l.iso_639_1 === "en") || logos[0])?.file_path;
   const runtime = o.runtime || o.episode_run_time?.[0];
   const seasons = (o.seasons || []).filter((s) => s.season_number > 0);
   const r = recent[key(t)];
@@ -212,7 +215,7 @@ async function details(kind, id) {
   const label = kind === "tv" && r ? `Resume S${r.s} E${r.e}` : saved && saved[0] > 30 ? "Resume" : "Play";
   const meta = [t.year, t.rating ? "★ " + t.rating.toFixed(1) : null,
     kind === "movie" && runtime ? (runtime >= 60 ? `${Math.floor(runtime / 60)}h ${runtime % 60}m` : `${runtime}m`) : null,
-    kind === "tv" && seasons.length ? (seasons.length === 1 ? "1 season" : `${seasons.length} seasons`) : null].filter(Boolean).join("  ·  ");
+    kind === "tv" && seasons.length ? I.t(seasons.length === 1 ? "1 season" : `${seasons.length} seasons`) : null].filter(Boolean).join("  ·  ");
   const cast = (o.credits?.cast || []).slice(0, 15);
   const similar = (o.similar?.results || []).map((x) => parse(x, kind)).filter((x) => x && x.poster);
   const season = r ? r.s : seasons[0]?.season_number || 1;
@@ -264,7 +267,7 @@ async function person(id) {
     .filter((c) => { const k = c.media_type + c.id; if (seen.has(k)) return false; seen.add(k); return true; });
   const items = all.map((c) => ({ t: parse(c), role: c.character || c.job || "" })).filter((x) => x.t);
   const age = o.birthday ? Math.floor((Date.now() - new Date(o.birthday)) / 31557600000) : null;
-  const facts = [o.known_for_department, o.birthday ? (o.deathday ? `${o.birthday.slice(0, 4)}–${o.deathday.slice(0, 4)}` : `Born ${o.birthday.slice(0, 4)} · ${age}`) : null, o.place_of_birth].filter(Boolean).join("  ·  ");
+  const facts = [I.t(o.known_for_department || ""), o.birthday ? (o.deathday ? `${o.birthday.slice(0, 4)}–${o.deathday.slice(0, 4)}` : I.t(`Born ${o.birthday.slice(0, 4)} · ${age}`)) : null, o.place_of_birth].filter(Boolean).join("  ·  ");
   const card = (x) => `<a class="pcard" href="${href(x.t)}" data-k="${x.t.kind}"><img class="poster" loading="lazy" src="${img(x.t.poster, "w342")}" alt="">
     <b>${esc(x.t.name)}</b><small>${esc([x.t.year, x.role].filter(Boolean).join(" · "))}</small></a>`;
   const nMovie = items.filter((x) => x.t.kind === "movie").length, nTv = items.length - nMovie;
@@ -527,7 +530,8 @@ async function loadSubtitles(partyList, extra = []) {
   const add = (items) => {
     if (me !== P) return;
     for (const x of items) if (!me.tracks.some((y) => y.url === x.url)) me.tracks.push(x);
-    me.tracks.sort((a, b) => (a.lang === "en" ? 0 : 1) - (b.lang === "en" ? 0 : 1));
+    const rank = (x) => (x.lang === I.sub ? 0 : x.lang === "en" ? 1 : 2);
+    me.tracks.sort((a, b) => rank(a) - rank(b));
     me.tracks.slice(0, 14).forEach(attach);
   };
   if (extra.length) add(extra);
@@ -538,7 +542,7 @@ async function loadSubtitles(partyList, extra = []) {
     const items = [];
     for (const [lang, l] of Object.entries(by)) {
       l.sort((x, y) => (x.isHearingImpaired - y.isHearingImpaired) || ((y.downloadCount || 0) - (x.downloadCount || 0)));
-      l.slice(0, lang === "en" ? 5 : 1).forEach((o, i) => items.push({ url: o.url, lang, label: (o.display || langName(lang)) + (i ? ` · ${i + 1}` : "") }));
+      l.slice(0, lang === "en" || lang === I.sub ? 5 : 1).forEach((o, i) => items.push({ url: o.url, lang, label: (o.display || langName(lang)) + (i ? ` · ${i + 1}` : "") }));
     }
     add(items);
   }).catch(() => {});
@@ -549,7 +553,7 @@ async function loadSubtitles(partyList, extra = []) {
     for (const o of Array.isArray(a) ? a : []) {
       if (!/\.(vtt|srt)$/.test(o.src || "")) continue;
       const n = count[o.lang] || 0;
-      if (n >= (o.lang === "en" ? 5 : 1)) continue;
+      if (n >= (o.lang === "en" || o.lang === I.sub ? 5 : 1)) continue;
       count[o.lang] = n + 1;
       items.push({ url: "https://vidsrc.party" + o.src, lang: o.lang, label: `${langName(o.lang)} · Alt${n ? " " + (n + 1) : ""}` });
     }
@@ -582,7 +586,8 @@ function build(x) {
   tr.track.mode = v.webkitDisplayingFullscreen && P.sub === x ? "showing" : "hidden";
   tr.track.oncuechange = () => P?.sub === x && renderSub();
   // First English version shows by default, until you pick another.
-  if (!P.sub && !P.userPicked && x.lang === "en") P.sub = x;
+  // The subtitle language picked at setup (none if "No subtitles").
+  if (!P.sub && !P.userPicked && I.sub !== "off" && x.lang === I.sub) P.sub = x;
   renderSub();
   footer();
 }
@@ -640,7 +645,7 @@ function footer() {
     ${touch ? `<button class="chip" id="frot">${sideways() ? "Upright" : "Sideways"}</button>` : ""}
     <button class="chip" id="ffull">Full screen</button>
     ${touch ? "" : `<button class="chip" id="fkeys">Keys ?</button>`}
-    <button class="chip" id="fsub">Subs · ${P.sub ? esc(P.sub.label.split(" · ")[0].slice(0, 10)) : "Off"}${P.offset ? ` ${P.offset > 0 ? "+" : ""}${P.offset.toFixed(1)}s` : ""}</button>
+    <button class="chip" id="fsub">${esc(I.f("Subs · {1}", P.sub ? P.sub.label.split(" · ")[0].slice(0, 10) : I.t("Off")))}${P.offset ? ` ${P.offset > 0 ? "+" : ""}${P.offset.toFixed(1)}s` : ""}</button>
     ${tv && P.episodes?.length ? `<button class="chip" id="feps">Episodes</button>` : ""}
     ${tv ? `<button class="chip" id="fnext">Next ›</button>` : ""}
     <button class="chip on" id="fskip" style="display:none"></button>`;
@@ -762,7 +767,7 @@ function footerSkip() {
   const seg = P.segments.find((x) => t >= x.a && (x.b == null || t < x.b));
   if (!seg) { b.style.display = "none"; return; }
   b.style.display = "";
-  b.textContent = seg.type === "credits" && P.t.kind === "tv" ? "Next episode ›" : `Skip ${seg.type} ›`;
+  b.textContent = seg.type === "credits" && P.t.kind === "tv" ? "Next episode ›" : I.f("Skip {1} ›", I.t(seg.type));
   b.onclick = () => (seg.type === "credits" && P.t.kind === "tv") || seg.b == null ? nextEpisode() : (v.currentTime = seg.b);
 }
 
@@ -814,7 +819,7 @@ async function route() {
 document.addEventListener("error", (e) => { if (e.target.tagName === "IMG") e.target.style.opacity = 0; }, true);
 window.addEventListener("hashchange", route);
 window.addEventListener("pagehide", savePlayer);
-route();
+I.start(route);
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").then((r) => r.update()).catch(() => {});
   // A new version took over: reload once so it shows straight away (not in the middle of a film).

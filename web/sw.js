@@ -1,6 +1,6 @@
 // Keeps the app shell on the phone so Movio opens instantly; everything else comes from the network.
-const SHELL = "movio-shell-v21";
-const FILES = ["./", "index.html", "style.css", "app.js", "config.js", "manifest.webmanifest", "icons/icon-180.png",
+const SHELL = "movio-shell-v23";
+const FILES = ["./", "index.html", "style.css", "i18n.js", "i18n.json", "app.js", "config.js", "manifest.webmanifest", "icons/icon-180.png",
   "fonts/jakarta_regular.ttf", "fonts/jakarta_semibold.ttf", "fonts/jakarta_bold.ttf", "fonts/jakarta_extrabold.ttf"];
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(SHELL).then((c) => c.addAll(FILES)).then(() => self.skipWaiting())); });
 self.addEventListener("activate", (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== SHELL).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });
