@@ -133,7 +133,11 @@ private fun Profile(open: Boolean, onClick: () -> Unit) {
 
 /** Movio's logo and name, always at the top-left of the TV screen (outside the menu, so it's never cut off). */
 @Composable
-fun TvLogo() { Box(Modifier.padding(start = 20.dp, top = 20.dp)) { Logo(size = 20, anchor = true) } }
+fun TvLogo() {
+    // A soft dark band behind it, so page text scrolling up never runs into the logo.
+    Box(Modifier.fillMaxWidth().height(78.dp).background(Brush.verticalGradient(0f to Ink.copy(alpha = .92f), .6f to Ink.copy(alpha = .6f), 1f to Color.Transparent)))
+    Box(Modifier.padding(start = 20.dp, top = 20.dp)) { Logo(size = 20, anchor = true) }
+}
 
 /** TV pages: the clock at the top-right (Movio's logo sits in the menu). */
 @Composable
