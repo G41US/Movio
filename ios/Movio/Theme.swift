@@ -29,12 +29,15 @@ func jakarta(_ size: CGFloat, _ w: Weight = .regular) -> Font {
 struct Art: View {
     let url: URL?
     var body: some View {
-        AsyncImage(url: url, transaction: Transaction(animation: .easeOut(duration: 0.25))) { phase in
-            switch phase {
-            case .success(let img): img.resizable().scaledToFill()
-            default: Rectangle().fill(Color.panel)
+        // The box takes whatever size it's given; the picture fills it and is cropped,
+        // so a wide image can never push the page wider than the screen.
+        Color.panel
+            .overlay {
+                AsyncImage(url: url, transaction: Transaction(animation: .easeOut(duration: 0.25))) { phase in
+                    if case .success(let img) = phase { img.resizable().scaledToFill() } else { Color.panel }
+                }
             }
-        }
+            .clipped()
     }
 }
 

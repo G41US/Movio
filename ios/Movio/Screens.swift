@@ -45,8 +45,9 @@ struct Hero: View {
         TabView(selection: $page) {
             ForEach(Array(items.enumerated()), id: \.element.key) { i, t in
                 ZStack(alignment: .bottomLeading) {
+                    Color.clear
                     Art(url: TMDB.img(t.backdrop, "w1280"))
-                        .frame(maxWidth: .infinity).frame(height: 500).clipped()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     LinearGradient(stops: [.init(color: .ink.opacity(0.45), location: 0), .init(color: .clear, location: 0.25),
                                            .init(color: .clear, location: 0.45), .init(color: .ink, location: 1)],
                                    startPoint: .top, endPoint: .bottom)
@@ -73,7 +74,10 @@ struct Hero: View {
                         .buttonStyle(PressStyle())
                     }
                     .padding(.horizontal, 18).padding(.bottom, 40)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .frame(maxWidth: .infinity)
+                .clipped()
                 .tag(i)
             }
         }
@@ -177,7 +181,7 @@ struct DetailsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 ZStack(alignment: .bottomLeading) {
-                    Art(url: TMDB.img(title.backdrop ?? title.poster, "w1280")).frame(maxWidth: .infinity).frame(height: 300).clipped()
+                    Art(url: TMDB.img(title.backdrop ?? title.poster, "w1280")).frame(maxWidth: .infinity, maxHeight: .infinity)
                     LinearGradient(colors: [.clear, .clear, .ink], startPoint: .top, endPoint: .bottom)
                     Group {
                         if let logo = d?.logo {
@@ -189,7 +193,9 @@ struct DetailsView: View {
                     }
                     .padding(.horizontal, 18)
                 }
+                .frame(maxWidth: .infinity)
                 .frame(height: 300)
+                .clipped()
 
                 VStack(alignment: .leading, spacing: 14) {
                     Text(meta).font(jakarta(13, .semibold)).foregroundStyle(Color.soft)
