@@ -38,6 +38,7 @@ private class RailItem(val label: String, val icon: Int, val active: Boolean, va
  * TV menu down the left edge: soft icons grouped in the middle. When the remote moves onto it (◀),
  * it opens to show names; ▶ goes back to the page.
  */
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 fun TvRail(tab: Tab, top: Screen?, onTab: (Tab) -> Unit, onDownloads: () -> Unit, onSettings: () -> Unit, open: Boolean, onOpen: (Boolean) -> Unit) {
     val w by animateDpAsState(if (open) 270.dp else TvRailWidth, tween(220), label = "rail")
