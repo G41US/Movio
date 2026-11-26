@@ -100,6 +100,8 @@ W = [
 ("Episodes", "Épisodes", "Episodios", "Episódios", "الحلقات"),
 ("Episode {1}", "Épisode {1}", "Episodio {1}", "Episódio {1}", "الحلقة {1}"),
 ("Season {1}", "Saison {1}", "Temporada {1}", "Temporada {1}", "الموسم {1}"),
+("{1} episodes", "{1} épisodes", "{1} episodios", "{1} episódios", "{1} حلقات"),
+("1 episodes", "1 épisode", "1 episodio", "1 episódio", "حلقة واحدة"),
 ("1 season", "1 saison", "1 temporada", "1 temporada", "موسم واحد"),
 ("{1} seasons", "{1} saisons", "{1} temporadas", "{1} temporadas", "{1} مواسم"),
 ("Born {1}", "Né(e) en {1}", "Nacido en {1}", "Nascido em {1}", "مواليد {1}"),

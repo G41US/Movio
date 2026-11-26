@@ -230,13 +230,37 @@ async function details(kind, id) {
       <p>${esc(t.overview)}</p>
       <div class="genres">${esc((o.genres || []).map((g) => g.name).join(" · "))}</div>
     </div>
-    ${kind === "tv" && seasons.length ? `<div style="margin-top:22px"><select class="season" id="season">${seasons.map((s) => `<option value="${s.season_number}" ${s.season_number === season ? "selected" : ""}>${esc(s.name)} ⌄</option>`).join("")}</select><div class="eps" id="eps">${loading()}</div></div>` : ""}
+    ${kind === "tv" && seasons.length ? `<div style="margin-top:22px"><div class="seasonpick"><button class="season" id="season" data-n="${season}" aria-haspopup="listbox">
+      <span>${esc(seasons.find((x) => x.season_number === season)?.name || I.t(`Season ${season}`))}</span><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+      <div class="smenu" id="smenu" role="listbox" hidden>${seasons.map((x) => `<button role="option" data-n="${x.season_number}" class="${x.season_number === season ? "on" : ""}">
+        <b>${esc(x.name)}</b><small>${x.episode_count ? I.t(`${x.episode_count} episodes`) : ""}</small></button>`).join("")}</div></div>
+      <div class="eps" id="eps">${loading()}</div></div>` : ""}
     ${cast.length ? `<section class="row" style="margin-top:24px"><h2>Cast</h2><div class="cast">${cast.map((c) => `<a href="#/person/${c.id}"><img loading="lazy" src="${img(c.profile_path, "w185")}" alt=""><b>${esc(c.name)}</b><small>${esc(c.character || "")}</small></a>`).join("")}</div></section>` : ""}
     ${similar.length ? `<div style="margin-top:24px">${rowHtml({ name: "More like this", items: similar })}</div>` : ""}`;
   if (kind === "tv" && seasons.length) {
     const sel = document.getElementById("season");
+    const menu = document.getElementById("smenu");
+    // Season picker: Movio's own dark menu (the browser's own list looked out of place, especially on Windows).
+    const close = () => { menu.hidden = true; sel.classList.remove("open"); document.removeEventListener("pointerdown", outside, true); document.removeEventListener("keydown", keys, true); };
+    const outside = (e) => { if (!e.target.closest(".seasonpick")) close(); };
+    const keys = (e) => { if (e.key === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); close(); sel.focus(); } };
+    sel.onclick = () => {
+      if (!menu.hidden) return close();
+      menu.hidden = false; sel.classList.add("open");
+      const on = menu.querySelector(".on");
+      if (on) menu.scrollTop = on.offsetTop - menu.clientHeight / 2 + on.offsetHeight / 2;
+      document.addEventListener("pointerdown", outside, true);
+      document.addEventListener("keydown", keys, true);
+    };
+    menu.querySelectorAll("button").forEach((b) => b.onclick = () => {
+      sel.dataset.n = b.dataset.n;
+      sel.querySelector("span").textContent = b.querySelector("b").textContent;
+      menu.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+      close();
+      load();
+    });
     const load = async () => {
-      const n = +sel.value;
+      const n = +sel.dataset.n;
       const eps = document.getElementById("eps");
       eps.innerHTML = loading();
       const so = await tmdb(`tv/${id}/season/${n}`).catch(() => ({}));
@@ -247,7 +271,6 @@ async function details(kind, id) {
           <div><b>${e.episode_number}. ${esc(e.name)}</b>${e.runtime ? `<small style="-webkit-line-clamp:1">${e.runtime}m</small>` : ""}<small>${esc(e.overview || "")}</small></div></a>`;
       }).join("");
     };
-    sel.addEventListener("change", load);
     load();
   }
 }
