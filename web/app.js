@@ -683,7 +683,12 @@ function idleBars() {
 document.addEventListener("pointerdown", () => P && idleBars(), true);
 document.addEventListener("mousemove", () => P && idleBars(), { passive: true });
 // Laptop keys in the player: space/K pause, ←/→ 10s, J/L 10s, ↑/↓ volume, F full screen, M mute, C subtitles, Esc close.
-document.addEventListener("keydown", (ev) => {
+const PKEYS = new Set([" ", "k", "arrowleft", "arrowright", "j", "l", "arrowup", "arrowdown", "m", "f", "c"]);
+// The browser's own key handling (on the video or a focused button) would undo Movio's, so Movio takes these keys first.
+for (const t of ["keyup", "keypress"]) window.addEventListener(t, (ev) => {
+  if (P && !ev.metaKey && !ev.ctrlKey && !ev.altKey && !/input|select|textarea/i.test(ev.target.tagName) && PKEYS.has(ev.key.toLowerCase())) { ev.preventDefault(); ev.stopImmediatePropagation(); }
+}, true);
+window.addEventListener("keydown", (ev) => {
   if (!P || ev.metaKey || ev.ctrlKey || ev.altKey || /input|select|textarea/i.test(ev.target.tagName)) return;
   const v = P.video;
   const k = ev.key.toLowerCase();
@@ -692,6 +697,7 @@ document.addEventListener("keydown", (ev) => {
     if (!document.fullscreenElement) document.getElementById("pclose")?.click();
     return;
   }
+  if (PKEYS.has(k)) { ev.preventDefault(); ev.stopImmediatePropagation(); }
   if (k === "f") return fullScreen();
   if (k === "c") return subsMenu();
   if (!v) return;
@@ -702,8 +708,8 @@ document.addEventListener("keydown", (ev) => {
     arrowup: () => (v.volume = Math.min(1, v.volume + 0.1)), arrowdown: () => (v.volume = Math.max(0, v.volume - 0.1)),
     m: () => (v.muted = !v.muted),
   };
-  if (acts[k]) { ev.preventDefault(); acts[k](); idleBars(); }
-});
+  if (acts[k]) { acts[k](); idleBars(); }
+}, true);
 
 function footerSkip() {
   const b = document.getElementById("fskip");
