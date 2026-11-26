@@ -187,12 +187,14 @@ fun Modifier.focusGlow(shape: Shape = RoundedCornerShape(14.dp), grow: Boolean =
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 object MinimalScroll : androidx.compose.foundation.gestures.BringIntoViewSpec {
     override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+        // Keep a little breathing room so the selected tile never sits on the screen edge.
+        val m = (containerSize * .08f).coerceAtMost(110f).coerceAtMost(((containerSize - size) / 2f).coerceAtLeast(0f))
         val end = offset + size
         return when {
-            offset >= 0f && end <= containerSize -> 0f
+            offset >= m && end <= containerSize - m -> 0f
             size > containerSize -> offset
-            offset < 0f -> offset
-            else -> end - containerSize
+            offset < m -> offset - m
+            else -> end - (containerSize - m)
         }
     }
 }

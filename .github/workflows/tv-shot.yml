@@ -74,6 +74,15 @@ jobs:
             adb shell input keyevent KEYCODE_DPAD_DOWN
             sleep 3
             adb exec-out screencap -p > shots/4_rows.png
+            adb shell input keyevent KEYCODE_DPAD_RIGHT
+            adb shell input keyevent KEYCODE_DPAD_RIGHT
+            adb shell input keyevent KEYCODE_DPAD_RIGHT
+            sleep 3
+            adb exec-out screencap -p > shots/5_rows_side.png
+            adb shell input keyevent KEYCODE_DPAD_DOWN
+            adb shell input keyevent KEYCODE_DPAD_DOWN
+            sleep 3
+            adb exec-out screencap -p > shots/6_lower.png
       - uses: actions/upload-artifact@v4
         with:
           name: tv-shots

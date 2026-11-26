@@ -293,7 +293,7 @@ fun PosterCard(t: Title, width: Dp, onClick: () -> Unit) {
 @Composable
 fun PosterRow(row: Row, onOpen: (Title) -> Unit) {
     SectionTitle(rowTitle(row.name))
-    LazyRow(contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(if (row.ranked) 4.dp else if (LocalWide.current) 16.dp else 12.dp)) {
+    LazyRow(Modifier.tvEdgeFade(), contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(if (row.ranked) 4.dp else if (LocalWide.current) 16.dp else 12.dp)) {
         itemsIndexed(row.items, key = { _, t -> t.key }) { i, t ->
             if (row.ranked) RankedCard(i + 1, t) { onOpen(t) } else PosterCard(t, if (LocalWide.current) 176.dp else 118.dp) { onOpen(t) }
         }
