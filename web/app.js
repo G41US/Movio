@@ -372,6 +372,7 @@ function play(url) {
   const me = P;
   const st = document.getElementById("stage");
   st.innerHTML = `<video playsinline controls autoplay preload="auto" x-webkit-airplay="allow" src="${esc(url)}"></video>`;
+  idleBars();
   const v = st.querySelector("video");
   me.video = v;
   let ok = false, lastSave = 0;
@@ -502,6 +503,7 @@ function footer() {
   const tv = P.t.kind === "tv";
   f.innerHTML = `
     <button class="chip" id="fsrc">Source · ${esc(P.source || "…")}</button>
+    <button class="chip" id="ffull">Full screen</button>
     ${OWN.includes(P.source) ? `<button class="chip" id="fe">Subs −0.5s</button><button class="chip" id="fl">Subs +0.5s</button>${P.offset ? `<button class="chip" id="fr">Reset ${P.offset > 0 ? "+" : ""}${P.offset.toFixed(1)}s</button>` : ""}` : ""}
     ${tv && P.episodes?.length ? `<button class="chip" id="feps">Episodes</button>` : ""}
     ${tv ? `<button class="chip" id="fnext">Next episode ›</button>` : ""}
@@ -509,6 +511,7 @@ function footer() {
   f.querySelector("#fsrc").onclick = () => sheet("Sources", P.order.map((n) => ({ label: n, on: n === P.source, fn: () => {
     localStorage.setItem(`src:${key(P.t)}`, n); P.tried = new Set(); start(n, false);
   } })));
+  f.querySelector("#ffull").onclick = fullScreen;
   f.querySelector("#fe") && (f.querySelector("#fe").onclick = () => shiftSubs(-0.5));
   f.querySelector("#fl") && (f.querySelector("#fl").onclick = () => shiftSubs(0.5));
   f.querySelector("#fr") && (f.querySelector("#fr").onclick = () => shiftSubs(0));
@@ -517,6 +520,23 @@ function footer() {
   }))));
   f.querySelector("#fnext") && (f.querySelector("#fnext").onclick = nextEpisode);
 }
+
+/** Full screen (iPhone uses its own video player, which turns sideways with the phone). */
+function fullScreen() {
+  const v = P?.video;
+  if (v && v.webkitEnterFullscreen) { try { v.webkitEnterFullscreen(); return; } catch {} }
+  const el = document.querySelector(".player");
+  (el?.requestFullscreen?.() || Promise.resolve()).then(() => screen.orientation?.lock?.("landscape")).catch(() => {});
+}
+/** Sideways: hide the bars after 3s; a tap brings them back. */
+function idleBars() {
+  const el = document.querySelector(".player");
+  if (!el) return;
+  el.classList.remove("idle");
+  clearTimeout(idleBars.t);
+  idleBars.t = setTimeout(() => el.classList.add("idle"), 3000);
+}
+document.addEventListener("pointerdown", () => P && idleBars(), true);
 
 function footerSkip() {
   const b = document.getElementById("fskip");

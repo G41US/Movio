@@ -50,7 +50,7 @@ body.playing #tabs { display: none; }
 
 /* Rows */
 .rows { display: flex; flex-direction: column; gap: 26px; margin-top: 18px; }
-.row .scroll { display: flex; gap: 10px; overflow-x: auto; padding: 0 18px; scrollbar-width: none; scroll-snap-type: x proximity; }
+.row .scroll { display: flex; gap: 10px; overflow-x: auto; padding: 0 18px; scroll-padding-inline: 18px; scrollbar-width: none; scroll-snap-type: x proximity; }
 .row .scroll::-webkit-scrollbar { display: none; }
 .card { flex: 0 0 auto; scroll-snap-align: start; transition: transform .15s; }
 .poster { width: 116px; height: 174px; border-radius: 12px; object-fit: cover; background: var(--panel); }
@@ -132,3 +132,11 @@ select.season { appearance: none; -webkit-appearance: none; background: none; bo
 .toast { position: fixed; left: 50%; top: calc(var(--top) + 14px); transform: translateX(-50%); background: rgba(28,29,40,.92); -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px); padding: 10px 16px; border-radius: 20px; font-size: 13px; font-weight: 700; z-index: 200; }
 img[src=""] { opacity: 0; }
+
+/* Sideways: video fills the screen; top bar and chips float over it and fade after a few seconds. */
+@media (orientation: landscape) and (max-height: 540px) {
+  .player .pbar, .player .pfoot { position: absolute; left: 0; right: 0; z-index: 2; transition: opacity .3s; }
+  .player .pbar { top: 0; padding-top: 10px; background: linear-gradient(rgba(0,0,0,.75), transparent); }
+  .player .pfoot { bottom: 0; padding-bottom: 12px; background: linear-gradient(transparent, rgba(0,0,0,.75)); }
+  .player.idle .pbar, .player.idle .pfoot { opacity: 0; pointer-events: none; }
+}
