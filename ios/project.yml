@@ -1,0 +1,39 @@
+name: Movio
+options:
+  bundleIdPrefix: com.g41us
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  Movio:
+    type: application
+    platform: iOS
+    sources:
+      - path: Movio
+    info:
+      path: Movio/Info.plist
+      properties:
+        CFBundleDisplayName: Movio
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen:
+          UIColorName: ""
+        UIBackgroundModes: [audio]
+        UIAppFonts: [jakarta_regular.ttf, jakarta_semibold.ttf, jakarta_bold.ttf, jakarta_extrabold.ttf]
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        UIUserInterfaceStyle: Dark
+        UIRequiresFullScreen: false
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.g41us.movio
+        PRODUCT_NAME: Movio
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_VERSION: "5.0"
+        CODE_SIGNING_ALLOWED: "NO"
+        CODE_SIGNING_REQUIRED: "NO"
+        GENERATE_INFOPLIST_FILE: "NO"

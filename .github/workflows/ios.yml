@@ -1,0 +1,54 @@
+name: iOS
+
+on:
+  push:
+    branches: [main]
+    paths: ["ios/**", ".github/workflows/ios.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: brew install xcodegen
+      - name: Keys
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          WYZIE_API_KEY: ${{ secrets.WYZIE_API_KEY }}
+        run: |
+          printf 'enum Keys {\n    static let tmdb = "%s"\n    static let wyzie = "%s"\n}\n' "$TMDB_API_KEY" "$WYZIE_API_KEY" > ios/Movio/Keys.swift
+      - name: Build
+        run: |
+          VER=$(cat ios/VERSION)
+          cd ios && xcodegen generate
+          xcodebuild -project Movio.xcodeproj -scheme Movio -configuration Release -sdk iphoneos \
+            -destination 'generic/platform=iOS' -derivedDataPath build \
+            MARKETING_VERSION=$VER CURRENT_PROJECT_VERSION=${{ github.run_number }} \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build | xcbeautify --renderer github-actions
+      - name: Package
+        run: |
+          mkdir -p Payload && cp -R ios/build/Build/Products/Release-iphoneos/Movio.app Payload/
+          zip -qry Movio.ipa Payload
+          ls -la Movio.ipa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Movio-ipa
+          path: Movio.ipa
+      - name: Release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER=$(cat ios/VERSION)
+          TAG="ios-v$VER"
+          cp Movio.ipa "Movio-$VER.ipa"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "Movio-$VER.ipa" Movio.ipa --clobber
+          else
+            gh release create "$TAG" "Movio-$VER.ipa" Movio.ipa --title "Movio for iPhone $VER" --notes "" --latest=false
+          fi

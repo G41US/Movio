@@ -18,3 +18,8 @@ keystore.properties
 # OS
 .DS_Store
 Thumbs.db
+
+# iOS: keys are written by CI
+ios/Movio/Keys.swift
+ios/Movio.xcodeproj/
+ios/build/
