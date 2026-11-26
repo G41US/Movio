@@ -64,6 +64,7 @@ struct RootView: View {
     private func tab<V: View>(_ v: V, _ label: String, _ icon: String) -> some View {
         NavigationStack {
             v.navigationDestination(for: Title.self) { DetailsView(title: $0) }
+                .navigationDestination(for: Person.self) { PersonView(person: $0) }
                 .background(Color.ink.ignoresSafeArea())
         }
         .tabItem { Label(label, systemImage: icon) }

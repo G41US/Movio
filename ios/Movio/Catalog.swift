@@ -30,6 +30,16 @@ struct Details {
     let logo: String?
 }
 
+/// A person and everything they've been in.
+struct PersonDetails {
+    let person: Person
+    let facts: String
+    let bio: String
+    let credits: [Credit]
+}
+
+struct Credit: Hashable { let title: Title; let role: String }
+
 struct Row: Identifiable {
     let name: String
     let items: [Title]
@@ -150,6 +160,46 @@ enum TMDB {
         let logo = (logos.first { ($0["iso_639_1"] as? String) == "en" } ?? logos.first)?["file_path"] as? String
         return Details(title: title, tagline: o["tagline"] as? String ?? "", runtime: runtime, genres: genres,
                        seasons: seasons, cast: Array(cast), similar: similar, logo: logo)
+    }
+
+    static func person(_ id: Int) async throws -> PersonDetails {
+        let o = try await get("person/\(id)", ["append_to_response": "combined_credits"])
+        let dept = o["known_for_department"] as? String ?? ""
+        let cc = o["combined_credits"] as? [String: Any] ?? [:]
+        // Actors: the parts they played. Directors, writers…: their work behind the camera too.
+        var raw = cc["cast"] as? [[String: Any]] ?? []
+        if !dept.isEmpty && dept != "Acting" { raw += cc["crew"] as? [[String: Any]] ?? [] }
+        raw = raw.filter { c in
+            // chat shows, news and award-show guest spots crowd out the real work
+            guard (c["media_type"] as? String) == "tv" else { return true }
+            let g = c["genre_ids"] as? [Int] ?? []
+            let ch = (c["character"] as? String ?? "").lowercased()
+            return !(g.contains(10767) || g.contains(10763) || ch.hasPrefix("self") || ch.hasPrefix("himself") || ch.hasPrefix("herself"))
+        }
+        raw.sort { ($0["popularity"] as? Double ?? 0) > ($1["popularity"] as? Double ?? 0) }
+        var seen = Set<String>()
+        var credits: [Credit] = []
+        for c in raw {
+            guard let t = parse(c, nil), t.poster != nil, seen.insert(t.key).inserted else { continue }
+            let role = (c["character"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? (c["job"] as? String ?? "")
+            credits.append(Credit(title: t, role: role))
+        }
+        let born = (o["birthday"] as? String).flatMap { $0.count >= 4 ? $0 : nil }
+        let died = (o["deathday"] as? String).flatMap { $0.count >= 4 ? $0 : nil }
+        var facts: [String] = []
+        if !dept.isEmpty { facts.append(dept) }
+        if let b = born {
+            if let d = died { facts.append("\(b.prefix(4))–\(d.prefix(4))") }
+            else {
+                let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+                if let date = f.date(from: b), let age = Calendar.current.dateComponents([.year], from: date, to: Date()).year {
+                    facts.append("Born \(b.prefix(4)) · \(age)")
+                } else { facts.append("Born \(b.prefix(4))") }
+            }
+        }
+        if let place = o["place_of_birth"] as? String, !place.isEmpty { facts.append(place) }
+        let person = Person(id: id, name: o["name"] as? String ?? "", role: dept, photo: o["profile_path"] as? String)
+        return PersonDetails(person: person, facts: facts.joined(separator: "  ·  "), bio: o["biography"] as? String ?? "", credits: credits)
     }
 
     static func episodes(_ id: Int, _ season: Int) async throws -> [Episode] {

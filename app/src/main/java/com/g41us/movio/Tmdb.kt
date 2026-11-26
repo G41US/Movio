@@ -50,7 +50,8 @@ data class Details(
 /** Artwork without baked-in title text, plus the title logo, for big hero images. */
 data class Art(val image: String?, val wide: Boolean, val logo: String?)
 
-data class PersonDetails(val person: Person, val bio: String, val known: List<Title>)
+/** A person and everything they've been in; [roles] maps a title key to the part they played (or their job). */
+data class PersonDetails(val person: Person, val bio: String, val known: List<Title>, val roles: Map<String, String> = emptyMap(), val facts: String = "")
 
 data class Row(val name: String, val items: List<Title>, val ranked: Boolean = false)
 
@@ -250,11 +251,30 @@ object Tmdb {
 
     suspend fun person(id: Int): PersonDetails {
         val o = get("person/$id", mapOf("append_to_response" to "combined_credits"))
-        val credits = parseList(o.optJSONObject("combined_credits")?.optJSONArray("cast"), null)
-            .distinctBy { it.key }.sortedByDescending { it.rating * (if (it.year != null) 1 else 0) }
+        val dept = o.optString("known_for_department")
+        val cc = o.optJSONObject("combined_credits")
+        fun arr(n: String) = cc?.optJSONArray(n)?.let { a -> (0 until a.length()).map { a.getJSONObject(it) } } ?: emptyList()
+        // Actors: the parts they played. Directors, writers…: their work behind the camera too.
+        val raw = arr("cast") + if (dept.isNotBlank() && dept != "Acting") arr("crew") else emptyList()
+        val roles = HashMap<String, String>()
+        val known = raw
+            // chat shows, news and award-show guest spots crowd out the real work
+            .filterNot { c ->
+                val g = c.optJSONArray("genre_ids")?.let { a -> (0 until a.length()).map { a.getInt(it) } } ?: emptyList()
+                c.optString("media_type") == "tv" && (10767 in g || 10763 in g || Regex("^(self|himself|herself)\\b", RegexOption.IGNORE_CASE).containsMatchIn(c.optString("character")))
+            }
+            .sortedByDescending { it.optDouble("popularity", 0.0) }
+            .mapNotNull { c -> parse(c, null)?.takeIf { it.poster != null }?.also { t -> roles.putIfAbsent(t.key, c.optString("character").ifBlank { c.optString("job") }) } }
+            .distinctBy { it.key }
+        val born = o.optString("birthday").takeIf { it.length >= 4 }
+        val died = o.optString("deathday").takeIf { it.length >= 4 }
+        val age = born?.let { runCatching { java.time.Period.between(java.time.LocalDate.parse(it), java.time.LocalDate.now()).years }.getOrNull() }
+        val facts = listOfNotNull(dept.ifBlank { null },
+            when { born == null -> null; died != null -> "${born.take(4)}–${died.take(4)}"; age != null -> "Born ${born.take(4)} · $age"; else -> "Born ${born.take(4)}" },
+            o.optString("place_of_birth").ifBlank { null }).joinToString("  ·  ")
         return PersonDetails(
-            Person(id, o.optString("name"), o.optString("known_for_department"), o.optString("profile_path").takeIf { it.startsWith("/") }),
-            o.optString("biography"), credits.take(60),
+            Person(id, o.optString("name"), dept, o.optString("profile_path").takeIf { it.startsWith("/") }),
+            o.optString("biography"), known, roles, facts,
         )
     }
 

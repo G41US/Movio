@@ -235,12 +235,15 @@ struct DetailsView: View {
                         ScrollView(.horizontal, showsIndicators: false) {
                             LazyHStack(alignment: .top, spacing: 14) {
                                 ForEach(cast, id: \.id) { p in
-                                    VStack(spacing: 6) {
-                                        Art(url: TMDB.img(p.photo, "w185")).frame(width: 72, height: 72).clipShape(Circle())
-                                        Text(p.name).font(jakarta(11, .bold)).multilineTextAlignment(.center).lineLimit(2)
-                                        Text(p.role).font(jakarta(10)).foregroundStyle(Color.muted).lineLimit(1)
+                                    NavigationLink(value: p) {
+                                        VStack(spacing: 6) {
+                                            Art(url: TMDB.img(p.photo, "w185")).frame(width: 72, height: 72).clipShape(Circle())
+                                            Text(p.name).font(jakarta(11, .bold)).foregroundStyle(.white).multilineTextAlignment(.center).lineLimit(2)
+                                            Text(p.role).font(jakarta(10)).foregroundStyle(Color.muted).lineLimit(1)
+                                        }
+                                        .frame(width: 84)
                                     }
-                                    .frame(width: 84)
+                                    .buttonStyle(PressStyle())
                                 }
                             }
                             .padding(.horizontal, 18)
@@ -322,5 +325,78 @@ struct DetailsView: View {
             }
             .padding(.horizontal, 10)
         }
+    }
+}
+
+// MARK: - Person
+
+/// Everything a person has been in, newest hits first, with Movies / Shows filters.
+struct PersonView: View {
+    let person: Person
+    @State private var d: PersonDetails?
+    @State private var failed = false
+    @State private var more = false
+    @State private var filter = 0 // 0 all, 1 movies, 2 shows
+    private let grid = [GridItem(.adaptive(minimum: 104), spacing: 12, alignment: .top)]
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 14) {
+                Art(url: TMDB.img(d?.person.photo ?? person.photo, "h632")).frame(width: 130, height: 130).clipShape(Circle())
+                Text(person.name).font(jakarta(26, .extrabold)).multilineTextAlignment(.center)
+                if let f = d?.facts, !f.isEmpty { Text(f).font(jakarta(13, .semibold)).foregroundStyle(Color.muted).multilineTextAlignment(.center) }
+                if let bio = d?.bio, !bio.isEmpty {
+                    Text(bio).font(jakarta(14)).foregroundStyle(Color.soft).lineSpacing(3).lineLimit(more ? nil : 4)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .onTapGesture { withAnimation(.easeOut(duration: 0.2)) { more.toggle() } }
+                }
+                if let d {
+                    let movies = d.credits.filter { $0.title.kind == .movie }.count
+                    let shows = d.credits.count - movies
+                    if movies > 0 && shows > 0 {
+                        Picker("", selection: $filter) {
+                            Text("All \(d.credits.count)").tag(0)
+                            Text("Movies \(movies)").tag(1)
+                            Text("Shows \(shows)").tag(2)
+                        }
+                        .pickerStyle(.segmented)
+                        .padding(.top, 4)
+                    }
+                    let shown = d.credits.filter { filter == 0 || (filter == 1 ? $0.title.kind == .movie : $0.title.kind == .tv) }
+                    if shown.isEmpty {
+                        Text("No titles found.").font(jakarta(14)).foregroundStyle(Color.muted).padding(.top, 40)
+                    }
+                    LazyVGrid(columns: grid, spacing: 18) {
+                        ForEach(shown, id: \.title.key) { c in
+                            NavigationLink(value: c.title) {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Color.clear.aspectRatio(2 / 3, contentMode: .fit)
+                                        .overlay { Art(url: TMDB.img(c.title.poster, "w342")) }
+                                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                        .padding(.bottom, 5)
+                                    Text(c.title.name).font(jakarta(13, .semibold)).foregroundStyle(.white).lineLimit(1)
+                                    Text([c.title.year, c.role.isEmpty ? nil : c.role].compactMap { $0 }.joined(separator: " · "))
+                                        .font(jakarta(11)).foregroundStyle(Color.muted).lineLimit(1)
+                                }
+                            }
+                            .buttonStyle(PressStyle())
+                        }
+                    }
+                } else if failed {
+                    Button("Try again") { failed = false; Task { await load() } }.font(jakarta(15, .bold)).padding(.top, 40)
+                } else {
+                    ProgressView().tint(.violet).padding(.top, 40)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 30)
+        }
+        .background(Color.ink.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .task { if d == nil { await load() } }
+    }
+
+    private func load() async {
+        do { d = try await TMDB.person(person.id) } catch { failed = true }
     }
 }

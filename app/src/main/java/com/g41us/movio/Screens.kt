@@ -506,35 +506,72 @@ fun CastCard(p: Person, onClick: () -> Unit) {
 fun PersonScreen(person: Person, onOpen: (Title) -> Unit) {
     val (state, retry) = load(person.id) { Tmdb.person(person.id) }
     var more by remember { mutableStateOf(false) }
+    var filter by remember { mutableStateOf<Kind?>(null) }
     val tv6 = rememberLazyGridState()
     val tvBar = LocalTopBar.current
+    val wide = LocalWide.current
+    val d = (state as? Load.Done)?.value
     LazyVerticalGrid(
-        GridCells.Adaptive(if (LocalWide.current) 200.dp else 108.dp), Modifier.fillMaxSize().dpadScroll(tv6), state = tv6,
+        GridCells.Adaptive(if (wide) 170.dp else 104.dp), Modifier.fillMaxSize().dpadScroll(tv6), state = tv6,
         contentPadding = PaddingValues(start = Gutter, end = Gutter, top = if (tvBar != null) 0.dp else barSpace(), bottom = dockSpace()),
-        horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(18.dp),
+        horizontalArrangement = Arrangement.spacedBy(if (wide) 18.dp else 12.dp), verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
         if (tvBar != null) item(span = { GridItemSpan(maxLineSpan) }) { Box(Modifier.bleed(Gutter)) { tvBar() } }
         item(span = { GridItemSpan(maxLineSpan) }) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                Avatar((state as? Load.Done)?.value?.person ?: person, 120.dp)
-                Spacer(Modifier.height(14.dp))
-                Text(person.name, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, style = jakarta())
-                val d = (state as? Load.Done)?.value
-                if (d != null && d.person.role.isNotBlank()) Text(d.person.role, fontSize = 13.sp, color = Muted, style = jakarta())
+            val head: @Composable () -> Unit = {
+                Text(person.name, fontSize = if (wide) 34.sp else 24.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, style = jakarta())
+                if (d != null && d.facts.isNotBlank()) Text(d.facts, fontSize = 13.sp, color = Muted, style = jakarta())
                 if (d != null && d.bio.isNotBlank()) {
                     Spacer(Modifier.height(12.dp))
-                    Text(d.bio, fontSize = 14.sp, lineHeight = 20.sp, color = Soft, style = jakarta(), maxLines = if (more) 40 else 4,
+                    Text(d.bio, fontSize = 14.sp, lineHeight = 20.sp, color = Soft, style = jakarta(), maxLines = if (more) 60 else if (wide) 6 else 4,
                         overflow = TextOverflow.Ellipsis, modifier = Modifier.tappableRow { more = !more })
                 }
-                Spacer(Modifier.height(6.dp))
-                SectionTitle("Known for")
+            }
+            Column(Modifier.fillMaxWidth()) {
+                if (wide) Row(verticalAlignment = Alignment.Top) {
+                    Avatar(d?.person ?: person, 150.dp)
+                    Spacer(Modifier.width(28.dp))
+                    Column(Modifier.weight(1f)) { head() }
+                } else Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                    Avatar(d?.person ?: person, 120.dp)
+                    Spacer(Modifier.height(14.dp))
+                    head()
+                }
+                Spacer(Modifier.height(18.dp))
+                if (d != null && d.known.isNotEmpty()) {
+                    val movies = d.known.count { it.kind == Kind.MOVIE }
+                    val shows = d.known.size - movies
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Chip("All ${d.known.size}", filter == null) { filter = null }
+                        if (movies > 0) Chip("Movies $movies", filter == Kind.MOVIE) { filter = Kind.MOVIE }
+                        if (shows > 0) Chip("Shows $shows", filter == Kind.TV) { filter = Kind.TV }
+                    }
+                }
             }
         }
         when (val s = state) {
             Load.Loading -> items(6) { Box(Modifier.aspectRatio(2f / 3f).shimmer()) }
             is Load.Failed -> item(span = { GridItemSpan(maxLineSpan) }) { Failed(retry) }
-            is Load.Done -> items(s.value.known, key = { it.key }) { t -> PosterCard(t, 108.dp) { onOpen(t) } }
+            is Load.Done -> {
+                val shown = s.value.known.filter { filter == null || it.kind == filter }
+                if (shown.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) { Message("Nothing to show", "No titles found for this person.") }
+                items(shown, key = { it.key }) { t -> CreditCard(t, s.value.roles[t.key].orEmpty()) { onOpen(t) } }
+            }
         }
+    }
+}
+
+/** A title on a person's page: poster, then name, year and the part they played. */
+@Composable
+fun CreditCard(t: Title, role: String, onClick: () -> Unit) {
+    val wide = LocalWide.current
+    Column(Modifier.fillMaxWidth()) {
+        Box(if (wide) Modifier.tappableCard(RoundedCornerShape(12.dp), onClick) else Modifier.tappable(onClick)) { Poster(t, Modifier.fillMaxWidth()) }
+        Spacer(Modifier.height(8.dp))
+        Text(t.name, fontSize = if (wide) 15.sp else 13.sp, lineHeight = 17.sp, fontWeight = FontWeight.SemiBold, color = Soft, style = jakarta(),
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(listOfNotNull(t.year, role.ifBlank { null }).joinToString("  ·  "), fontSize = 11.5.sp, color = Muted, style = jakarta(),
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
