@@ -372,7 +372,7 @@ function play(url) {
   const me = P;
   const st = document.getElementById("stage");
   st.innerHTML = `<video playsinline controls autoplay preload="auto" x-webkit-airplay="allow" src="${esc(url)}"></video>`;
-  idleBars();
+  setSideways(!localStorage.getItem("upright"));
   const v = st.querySelector("video");
   me.video = v;
   let ok = false, lastSave = 0;
@@ -503,6 +503,7 @@ function footer() {
   const tv = P.t.kind === "tv";
   f.innerHTML = `
     <button class="chip" id="fsrc">Source · ${esc(P.source || "…")}</button>
+    <button class="chip" id="frot">${sideways() ? "Upright" : "Sideways"}</button>
     <button class="chip" id="ffull">Full screen</button>
     ${OWN.includes(P.source) ? `<button class="chip" id="fe">Subs −0.5s</button><button class="chip" id="fl">Subs +0.5s</button>${P.offset ? `<button class="chip" id="fr">Reset ${P.offset > 0 ? "+" : ""}${P.offset.toFixed(1)}s</button>` : ""}` : ""}
     ${tv && P.episodes?.length ? `<button class="chip" id="feps">Episodes</button>` : ""}
@@ -512,6 +513,7 @@ function footer() {
     localStorage.setItem(`src:${key(P.t)}`, n); P.tried = new Set(); start(n, false);
   } })));
   f.querySelector("#ffull").onclick = fullScreen;
+  f.querySelector("#frot").onclick = () => { localStorage.setItem("upright", sideways() ? "1" : ""); setSideways(!sideways()); };
   f.querySelector("#fe") && (f.querySelector("#fe").onclick = () => shiftSubs(-0.5));
   f.querySelector("#fl") && (f.querySelector("#fl").onclick = () => shiftSubs(0.5));
   f.querySelector("#fr") && (f.querySelector("#fr").onclick = () => shiftSubs(0));
@@ -521,6 +523,11 @@ function footer() {
   f.querySelector("#fnext") && (f.querySelector("#fnext").onclick = nextEpisode);
 }
 
+const sideways = () => !!document.querySelector(".player.sideways");
+function setSideways(on) {
+  document.querySelector(".player")?.classList.toggle("sideways", on);
+  footer(); idleBars();
+}
 /** Full screen (iPhone uses its own video player, which turns sideways with the phone). */
 function fullScreen() {
   const v = P?.video;
@@ -559,7 +566,7 @@ function sheet(title, opts) {
   const close = () => { s.remove(); scrim.remove(); };
   scrim.onclick = close;
   s.onclick = (ev) => { const b = ev.target.closest(".opt"); if (b) { close(); opts[+b.dataset.i].fn(); } };
-  document.body.append(scrim, s);
+  (document.querySelector(".player.sideways") || document.body).append(scrim, s);
 }
 
 // ---------- Routing ----------
