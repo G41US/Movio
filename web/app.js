@@ -260,9 +260,9 @@ function embedUrl(name, base, kind, id, s, e) {
   if (name === "Club") return `${base}/tv/${id}-${s}-${e}`;
   return `${base}/tv/${id}/${s}/${e}${name === "Vix" ? "?autoplay=true" : ""}`;
 }
-/** Films: Nero → Flixify → Club → Peach. Shows: Club → Nero → Peach → Flixify. Then Movio Direct, then the rest. */
+/** Films and shows: Club → Nero → Peach → Flixify, then Movio Direct, then the rest. */
 function sourceOrder(kind) {
-  const first = kind === "tv" ? ["Club", "Nero", "Peach", "Flixify"] : ["Nero", "Flixify", "Club", "Peach"];
+  const first = ["Club", "Nero", "Peach", "Flixify"];
   const rest = EMBEDS.map((x) => x[0]).filter((n) => !first.includes(n));
   return [...first, "Movio Direct", ...rest];
 }
