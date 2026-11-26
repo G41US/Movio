@@ -260,11 +260,12 @@ function embedUrl(name, base, kind, id, s, e) {
   if (name === "Club") return `${base}/tv/${id}-${s}-${e}`;
   return `${base}/tv/${id}/${s}/${e}${name === "Vix" ? "?autoplay=true" : ""}`;
 }
-/** Films and shows: Club → Nero → Peach → Flixify, then Movio Direct, then the rest. */
+/** Movio's own player first (Club, then Movio Direct: no ads, Movio subtitles), then the sources' own players. */
+const OWN = ["Club", "Movio Direct"];
 function sourceOrder(kind) {
-  const first = ["Club", "Nero", "Peach", "Flixify"];
-  const rest = EMBEDS.map((x) => x[0]).filter((n) => !first.includes(n));
-  return [...first, "Movio Direct", ...rest];
+  const first = ["Nero", "Peach", "Flixify"];
+  const rest = EMBEDS.map((x) => x[0]).filter((n) => !first.includes(n) && !OWN.includes(n));
+  return [...OWN, ...first, ...rest];
 }
 const canHls = () => !!document.createElement("video").canPlayType("application/vnd.apple.mpegurl");
 
@@ -323,8 +324,9 @@ async function start(name, auto = true) {
   savePlayer();
   me.source = name; me.auto = auto; me.tried.add(name); me.video = null;
   footer();
-  if (name !== "Movio Direct") return embed(name);
+  if (!OWN.includes(name)) return embed(name);
   if (!canHls()) return next();
+  if (name === "Club") return club();
   finding("Finding the best stream");
   try {
     const path = me.t.kind === "tv" ? `tv/${me.t.id}/${me.s}/${me.e}` : `movie/${me.t.id}`;
@@ -346,11 +348,39 @@ async function start(name, auto = true) {
   } catch { if (me === P) next(); }
 }
 
+/** Club's stream, played through the helper so it plays here in Movio's own player. */
+async function club() {
+  const me = P;
+  finding("Finding the best stream");
+  try {
+    const path = me.t.kind === "tv" ? `tv/${me.t.id}/${me.s}/${me.e}` : `movie/${me.t.id}`;
+    const o = await fetch(`${HELPER}/club/${path}`).then((r) => r.json());
+    if (me !== P || me.dead) return;
+    if (!o.ok || !o.url) return next();
+    play(o.url);
+    // Subtitles: Club's own, plus Wyzie and the Alt list (fetched alongside, without slowing playback).
+    const own = (o.tracks || []).map((t, i) => ({ url: t.file, lang: /eng|english/i.test(t.label) ? "en" : "und", label: (t.label || "Subtitles") + " · Club" }));
+    partySubs(path).then((list) => { if (me === P) loadSubtitles(list, own); });
+  } catch { if (me === P) next(); }
+}
+
+async function partySubs(path) {
+  try {
+    for (let i = 0; i < 6; i++) {
+      const o = await fetch(`${HELPER}/party/api/play/${path}?async=1&wait=1`).then((r) => r.json());
+      if (o?.result?.file?.subtitles && o.status === "ready") return "https://vidsrc.party" + o.result.file.subtitles;
+      if (["error", "failed", "not_found"].includes(o?.status)) return null;
+      await sleep(5000);
+    }
+  } catch {}
+  return null;
+}
+
 function next() {
   if (!P) return;
   const n = P.order.find((x) => !P.tried.has(x));
   if (P.auto && n) start(n, true);
-  else embed(P.source === "Movio Direct" ? P.order[0] : P.source);
+  else embed(OWN.includes(P.source) ? P.order.find((n) => !OWN.includes(n)) : P.source);
 }
 
 function embed(name) {
@@ -419,7 +449,7 @@ function toVtt(text, offset) {
 }
 const langName = (l) => { try { return new Intl.DisplayNames(["en"], { type: "language" }).of(l); } catch { return l; } };
 
-async function loadSubtitles(partyList) {
+async function loadSubtitles(partyList, extra = []) {
   const me = P;
   const kind = me.t.kind;
   const add = (items) => {
@@ -428,6 +458,7 @@ async function loadSubtitles(partyList) {
     me.tracks.sort((a, b) => (a.lang === "en" ? 0 : 1) - (b.lang === "en" ? 0 : 1));
     me.tracks.slice(0, 14).forEach(attach);
   };
+  if (extra.length) add(extra);
   // Wyzie: most downloaded first, plain before hearing-impaired; 5 English + 1 per other language
   fetch(`${HELPER}/wyzie?id=${me.t.id}${kind === "tv" ? `&season=${me.s}&episode=${me.e}` : ""}&language=en,fr,es,pt,ar`).then((r) => r.json()).then((a) => {
     const by = {};
@@ -497,7 +528,7 @@ function footer() {
   const tv = P.t.kind === "tv";
   f.innerHTML = `
     <button class="chip" id="fsrc">Source · ${esc(P.source || "…")}</button>
-    ${P.source === "Movio Direct" ? `<button class="chip" id="fe">Subs −0.5s</button><button class="chip" id="fl">Subs +0.5s</button>${P.offset ? `<button class="chip" id="fr">Reset ${P.offset > 0 ? "+" : ""}${P.offset.toFixed(1)}s</button>` : ""}` : ""}
+    ${OWN.includes(P.source) ? `<button class="chip" id="fe">Subs −0.5s</button><button class="chip" id="fl">Subs +0.5s</button>${P.offset ? `<button class="chip" id="fr">Reset ${P.offset > 0 ? "+" : ""}${P.offset.toFixed(1)}s</button>` : ""}` : ""}
     ${tv && P.episodes?.length ? `<button class="chip" id="feps">Episodes</button>` : ""}
     ${tv ? `<button class="chip" id="fnext">Next episode ›</button>` : ""}
     <button class="chip on" id="fskip" style="display:none"></button>`;
