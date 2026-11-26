@@ -602,6 +602,8 @@ struct PlayerScreen: View {
     @State private var ripple: (left: Bool, id: Int)?
     @State private var hud: (icon: String, value: Double)?
     @State private var dragStart: Double?
+    @State private var panel: Panel?
+    private enum Panel { case subtitles, sources, episodes }
 
     init(request: PlayRequest) { _m = StateObject(wrappedValue: PlayerModel(request)) }
 
@@ -625,7 +627,9 @@ struct PlayerScreen: View {
             if m.phase == .finding { findingView }
             if m.phase == .web { webBar }
             if m.phase == .failed { failedView }
+            if let p = panel { sidePanel(p).transition(.move(edge: .trailing).combined(with: .opacity)) }
         }
+        .animation(.easeOut(duration: 0.22), value: panel)
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
         .onAppear { rotate(landscape: true) }
@@ -633,7 +637,7 @@ struct PlayerScreen: View {
         .task {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 500_000_000)
-                if controls && m.isPlaying && !scrubbing && Date().timeIntervalSince(lastTouch) > 3.5 { withAnimation { controls = false } }
+                if controls && panel == nil && m.isPlaying && !scrubbing && Date().timeIntervalSince(lastTouch) > 3.5 { withAnimation { controls = false } }
             }
         }
     }
@@ -852,35 +856,88 @@ struct PlayerScreen: View {
     }
 
     private var subtitlesMenu: some View {
-        Menu {
-            Section("Auto-sync: " + m.syncStatus) {
-                Button { m.turnOff() } label: { choice("Off", m.selected == nil) }
-                ForEach(m.tracks) { t in
-                    Button { m.select(t) } label: { choice(t.label, m.selected == t) }
-                }
-            }
-            Section("Timing: " + (m.offset == 0 ? "no change" : String(format: "%+.1fs", m.offset))) {
-                Button { m.offset -= 0.5 } label: { Label("Show earlier", systemImage: "minus.circle") }
-                Button { m.offset += 0.5 } label: { Label("Show later", systemImage: "plus.circle") }
-                if m.offset != 0 { Button { m.offset = 0 } label: { Label("Reset", systemImage: "arrow.counterclockwise") } }
-            }
-        } label: { Image(systemName: m.selected == nil ? "captions.bubble" : "captions.bubble.fill").font(.system(size: 20, weight: .semibold)).frame(minWidth: 36, minHeight: 36) }
+        icon(m.selected == nil ? "captions.bubble" : "captions.bubble.fill") { panel = .subtitles; touch() }
     }
 
     private var sourcesMenu: some View {
-        Menu {
-            ForEach(Array(Sources.all.enumerated()), id: \.offset) { i, s in
-                Button { m.pick(i) } label: { choice(s.name + (s.web ? " (web)" : ""), i == m.sourceIndex) }
-            }
-        } label: { Image(systemName: "server.rack").font(.system(size: 19, weight: .semibold)).frame(minWidth: 36, minHeight: 36) }
+        icon("server.rack") { panel = .sources; touch() }
     }
 
     private var episodesMenu: some View {
-        Menu {
-            ForEach(m.episodes) { e in
-                Button { m.play(episode: e.number) } label: { choice("\(e.number). \(e.name)", e.number == m.episode) }
+        icon("list.bullet") { panel = .episodes; touch() }
+    }
+
+    // MARK: Side panel: scrolls, so long lists (subtitles, sources, episodes) always fit
+
+    private func sidePanel(_ p: Panel) -> some View {
+        ZStack(alignment: .trailing) {
+            Color.black.opacity(0.35).ignoresSafeArea().onTapGesture { panel = nil }
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Text(p == .subtitles ? "Subtitles" : p == .sources ? "Sources" : "Season \(m.season)").font(jakarta(18, .extrabold))
+                    Spacer()
+                    icon("xmark", 16) { panel = nil }
+                }
+                .padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 6)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 2) {
+                        switch p {
+                        case .subtitles: subtitleRows
+                        case .sources:
+                            ForEach(Array(Sources.all.enumerated()), id: \.offset) { i, src in
+                                row(src.name + (src.web ? " (web)" : ""), on: i == m.sourceIndex) { m.pick(i); panel = nil }
+                            }
+                        case .episodes:
+                            ForEach(m.episodes) { e in
+                                row("\(e.number). \(e.name)", on: e.number == m.episode) { m.play(episode: e.number); panel = nil }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 10).padding(.bottom, 16)
+                }
             }
-        } label: { Image(systemName: "list.bullet").font(.system(size: 20, weight: .semibold)).frame(minWidth: 36, minHeight: 36) }
+            .frame(width: 340)
+            .frame(maxHeight: .infinity)
+            .background(.ultraThinMaterial)
+            .foregroundStyle(.white)
+        }
+        .ignoresSafeArea(edges: .vertical)
+    }
+
+    @ViewBuilder private var subtitleRows: some View {
+        Text("Auto-sync: " + m.syncStatus).font(jakarta(12, .semibold)).foregroundStyle(Color.soft).padding(.horizontal, 8).padding(.bottom, 6)
+        row("Off", on: m.selected == nil) { m.turnOff() }
+        ForEach(m.tracks) { t in row(t.label, on: m.selected == t) { m.select(t) } }
+        Text("Timing: " + (m.offset == 0 ? "no change" : String(format: "%+.1fs", m.offset)))
+            .font(jakarta(12, .semibold)).foregroundStyle(Color.soft).padding(.horizontal, 8).padding(.top, 14).padding(.bottom, 6)
+        HStack(spacing: 8) {
+            timingButton("Earlier", "minus") { m.offset -= 0.5 }
+            timingButton("Later", "plus") { m.offset += 0.5 }
+            if m.offset != 0 { timingButton("Reset", "arrow.counterclockwise") { m.offset = 0 } }
+        }
+        .padding(.horizontal, 8)
+    }
+
+    private func row(_ text: String, on: Bool, _ action: @escaping () -> Void) -> some View {
+        Button { Haptic.tap(); action() } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "checkmark").font(.system(size: 14, weight: .bold)).foregroundStyle(Color.violet).opacity(on ? 1 : 0)
+                Text(text).font(jakarta(15, on ? .bold : .semibold)).lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 12)
+            .background(on ? Color.white.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .foregroundStyle(.white)
+    }
+
+    private func timingButton(_ text: String, _ icon: String, _ action: @escaping () -> Void) -> some View {
+        Button { Haptic.tap(); action() } label: {
+            Label(text, systemImage: icon).font(jakarta(13, .bold)).padding(.horizontal, 12).padding(.vertical, 9)
+                .background(.white.opacity(0.12), in: Capsule())
+        }
+        .foregroundStyle(.white)
     }
 
     private var findingView: some View {
