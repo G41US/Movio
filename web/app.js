@@ -47,7 +47,7 @@ function toast(msg) {
   document.querySelector(".toast")?.remove();
   const d = document.createElement("div");
   d.className = "toast"; d.textContent = msg;
-  document.body.appendChild(d);
+  (document.querySelector(".player") || document.body).appendChild(d);
   setTimeout(() => d.remove(), 1800);
 }
 
@@ -502,21 +502,21 @@ function footer() {
   if (!f || !P) return;
   const tv = P.t.kind === "tv";
   f.innerHTML = `
-    <button class="chip" id="fsrc">Source · ${esc(P.source || "…")}</button>
+    <button class="chip" id="fsrc">${esc(P.source || "Source")} ▾</button>
     <button class="chip" id="frot">${sideways() ? "Upright" : "Sideways"}</button>
     <button class="chip" id="ffull">Full screen</button>
-    ${OWN.includes(P.source) ? `<button class="chip" id="fe">Subs −0.5s</button><button class="chip" id="fl">Subs +0.5s</button>${P.offset ? `<button class="chip" id="fr">Reset ${P.offset > 0 ? "+" : ""}${P.offset.toFixed(1)}s</button>` : ""}` : ""}
+    <button class="chip" id="fsub">Subs${P.offset ? ` ${P.offset > 0 ? "+" : ""}${P.offset.toFixed(1)}s` : ""}</button>
     ${tv && P.episodes?.length ? `<button class="chip" id="feps">Episodes</button>` : ""}
-    ${tv ? `<button class="chip" id="fnext">Next episode ›</button>` : ""}
+    ${tv ? `<button class="chip" id="fnext">Next ›</button>` : ""}
     <button class="chip on" id="fskip" style="display:none"></button>`;
   f.querySelector("#fsrc").onclick = () => sheet("Sources", P.order.map((n) => ({ label: n, on: n === P.source, fn: () => {
     localStorage.setItem(`src:${key(P.t)}`, n); P.tried = new Set(); start(n, false);
   } })));
   f.querySelector("#ffull").onclick = fullScreen;
   f.querySelector("#frot").onclick = () => { localStorage.setItem("upright", sideways() ? "1" : ""); setSideways(!sideways()); };
-  f.querySelector("#fe") && (f.querySelector("#fe").onclick = () => shiftSubs(-0.5));
-  f.querySelector("#fl") && (f.querySelector("#fl").onclick = () => shiftSubs(0.5));
-  f.querySelector("#fr") && (f.querySelector("#fr").onclick = () => shiftSubs(0));
+  f.querySelector("#fsub").onclick = () => sheet("Subtitle timing", [
+    ["Show 1s earlier", -1], ["Show 0.5s earlier", -0.5], ["Show 0.5s later", 0.5], ["Show 1s later", 1], ["Reset", 0],
+  ].map(([label, d]) => ({ label, on: false, fn: () => shiftSubs(d) })));
   f.querySelector("#feps") && (f.querySelector("#feps").onclick = () => sheet(`Season ${P.s}`, P.episodes.map((e) => ({
     label: `${e.episode_number}. ${e.name}`, on: e.episode_number === P.e, fn: () => location.replace(playHref(P.t, P.s, e.episode_number)),
   }))));
@@ -524,8 +524,14 @@ function footer() {
 }
 
 const sideways = () => !!document.querySelector(".player.sideways");
+function sideClass() {
+  const el = document.querySelector(".player");
+  if (el) el.classList.toggle("side", el.classList.contains("sideways") || (innerWidth > innerHeight && innerHeight < 540));
+}
+addEventListener("resize", sideClass);
 function setSideways(on) {
   document.querySelector(".player")?.classList.toggle("sideways", on);
+  sideClass();
   footer(); idleBars();
 }
 /** Full screen (iPhone uses its own video player, which turns sideways with the phone). */

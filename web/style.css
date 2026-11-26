@@ -133,22 +133,22 @@ select.season { appearance: none; -webkit-appearance: none; background: none; bo
   backdrop-filter: blur(20px); padding: 10px 16px; border-radius: 20px; font-size: 13px; font-weight: 700; z-index: 200; }
 img[src=""] { opacity: 0; }
 
-/* Sideways: video fills the screen; top bar and chips float over it and fade after a few seconds. */
-@media (orientation: landscape) and (max-height: 540px) {
-  .player .pbar, .player .pfoot { position: absolute; left: 0; right: 0; z-index: 2; transition: opacity .3s; }
-  .player .pbar { top: 0; padding-top: 10px; background: linear-gradient(rgba(0,0,0,.75), transparent); }
-  .player .pfoot { bottom: 0; padding-bottom: 12px; background: linear-gradient(transparent, rgba(0,0,0,.75)); }
-  .player.idle .pbar, .player.idle .pfoot { opacity: 0; pointer-events: none; }
-}
 
-/* iPhone can't be forced sideways from a web page, so the player turns itself: rotate the phone left to watch. */
+/* Sideways (phone turned, or the player turned itself): video fills the screen; title on the left and buttons on the right
+   float over the top, clear of the video's own controls at the bottom, and fade after a few seconds. */
+.player.side .pbar, .player.side .pfoot { position: absolute; top: 0; z-index: 2; transition: opacity .3s; }
+.player.side .pbar { left: 0; right: 0; padding-top: 10px; padding-bottom: 26px; background: linear-gradient(rgba(0,0,0,.8), transparent); }
+.player.side .pbar .tt { max-width: 30%; flex: 0 1 auto; }
+.player.side .pfoot { right: 0; max-width: 68%; gap: 6px; padding: 12px calc(12px + var(--right)) 10px 12px; background: none; justify-content: flex-start; z-index: 3; }
+.player.side .chip { height: 32px; padding: 0 12px; background: rgba(40,40,48,.75); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+.player.side.idle .pbar, .player.side.idle .pfoot { opacity: 0; pointer-events: none; }
+.player .toast { position: absolute; z-index: 5; top: 64px; }
 @media (orientation: portrait) {
   .player.sideways { inset: auto; top: 0; left: 0; width: 100vh; width: 100dvh; height: 100vw; transform-origin: top left; transform: rotate(90deg) translateY(-100%);
     --top: 0px; --bottom: 6px; --left: env(safe-area-inset-top); --right: env(safe-area-inset-bottom); }
-  .player.sideways .pbar, .player.sideways .pfoot { position: absolute; left: 0; right: 0; z-index: 2; transition: opacity .3s; }
-  .player.sideways .pbar { top: 0; padding-top: 10px; background: linear-gradient(rgba(0,0,0,.75), transparent); }
-  .player.sideways .pfoot { bottom: 0; padding-bottom: 12px; background: linear-gradient(transparent, rgba(0,0,0,.75)); }
-  .player.sideways.idle .pbar, .player.sideways.idle .pfoot { opacity: 0; pointer-events: none; }
-  .player.sideways .sheet { max-height: 80%; position: absolute; }
+  .player.sideways .sheet { position: absolute; max-height: 85%; left: auto; width: min(420px, 60%); right: calc(12px + var(--right)); border-radius: 22px 22px 0 0; }
   .player.sideways .scrim { position: absolute; }
+}
+@media (orientation: landscape) and (max-height: 540px) {
+  .player .sheet { left: auto; width: min(420px, 60%); right: calc(12px + var(--right)); max-height: 85%; }
 }
