@@ -32,6 +32,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 struct MovioApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @StateObject private var store = Store.shared
+    @StateObject private var profile = Profile.shared
 
     init() {
         _ = Downloads.shared  // reconnects to downloads that carried on in the background
@@ -44,6 +45,8 @@ struct MovioApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(store)
+                .environmentObject(profile)
+                .environment(\.layoutDirection, profile.rtl ? .rightToLeft : .leftToRight)
                 .preferredColorScheme(.dark)
                 .tint(.violet)
         }
@@ -52,8 +55,14 @@ struct MovioApp: App {
 
 struct RootView: View {
     @EnvironmentObject var store: Store
+    @EnvironmentObject var profile: Profile
 
     var body: some View {
+        // First launch: name, language and subtitles before anything loads, so it all comes in the right language.
+        if !profile.setupDone { SetupView().transition(.opacity) } else { tabs }
+    }
+
+    private var tabs: some View {
         TabView {
             tab(HomeView(), "Home", "house.fill")
             tab(BrowseView(kind: .movie), "Movies", "film.fill")
@@ -61,8 +70,10 @@ struct RootView: View {
             tab(SearchView(), "Search", "magnifyingglass")
             tab(MyListView(), "My List", "bookmark.fill")
         }
+        .id(profile.lang)  // a new language reloads every screen in it
+        .overlay(alignment: .top) { GreetingPill(text: profile.greeting).padding(.top, 6) }
         .fullScreenCover(item: $store.playing) { req in
-            PlayerScreen(request: req).environmentObject(store)
+            PlayerScreen(request: req).environmentObject(store).environmentObject(profile)
         }
     }
 

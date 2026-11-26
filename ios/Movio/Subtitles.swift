@@ -26,7 +26,7 @@ enum Subtitles {
                 if h0 != h1 { return !h0 }
                 return ($0["downloadCount"] as? Int ?? 0) > ($1["downloadCount"] as? Int ?? 0)
             }
-            for (i, o) in list.prefix(lang == "en" ? 5 : 1).enumerated() {
+            for (i, o) in list.prefix(lang == "en" || lang == I18n.subLang ? 5 : 1).enumerated() {
                 let name = (o["display"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? Locale.current.localizedString(forLanguageCode: lang) ?? lang
                 if let u = URL(string: o["url"] as! String) { out.append(SubTrack(label: i == 0 ? name : "\(name) · \(i + 1)", lang: lang, url: u)) }
             }
@@ -56,7 +56,7 @@ enum Subtitles {
             guard let lang = o["lang"] as? String, let src = o["src"] as? String, src.hasSuffix(".vtt") || src.hasSuffix(".srt"),
                   let url = URL(string: base + src) else { continue }
             let n = count[lang, default: 0]
-            if n >= (lang == "en" ? 5 : 1) { continue }
+            if n >= (lang == "en" || lang == I18n.subLang ? 5 : 1) { continue }
             count[lang] = n + 1
             let name = Locale.current.localizedString(forLanguageCode: lang) ?? (o["label"] as? String ?? lang)
             out.append(SubTrack(label: name + " · Alt" + (n == 0 ? "" : " \(n + 1)"), lang: lang, url: url))

@@ -67,7 +67,7 @@ struct RowView: View {
     let row: Row
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(row.name).font(jakarta(19, .extrabold)).foregroundStyle(.white).padding(.horizontal, 18)
+            Text(verbatim: I18n.row(row.name)).font(jakarta(19, .extrabold)).foregroundStyle(.white).padding(.horizontal, 18)
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: row.ranked ? 2 : 10) {
                     ForEach(Array(row.items.enumerated()), id: \.element.key) { i, t in

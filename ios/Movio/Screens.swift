@@ -4,8 +4,10 @@ import SwiftUI
 
 struct HomeView: View {
     @EnvironmentObject var store: Store
+    @EnvironmentObject var profile: Profile
     @State private var rows: [Row] = []
     @State private var loaded = false
+    @State private var showProfile = false
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -29,6 +31,19 @@ struct HomeView: View {
         }
         .ignoresSafeArea(edges: .top)
         .background(Color.ink.ignoresSafeArea())
+        .overlay(alignment: .topTrailing) {
+            // Profile: your initial, iOS style. Opens name, language and subtitle settings.
+            Button { showProfile = true } label: {
+                Text(verbatim: profile.name.first.map { String($0).uppercased() } ?? "")
+                    .font(jakarta(16, .extrabold)).foregroundStyle(.white)
+                    .frame(width: 38, height: 38)
+                    .background(profile.name.isEmpty ? AnyShapeStyle(.ultraThinMaterial) : AnyShapeStyle(brand), in: Circle())
+                    .overlay { if profile.name.isEmpty { Image(systemName: "person.fill").font(.system(size: 16, weight: .semibold)).foregroundStyle(.white) } }
+            }
+            .buttonStyle(PressStyle())
+            .padding(.trailing, 16).padding(.top, 4)
+        }
+        .sheet(isPresented: $showProfile) { ProfileSheet().environmentObject(profile) }
         .toolbar(.hidden, for: .navigationBar)
         .task { if rows.isEmpty { rows = await TMDB.home(); loaded = true } }
         .refreshable { rows = await TMDB.home() }

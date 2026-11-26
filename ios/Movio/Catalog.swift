@@ -60,7 +60,7 @@ enum TMDB {
 
     static func get(_ path: String, _ params: [String: String] = [:]) async throws -> [String: Any] {
         var c = URLComponents(string: api + path)!
-        c.queryItems = (params.merging(["api_key": Keys.tmdb, "language": "en-US"]) { a, _ in a }).map { URLQueryItem(name: $0.key, value: $0.value) }
+        c.queryItems = (params.merging(["api_key": Keys.tmdb, "language": I18n.tmdb]) { a, _ in a }).map { URLQueryItem(name: $0.key, value: $0.value) }
         let url = c.url!.absoluteString
         lock.lock(); let hit = cache[url]; lock.unlock()
         if let hit, Date().timeIntervalSince(hit.0) < 6 * 3600 { return hit.1 }
@@ -143,7 +143,7 @@ enum TMDB {
     }
 
     static func details(_ t: Title) async throws -> Details {
-        let o = try await get("\(t.kind.rawValue)/\(t.id)", ["append_to_response": "credits,similar,images", "include_image_language": "en,null"])
+        let o = try await get("\(t.kind.rawValue)/\(t.id)", ["append_to_response": "credits,similar,images", "include_image_language": "\(I18n.lang),en,null"])
         let title = parse(o, t.kind) ?? t
         let runtime = (o["runtime"] as? Int) ?? ((o["episode_run_time"] as? [Int])?.first)
         let genres = ((o["genres"] as? [[String: Any]]) ?? []).compactMap { $0["name"] as? String }
@@ -157,7 +157,7 @@ enum TMDB {
         }
         let similar = (((o["similar"] as? [String: Any])?["results"] as? [[String: Any]]) ?? []).compactMap { parse($0, t.kind) }.filter { $0.poster != nil }
         let logos = ((o["images"] as? [String: Any])?["logos"] as? [[String: Any]]) ?? []
-        let logo = (logos.first { ($0["iso_639_1"] as? String) == "en" } ?? logos.first)?["file_path"] as? String
+        let logo = (logos.first { ($0["iso_639_1"] as? String) == I18n.lang } ?? logos.first { ($0["iso_639_1"] as? String) == "en" } ?? logos.first)?["file_path"] as? String
         return Details(title: title, tagline: o["tagline"] as? String ?? "", runtime: runtime, genres: genres,
                        seasons: seasons, cast: Array(cast), similar: similar, logo: logo)
     }
@@ -187,14 +187,14 @@ enum TMDB {
         let born = (o["birthday"] as? String).flatMap { $0.count >= 4 ? $0 : nil }
         let died = (o["deathday"] as? String).flatMap { $0.count >= 4 ? $0 : nil }
         var facts: [String] = []
-        if !dept.isEmpty { facts.append(dept) }
+        if !dept.isEmpty { facts.append(I18n.t(dept)) }
         if let b = born {
             if let d = died { facts.append("\(b.prefix(4))–\(d.prefix(4))") }
             else {
                 let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
                 if let date = f.date(from: b), let age = Calendar.current.dateComponents([.year], from: date, to: Date()).year {
-                    facts.append("Born \(b.prefix(4)) · \(age)")
-                } else { facts.append("Born \(b.prefix(4))") }
+                    facts.append(I18n.f("Born {1} · {2}", b.prefix(4), age))
+                } else { facts.append(I18n.f("Born {1}", b.prefix(4))) }
             }
         }
         if let place = o["place_of_birth"] as? String, !place.isEmpty { facts.append(place) }

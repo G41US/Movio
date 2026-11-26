@@ -463,7 +463,9 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
         let fresh = found.filter { f in !tracks.contains { $0.url == f.url } }
         // Keep languages grouped: English first, then the rest, then ones caught from the page.
         tracks = (tracks + fresh).enumerated().sorted { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }.map(\.element)
-        if selected == nil, !userOff, let en = tracks.first(where: { $0.lang == "en" }) { select(en) }
+        // The subtitle language picked at setup (none if "No subtitles").
+        let want = I18n.subLang
+        if selected == nil, !userOff, want != "off", let first = tracks.first(where: { $0.lang == want }) { select(first) }
         // Sync already listened: test the new versions too.
         if let sp = speech { Task { await evaluate(sp) } }
     }
@@ -471,7 +473,7 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
     private var userOff = false
     func turnOff() { userOff = true; select(nil) }
 
-    private func rank(_ t: SubTrack) -> Int { t.lang == "en" ? 0 : t.lang == "und" ? 2 : 1
+    private func rank(_ t: SubTrack) -> Int { t.lang == I18n.subLang ? 0 : t.lang == "en" ? 1 : t.lang == "und" ? 3 : 2
     }
 
     func select(_ t: SubTrack?, fit newFit: SubFit? = nil) {
@@ -518,7 +520,7 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
     private func evaluate(_ sp: [Float]) async {
         let url = speechFor
         do {
-            let cands = tracks.filter { $0.lang == "en" || $0.lang == "und" || $0 == selected }.prefix(8)
+            let cands = tracks.filter { $0.lang == (I18n.subLang == "off" ? "en" : I18n.subLang) || $0.lang == "und" || $0 == selected }.prefix(8)
             var results: [(SubTrack, SubAligner.Eval)] = []
             for c in cands {
                 let cues = await cuesFor(c)
