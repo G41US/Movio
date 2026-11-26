@@ -452,12 +452,25 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
     private func loadSubtitles() {
         tracks = []; cues = []; selected = nil; caption = ""
         let (s, e) = (season, episode)
-        Task {
-            let found = await Subtitles.find(title.kind, title.id, s, e)
-            guard s == season && e == episode else { return }
-            tracks = found + tracks.filter { $0.lang == "und" }
-            if selected == nil, let en = found.first(where: { $0.lang == "en" }) { select(en) }
-        }
+        // Two lookups at once; whichever answers first gets subtitles on screen.
+        Task { add(await Subtitles.find(title.kind, title.id, s, e), s, e) }
+        Task { add(await Subtitles.party(title.kind, title.id, s, e), s, e) }
+    }
+
+    private func add(_ found: [SubTrack], _ s: Int, _ e: Int) {
+        guard s == season && e == episode, !found.isEmpty else { return }
+        let fresh = found.filter { f in !tracks.contains { $0.url == f.url } }
+        // Keep languages grouped: English first, then the rest, then ones caught from the page.
+        tracks = (tracks + fresh).enumerated().sorted { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }.map(\.element)
+        if selected == nil, !userOff, let en = tracks.first(where: { $0.lang == "en" }) { select(en) }
+        // Sync already listened: test the new versions too.
+        if let sp = speech { Task { await evaluate(sp) } }
+    }
+
+    private var userOff = false
+    func turnOff() { userOff = true; select(nil) }
+
+    private func rank(_ t: SubTrack) -> Int { t.lang == "en" ? 0 : t.lang == "und" ? 2 : 1
     }
 
     func select(_ t: SubTrack?, fit newFit: SubFit? = nil) {
@@ -496,7 +509,15 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
             guard speechFor == url else { return }
             guard let sp else { syncStatus = "Can't check this stream · use Timing"; return }
             speech = sp
-            let cands = tracks.filter { $0.lang == "en" || $0.lang == "und" || $0 == selected }.prefix(6)
+            await evaluate(sp)
+        }
+    }
+
+    /// Tries every English version against what the film sounds like; keeps the best fit.
+    private func evaluate(_ sp: [Float]) async {
+        let url = speechFor
+        do {
+            let cands = tracks.filter { $0.lang == "en" || $0.lang == "und" || $0 == selected }.prefix(8)
             var results: [(SubTrack, SubAligner.Eval)] = []
             for c in cands {
                 let cues = await cuesFor(c)
@@ -511,6 +532,7 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
                 return
             }
             if let c = current, c.sure { fit = c.fit; syncStatus = describe(c.fit) }
+            else if tracks.isEmpty { syncStatus = "No subtitles found yet" }
             else { syncStatus = "Looks fine · use Timing if needed" }
         }
     }
@@ -832,7 +854,7 @@ struct PlayerScreen: View {
     private var subtitlesMenu: some View {
         Menu {
             Section("Auto-sync: " + m.syncStatus) {
-                Button { m.select(nil) } label: { choice("Off", m.selected == nil) }
+                Button { m.turnOff() } label: { choice("Off", m.selected == nil) }
                 ForEach(m.tracks) { t in
                     Button { m.select(t) } label: { choice(t.label, m.selected == t) }
                 }

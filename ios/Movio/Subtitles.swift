@@ -34,6 +34,36 @@ enum Subtitles {
         return out
     }
 
+    /// Backup list from the player service behind braflix (often 2+ English versions per title).
+    static func party(_ kind: Kind, _ id: Int, _ s: Int, _ e: Int) async -> [SubTrack] {
+        let base = "https://vidsrc.party"
+        let path = kind == .tv ? "api/play/tv/\(id)/\(s)/\(e)" : "api/play/movie/\(id)"
+        let h = ["Referer": base + "/", "Origin": base, "Accept": "application/json"]
+        var file: [String: Any]?
+        for _ in 0..<6 {
+            guard let u = URL(string: "\(base)/\(path)?async=1&wait=1"), let d = await StreamAudio.fetch(u, h),
+                  let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return [] }
+            file = (o["result"] as? [String: Any])?["file"] as? [String: Any]
+            if file != nil && (o["status"] as? String) == "ready" { break }
+            if ["error", "failed", "not_found"].contains(o["status"] as? String ?? "") { return [] }
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+        }
+        guard let subs = file?["subtitles"] as? String, let u = URL(string: base + subs), let d = await StreamAudio.fetch(u, h),
+              let a = try? JSONSerialization.jsonObject(with: d) as? [[String: Any]] else { return [] }
+        var count: [String: Int] = [:]
+        var out: [SubTrack] = []
+        for o in a {
+            guard let lang = o["lang"] as? String, let src = o["src"] as? String, src.hasSuffix(".vtt") || src.hasSuffix(".srt"),
+                  let url = URL(string: base + src) else { continue }
+            let n = count[lang, default: 0]
+            if n >= (lang == "en" ? 5 : 1) { continue }
+            count[lang] = n + 1
+            let name = Locale.current.localizedString(forLanguageCode: lang) ?? (o["label"] as? String ?? lang)
+            out.append(SubTrack(label: name + " · Alt" + (n == 0 ? "" : " \(n + 1)"), lang: lang, url: url))
+        }
+        return out.sorted { ($0.lang == "en" ? 0 : 1) < ($1.lang == "en" ? 0 : 1) }
+    }
+
     static func load(_ url: URL, headers: [String: String] = [:]) async -> [Cue] {
         var req = URLRequest(url: url)
         headers.forEach { req.setValue($0.value, forHTTPHeaderField: $0.key) }
