@@ -260,11 +260,11 @@ function embedUrl(name, base, kind, id, s, e) {
   if (name === "Club") return `${base}/tv/${id}-${s}-${e}`;
   return `${base}/tv/${id}/${s}/${e}${name === "Vix" ? "?autoplay=true" : ""}`;
 }
-/** Movio Direct first (Movio's own player, subtitles). Then shows: Club → Nero → Peach → Flixify; films: Nero → Flixify → Club → Peach. */
+/** Films: Nero → Flixify → Club → Peach. Shows: Club → Nero → Peach → Flixify. Then Movio Direct, then the rest. */
 function sourceOrder(kind) {
   const first = kind === "tv" ? ["Club", "Nero", "Peach", "Flixify"] : ["Nero", "Flixify", "Club", "Peach"];
   const rest = EMBEDS.map((x) => x[0]).filter((n) => !first.includes(n));
-  return ["Movio Direct", ...first, ...rest];
+  return [...first, "Movio Direct", ...rest];
 }
 const canHls = () => !!document.createElement("video").canPlayType("application/vnd.apple.mpegurl");
 
@@ -350,7 +350,7 @@ function next() {
   if (!P) return;
   const n = P.order.find((x) => !P.tried.has(x));
   if (P.auto && n) start(n, true);
-  else embed(P.source === "Movio Direct" ? P.order[1] : P.source);
+  else embed(P.source === "Movio Direct" ? P.order[0] : P.source);
 }
 
 function embed(name) {
