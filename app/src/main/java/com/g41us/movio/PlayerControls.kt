@@ -111,6 +111,8 @@ interface PlayerHost {
     val subSync: String
     val autoplay: Boolean
     val autoSkip: Boolean
+    val nightMode: Boolean
+    fun toggleNightMode()
     /** Exact intro/recap/credits/preview times for what's playing (may be empty). */
     val segments: List<Segment>
     /** Small muted video view used for seek previews. */
@@ -139,7 +141,7 @@ val SubStyleNames = listOf("None", "Shadow", "Box", "Solid")
 
 private data class Choice(val label: String, val selected: Boolean, val apply: () -> Unit)
 
-private enum class Sheet { SETTINGS, QUALITY, SPEED, SUBTITLES, STYLE, EPISODES }
+private enum class Sheet { SETTINGS, QUALITY, SPEED, SUBTITLES, STYLE, EPISODES, AUDIO }
 
 fun clock(ms: Long): String {
     if (ms < 0) return "0:00"
@@ -207,14 +209,14 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
             active = segs.firstOrNull { it.type != "credits" && it.type != "preview" && it.contains(position) }
             // Auto-skip intros and recaps once each, when the viewer turned that on.
             active?.let { a ->
-                if (host.autoSkip && a !in autoSkipped && a.endMs != null) {
+                if (host.autoSkip && a.type != "learned" && a !in autoSkipped && a.endMs != null) {
                     autoSkipped = autoSkipped + a; player.seekTo(a.endMs); hint = if (a.type == "recap") "Skipped recap" else "Skipped intro"
                 }
             }
             // Up next starts when the credits really start (10 s), else in the last 20 s.
             val credits = segs.firstOrNull { it.type == "credits" || it.type == "preview" }?.startMs?.takeIf { it > duration / 2 }
             val inCredits = credits != null && position >= credits
-            countdown = if (host.isTv && host.hasNext && host.autoplay && !countdownDismissed && duration > 0 &&
+            countdown = if (host.hasNext && host.autoplay && !countdownDismissed && duration > 0 &&
                 (inCredits || left in 1..20_000 || player.playbackState == Player.STATE_ENDED)) {
                 if (inCredits) (10 - (position - credits!!) / 1000).toInt().coerceIn(0, 10).let { if (left < it * 1000L) (left / 1000).toInt() else it }
                 else (left / 1000).toInt().coerceAtLeast(0)
@@ -419,12 +421,12 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
             val p = sheet ?: Sheet.SETTINGS
             Column(Modifier.fillMaxHeight().width(if (p == Sheet.EPISODES || p == Sheet.STYLE) 360.dp else 310.dp).background(Color(0xF50D0F15)).safeDrawingPadding().padding(18.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (p in setOf(Sheet.QUALITY, Sheet.SPEED, Sheet.STYLE)) {
+                    if (p in setOf(Sheet.QUALITY, Sheet.SPEED, Sheet.STYLE, Sheet.AUDIO)) {
                         Plain(R.drawable.ic_back, null, 20.dp) { sheet = if (p == Sheet.STYLE) Sheet.SUBTITLES else Sheet.SETTINGS }
                     }
                     Text(when (p) {
                         Sheet.SETTINGS -> "Settings"; Sheet.QUALITY -> "Quality"; Sheet.SPEED -> "Speed"
-                        Sheet.SUBTITLES -> "Subtitles"; Sheet.STYLE -> "Subtitle style"; Sheet.EPISODES -> "Season ${host.season}"
+                        Sheet.SUBTITLES -> "Subtitles"; Sheet.STYLE -> "Subtitle style"; Sheet.EPISODES -> "Season ${host.season}"; Sheet.AUDIO -> "Audio"
                     }, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, style = jakarta(), modifier = Modifier.weight(1f))
                     Plain(R.drawable.ic_close, null, 20.dp, Modifier.focusRequester(sheetFocus)) { sheet = null }
                 }
@@ -433,6 +435,8 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
                     Sheet.SETTINGS -> Column(Modifier.verticalScroll(rememberScrollState())) {
                         val q = currentQuality(player)
                         SettingRow("Quality", q, R.drawable.ic_settings) { sheet = Sheet.QUALITY }
+                        SettingRow("Audio", currentAudio(player), R.drawable.ic_audio) { sheet = Sheet.AUDIO }
+                        SettingRow("Night mode", if (host.nightMode) "On · quieter bangs, clearer voices" else "Off", R.drawable.ic_moon) { host.toggleNightMode() }
                         SettingRow("Speed", if (player.playbackParameters.speed == 1f) "Normal" else "${player.playbackParameters.speed}x", R.drawable.ic_speed) { sheet = Sheet.SPEED }
                         SettingRow("Picture", host.aspectName, R.drawable.ic_fit) { host.cycleAspect() }
                         SettingRow("Source", host.source, R.drawable.ic_servers) { sheet = null; host.sources() }
@@ -667,8 +671,33 @@ private fun choices(player: Player, sheet: Sheet): List<Choice> {
                 }
             }.distinctBy { it.label }
         }
+        Sheet.AUDIO -> {
+            // Every language/dub the stream carries, e.g. English, French, original.
+            val groups = player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+            groups.flatMapIndexed { gi, g ->
+                (0 until g.length).filter { g.isTrackSupported(it) }.map { i ->
+                    Choice(audioName(g.getTrackFormat(i), gi * 10 + i), g.isTrackSelected(i)) {
+                        player.trackSelectionParameters = params.buildUpon().setOverrideForType(TrackSelectionOverride(g.mediaTrackGroup, i)).build()
+                    }
+                }
+            }.distinctBy { it.label }
+        }
         else -> emptyList()
     }
+}
+
+private fun audioName(f: androidx.media3.common.Format, n: Int): String {
+    val lang = f.language?.takeIf { it != "und" }?.let { Locale(it).displayLanguage }
+    val ch = when (f.channelCount) { 1 -> "Mono"; 2 -> "Stereo"; 6 -> "5.1"; 8 -> "7.1"; else -> null }
+    return listOfNotNull(f.label ?: lang ?: "Track ${n + 1}", ch?.takeIf { f.label == null }).joinToString(" · ")
+}
+
+private fun currentAudio(player: Player): String {
+    val g = player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+    val total = g.sumOf { it.length }
+    val sel = g.firstNotNullOfOrNull { gr -> (0 until gr.length).firstOrNull { gr.isTrackSelected(it) }?.let { gr.getTrackFormat(it) } }
+    val name = sel?.let { audioName(it, 0) } ?: "Default"
+    return if (total > 1) name else "$name (only one)"
 }
 
 /** TV focus without hard outlines: a soft light behind the control and a slight lift. */

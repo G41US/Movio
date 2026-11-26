@@ -243,7 +243,9 @@ class PlayerActivity : ComponentActivity() {
                 override fun onPlayerError(error: PlaybackException) { onStreamFailed() }
                 override fun onPositionDiscontinuity(old: Player.PositionInfo, new: Player.PositionInfo, reason: Int) {
                     if (reason == Player.DISCONTINUITY_REASON_SEEK || reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT) speech.seeked(new.positionMs)
+                    if (reason == Player.DISCONTINUITY_REASON_SEEK) learnIntro(old.positionMs, new.positionMs)
                 }
+                override fun onAudioSessionIdChanged(audioSessionId: Int) { applyNight() }
                 override fun onTracksChanged(tracks: androidx.media3.common.Tracks) { pickOwnSubtitle(tracks) }
             })
         }
@@ -269,6 +271,19 @@ class PlayerActivity : ComponentActivity() {
             }
         })
         lifecycleScope.launch { while (true) { kotlinx.coroutines.delay(100); speech.clock = exo.currentPosition; renderOwnSubs() } }
+        nightOn = prefs.getBoolean("night", false); applyNight()
+        // A stream that stops loading without an error: after 20 s stuck, recover like a failure.
+        lifecycleScope.launch {
+            var stuck = 0; var smooth = 0
+            while (true) {
+                kotlinx.coroutines.delay(1_000)
+                val waiting = phase == Phase.NATIVE && exo.playWhenReady && exo.playbackState == Player.STATE_BUFFERING
+                stuck = if (waiting) stuck + 1 else 0
+                smooth = if (exo.isPlaying) smooth + 1 else 0
+                if (smooth >= 60) reconnects = 0
+                if (stuck >= 20) { stuck = 0; onStreamFailed() }
+            }
+        }
         lifecycleScope.launch {
             var rounds = 0
             while (true) {
@@ -436,7 +451,8 @@ class PlayerActivity : ComponentActivity() {
     // ---------- Sources ----------
 
     /** Play from source [index]. Automatic starts move on to the next source by themselves. */
-    private fun start(index: Int, automatic: Boolean, save: Boolean = true) {
+    private fun start(index: Int, automatic: Boolean, save: Boolean = true, useCache: Boolean = true) {
+        cacheAllowed = useCache
         // Only save when staying on the same episode (e.g. switching source); episode changes save before moving.
         if (save && phase == Phase.NATIVE) savePosition()
         resumedAt = 0L
@@ -448,7 +464,7 @@ class PlayerActivity : ComponentActivity() {
         val segKey = "$season:$episode"
         if (segKey != segmentsFor) {
             segmentsFor = segKey; segments = emptyList()
-            lifecycleScope.launch { val found = Segments.find(kind, id, season, episode); if (segmentsFor == segKey) segments = found }
+            lifecycleScope.launch { val found = Segments.find(kind, id, season, episode); if (segmentsFor == segKey) segments = withLearned(found) }
         }
         val token = attempt
         candidates.clear(); rejected.clear(); trying = null; subtitleTracks = emptyList(); pageSubs.clear()
@@ -457,16 +473,26 @@ class PlayerActivity : ComponentActivity() {
         if (!source.direct) subtitleJob = lifecycleScope.launch {
             val found = Subtitles.find(kind, id, season, episode)
             if (token != attempt || found.isEmpty()) return@launch
+            val had = subtitleTracks.isNotEmpty()
             subtitleTracks = found
             // Stream already playing without them: reload in place so the subtitles show up.
-            if (phase == Phase.NATIVE) trying?.let { s -> val pos = exo.currentPosition; play(s); exo.seekTo(pos) }
+            if (phase == Phase.NATIVE && !had) trying?.let { s -> val pos = exo.currentPosition; play(s); exo.seekTo(pos) }
         }
         exo.stop(); exo.clearMediaItems()
         playerView.visibility = View.GONE
         phase = Phase.FINDING
         status = if (autoTried > 0) "Finding the best stream" else "Loading"
         webView.stopLoading()
-
+        // Played this before on this source? Its stream link usually still works: start straight away.
+        if (offlineId == null && cacheAllowed) savedLink(index)?.let { (st, subs) ->
+            fromCache = true
+            if (subtitleTracks.isEmpty()) subtitleTracks = subs
+            status = "Resuming"
+            trying = st
+            play(st)
+            return
+        }
+        fromCache = false
         if (source.direct) {
             pageHost = ""
             webView.loadUrl("about:blank")
@@ -510,6 +536,86 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private var startedAt = 0L
+
+    // ---------- Skip intro for shows nobody has timed ----------
+
+    /** You skipped ahead early in an episode: remember it as this show's intro for the next episodes. */
+    private fun learnIntro(from: Long, to: Long) {
+        if (kind != Kind.TV || phase != Phase.NATIVE) return
+        if (segments.any { it.type == "intro" }) return
+        val jump = to - from
+        if (from > 6 * 60_000 || jump !in 20_000..150_000) return
+        prefs.edit().putString("intro:$id", "${(from - 3_000).coerceAtLeast(0)},$to").apply()
+    }
+
+    private fun withLearned(found: List<Segment>): List<Segment> {
+        if (kind != Kind.TV || found.any { it.type == "intro" }) return found
+        val (a, b) = prefs.getString("intro:$id", null)?.split(",")?.mapNotNull { it.toLongOrNull() }?.takeIf { it.size == 2 } ?: return found
+        return (found + Segment("learned", a, b)).sortedBy { it.startMs }
+    }
+
+    // ---------- Night mode: squeeze loud bits, lift quiet dialogue ----------
+
+    private var nightOn by mutableStateOf(false)
+    private var night: android.media.audiofx.DynamicsProcessing? = null
+
+    private fun applyNight() {
+        try { night?.release() } catch (_: Exception) {}
+        night = null
+        if (!nightOn || android.os.Build.VERSION.SDK_INT < 28) return
+        val session = exo.audioSessionId.takeIf { it != C.AUDIO_SESSION_ID_UNSET && it != 0 } ?: return
+        try {
+            val cfg = android.media.audiofx.DynamicsProcessing.Config.Builder(
+                android.media.audiofx.DynamicsProcessing.VARIANT_FAVOR_FREQUENCY_RESOLUTION, 2,
+                false, 0, true, 1, false, 0, true,
+            ).build()
+            val dp = android.media.audiofx.DynamicsProcessing(0, session, cfg)
+            for (ch in 0 until 2) {
+                val band = dp.getMbcBandByChannelIndex(ch, 0)
+                band.isEnabled = true
+                band.cutoffFrequency = 20_000f
+                band.attackTime = 5f; band.releaseTime = 120f
+                band.ratio = 4f; band.threshold = -30f; band.kneeWidth = 6f
+                band.noiseGateThreshold = -90f; band.expanderRatio = 1f
+                band.preGain = 0f; band.postGain = 12f
+                dp.setMbcBandByChannelIndex(ch, 0, band)
+                val lim = dp.getLimiterByChannelIndex(ch)
+                lim.isEnabled = true; lim.threshold = -3f; lim.ratio = 10f; lim.attackTime = 1f; lim.releaseTime = 60f; lim.postGain = 0f
+                dp.setLimiterByChannelIndex(ch, lim)
+            }
+            dp.setEnabled(true)
+            night = dp
+        } catch (_: Exception) {
+            Toast.makeText(this, "Night mode isn't supported on this device", Toast.LENGTH_SHORT).show()
+            nightOn = false
+        }
+    }
+    private var fromCache = false
+    private var cacheAllowed = true
+    private var reconnects = 0
+
+    /** Stream links that worked, per episode/film and source, kept for 6 hours. */
+    private val links by lazy { getSharedPreferences("movio_links", MODE_PRIVATE) }
+    private fun linkKey(i: Int = sourceIndex) = "${posKey()}|${Sources.all[i].name}"
+
+    private fun saveLink(st: Stream) {
+        val o = org.json.JSONObject().put("url", st.url).put("hls", st.hls).put("t", System.currentTimeMillis())
+            .put("h", org.json.JSONObject(st.headers as Map<*, *>))
+            .put("subs", org.json.JSONArray().apply { subtitleTracks.forEach { put(org.json.JSONObject().put("l", it.label).put("g", it.lang).put("u", it.url).put("s", it.srt)) } })
+        links.edit().putString(linkKey(), o.toString()).apply()
+    }
+
+    private fun dropLink() { links.edit().remove(linkKey()).apply() }
+
+    private fun savedLink(i: Int): Pair<Stream, List<Subtitle>>? = try {
+        links.getString(linkKey(i), null)?.let { org.json.JSONObject(it) }
+            ?.takeIf { System.currentTimeMillis() - it.getLong("t") < 6 * 3_600_000L }
+            ?.let { o ->
+                val h = o.getJSONObject("h").let { j -> j.keys().asSequence().associateWith { j.getString(it) } }
+                val subs = o.optJSONArray("subs")?.let { a -> (0 until a.length()).map { a.getJSONObject(it) }.map { Subtitle(it.getString("l"), it.getString("g"), it.getString("u"), it.getBoolean("s")) } } ?: emptyList()
+                Stream(o.getString("url"), h, o.getBoolean("hls")) to subs
+            }
+    } catch (_: Exception) { null }
 
     /** Average time each source takes to start (failures count as slow), so the quickest are tried first. */
     private fun score(i: Int, ms: Long) {
@@ -603,6 +709,9 @@ class PlayerActivity : ComponentActivity() {
         if (phase == Phase.NATIVE) return
         val d = exo.duration
         if (offlineId != null) { phase = Phase.NATIVE; playerView.visibility = View.VISIBLE; store.position(posKey())?.let { (p, _) -> if (p > 30_000) exo.seekTo(p) }; exo.play(); return }
+        val wrong = (!source.direct && d != C.TIME_UNSET && d in 1 until 150_000) ||
+            (runtimeMs > 0 && d != C.TIME_UNSET && d > 0 && kotlin.math.abs(d - runtimeMs).toDouble() / runtimeMs > 0.3)
+        if (wrong && fromCache) { fromCache = false; exo.stop(); dropLink(); start(sourceIndex, auto, save = false, useCache = false); return }
         if (!source.direct && d != C.TIME_UNSET && d in 1 until 150_000) {
             rejected.add(s.url); trying = null; exo.stop(); tryNext(); return
         }
@@ -621,6 +730,8 @@ class PlayerActivity : ComponentActivity() {
         exo.play()
         failedSources.remove(sourceIndex)
         if (offlineId == null) store.setSourceFor(title ?: Title(id, kind, name, "", null, null, null, 0.0), source.name)
+        if (offlineId == null) saveLink(s)
+        reconnects = 0
         controlsVisible = true
         placeSubtitles()
         webView.stopLoading()
@@ -630,9 +741,28 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun onStreamFailed() {
+        // Remembered link expired: forget it and find a fresh one the normal way.
+        if (fromCache && phase != Phase.NATIVE) { fromCache = false; dropLink(); start(sourceIndex, auto, save = false, useCache = false); return }
+        if (phase == Phase.NATIVE) {
+            // Mid-film: reconnect to the same stream twice, then move to another source at the same spot.
+            val pos = exo.currentPosition
+            if (reconnects < 2) {
+                reconnects++
+                Toast.makeText(this, "Reconnecting…", Toast.LENGTH_SHORT).show()
+                exo.prepare(); exo.seekTo(pos); exo.play()
+                return
+            }
+            reconnects = 0
+            trying?.let { rejected.add(it.url) }
+            trying = null
+            dropLink()
+            savePosition()
+            Toast.makeText(this, "Switching to another source…", Toast.LENGTH_SHORT).show()
+            auto = true; autoTried = 0
+            sourceFailed(); return
+        }
         trying?.let { rejected.add(it.url) }
         trying = null
-        if (phase == Phase.NATIVE) { savePosition(); sourceFailed(); return }
         if (source.direct) { sourceFailed(); return }
         if (candidates.any { it.url !in rejected }) tryNext()
     }
@@ -689,7 +819,7 @@ class PlayerActivity : ComponentActivity() {
         previewSource = { DefaultMediaSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(this, Downloads.offlineFactory(this))).createMediaSource(d.request.toMediaItem()) }
         trying = Stream(d.request.uri.toString(), emptyMap(), hls = true)
         status = "Playing from Downloads"
-        lifecycleScope.launch { segments = Segments.find(kind, this@PlayerActivity.id, season, episode) }
+        lifecycleScope.launch { segments = withLearned(Segments.find(kind, this@PlayerActivity.id, season, episode)) }
     }
 
     private fun refreshDownloadLabel() {
@@ -891,6 +1021,8 @@ class PlayerActivity : ComponentActivity() {
         override val autoplay get() = store.autoplayNext
         override val autoSkip get() = store.autoSkip
         override val segments get() = this@PlayerActivity.segments
+        override val nightMode get() = nightOn
+        override fun toggleNightMode() { nightOn = !nightOn; prefs.edit().putBoolean("night", nightOn).apply(); applyNight() }
         override val previewView: View? get() = if (previewSource != null) previewTexture else null
         override fun preview(posMs: Long?) = this@PlayerActivity.preview(posMs)
         override fun back() = finish()
@@ -1103,6 +1235,7 @@ class PlayerActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        try { night?.release() } catch (_: Exception) {}
         savePosition()
         main.removeCallbacksAndMessages(null)
         releasePreview()
