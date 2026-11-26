@@ -694,28 +694,39 @@ const PKEYS = new Set([" ", "k", "arrowleft", "arrowright", "j", "l", "arrowup",
 const playerKey = (ev) => P && !ev.metaKey && !ev.ctrlKey && !ev.altKey && !/input|select|textarea/i.test(ev.target.tagName) && PKEYS.has(ev.key.toLowerCase());
 // The browser's own key handling (on the video, its controls or a focused button) would undo Movio's, so Movio takes these keys first.
 for (const t of ["keyup", "keypress"]) window.addEventListener(t, (ev) => { if (playerKey(ev)) { ev.preventDefault(); ev.stopImmediatePropagation(); } }, true);
-/** Big centre readout (volume, seek, pause) so every key shows what it did. */
-function osd(text) {
+/** Centre pop-up for every key: icon, what happened, and a volume bar when it's about volume. Fades after a moment. */
+const OSD_ICON = {
+  play: '<path d="M8 5v14l11-7z" fill="#fff"/>',
+  pause: '<path d="M7 5h4v14H7zM13 5h4v14h-4z" fill="#fff"/>',
+  back: '<path d="M11 18V6l-8.5 6zM21 18V6l-8.5 6z" fill="#fff"/>',
+  fwd: '<path d="M13 6v12l8.5-6zM3 6v12l8.5-6z" fill="#fff"/>',
+  vol: '<path d="M4 9v6h4l5 4V5L8 9z" fill="#fff"/><path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/>',
+  mute: '<path d="M4 9v6h4l5 4V5L8 9z" fill="#fff"/><path d="M16.5 9.5l5 5m0-5l-5 5" stroke="#fff" stroke-width="2" stroke-linecap="round"/>',
+  jump: '<path d="M5 12h14M13 6l6 6-6 6" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
+};
+const clock = (t) => { t = Math.max(0, Math.floor(t)); const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), sec = String(t % 60).padStart(2, "0"); return h ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`; };
+function osd(icon, text, sub, level) {
   const st = document.getElementById("stage");
   if (!st) return;
   let o = st.querySelector(".osd");
   if (!o) { o = document.createElement("div"); o.className = "osd"; st.append(o); }
-  o.textContent = text;
+  o.innerHTML = `<svg viewBox="0 0 24 24">${OSD_ICON[icon] || ""}</svg><b>${esc(text)}</b>${sub ? `<small>${esc(sub)}</small>` : ""}${level != null ? `<i><u style="width:${Math.round(level * 100)}%"></u></i>` : ""}`;
   o.classList.add("on");
   clearTimeout(osd.t);
-  osd.t = setTimeout(() => o.classList.remove("on"), 900);
+  osd.t = setTimeout(() => o.classList.remove("on"), 1000);
 }
+const volOsd = (v) => (v.muted || v.volume === 0 ? osd("mute", "Muted", null, 0) : osd("vol", `${Math.round(v.volume * 100)}%`, "Volume", v.volume));
 const vol = (v, d) => {
-  if (v.muted && d > 0) v.muted = false;
+  if (v.muted && d > 0) { v.muted = false; if (v.volume === 0) v.volume = 0; }
   v.volume = Math.round(Math.min(1, Math.max(0, v.volume + d)) * 10) / 10;
-  if (v.volume === 0) v.muted = true;
+  v.muted = v.volume === 0;
   localStorage.setItem("vol", v.volume);
-  osd(v.muted ? "Muted" : `Volume ${Math.round(v.volume * 100)}%`);
+  volOsd(v);
 };
 const seek = (v, d) => {
   if (!(v.duration > 0)) return;
   v.currentTime = Math.min(v.duration - 1, Math.max(0, v.currentTime + d));
-  osd(d > 0 ? `Forward ${d}s` : `Back ${-d}s`);
+  osd(d > 0 ? "fwd" : "back", d > 0 ? `+${d}s` : `−${-d}s`, `${clock(v.currentTime)} / ${clock(v.duration)}`);
 };
 window.addEventListener("keydown", (ev) => {
   if (ev.key === "Escape" && P) {
@@ -734,13 +745,13 @@ window.addEventListener("keydown", (ev) => {
   if (k === "c") return subsMenu();
   if (k === "n") return P.t.kind === "tv" ? nextEpisode() : undefined;
   if (!v) return;
-  if (k === " " || k === "k") { if (v.paused) { v.play().catch(() => {}); osd("Play"); } else { v.pause(); osd("Paused"); } }
+  if (k === " " || k === "k") { if (v.paused) { v.play().catch(() => {}); osd("play", "Play", clock(v.currentTime)); } else { v.pause(); osd("pause", "Paused", clock(v.currentTime)); } }
   else if (k === "arrowleft" || k === "j") seek(v, -10);
   else if (k === "arrowright" || k === "l") seek(v, 10);
   else if (k === "arrowup") vol(v, 0.1);
   else if (k === "arrowdown") vol(v, -0.1);
-  else if (k === "m") { v.muted = !v.muted; if (!v.muted && v.volume === 0) v.volume = 0.5; osd(v.muted ? "Muted" : `Volume ${Math.round(v.volume * 100)}%`); }
-  else if (/^[0-9]$/.test(k) && v.duration > 0) { v.currentTime = v.duration * (+k / 10); osd(`${+k * 10}%`); }
+  else if (k === "m") { v.muted = !v.muted; if (!v.muted && v.volume === 0) v.volume = 0.5; volOsd(v); }
+  else if (/^[0-9]$/.test(k) && v.duration > 0) { v.currentTime = v.duration * (+k / 10); osd("jump", `${+k * 10}%`, `${clock(v.currentTime)} / ${clock(v.duration)}`); }
 }, true);
 
 function footerSkip() {
