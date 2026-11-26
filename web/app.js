@@ -436,6 +436,8 @@ function play(url) {
   setSideways(touch && !localStorage.getItem("upright"));
   const v = st.querySelector("video");
   me.video = v;
+  const savedVol = parseFloat(localStorage.getItem("vol"));
+  if (savedVol > 0 && savedVol <= 1) v.volume = savedVol;
   if (nativeHls()) v.src = url;
   else loadHls().then((Hls) => {
     if (me !== P || me.video !== v) return;
@@ -637,6 +639,7 @@ function footer() {
     <button class="chip" id="fsrc">${esc(P.source || "Source")} ▾</button>
     ${touch ? `<button class="chip" id="frot">${sideways() ? "Upright" : "Sideways"}</button>` : ""}
     <button class="chip" id="ffull">Full screen</button>
+    ${touch ? "" : `<button class="chip" id="fkeys">Keys ?</button>`}
     <button class="chip" id="fsub">Subs · ${P.sub ? esc(P.sub.label.split(" · ")[0].slice(0, 10)) : "Off"}${P.offset ? ` ${P.offset > 0 ? "+" : ""}${P.offset.toFixed(1)}s` : ""}</button>
     ${tv && P.episodes?.length ? `<button class="chip" id="feps">Episodes</button>` : ""}
     ${tv ? `<button class="chip" id="fnext">Next ›</button>` : ""}
@@ -645,6 +648,7 @@ function footer() {
     localStorage.setItem(`src:${key(P.t)}`, n); P.tried = new Set(); start(n, false);
   } })));
   f.querySelector("#ffull").onclick = fullScreen;
+  f.querySelector("#fkeys") && (f.querySelector("#fkeys").onclick = () => sheet("Keyboard shortcuts", KEYS_HELP.map(([a, b]) => ({ label: `${a}  —  ${b}`, on: false, fn: () => {} }))));
   f.querySelector("#frot") && (f.querySelector("#frot").onclick = () => { localStorage.setItem("upright", sideways() ? "1" : ""); setSideways(!sideways()); });
   f.querySelector("#fsub").onclick = subsMenu;
   f.querySelector("#feps") && (f.querySelector("#feps").onclick = () => sheet(`Season ${P.s}`, P.episodes.map((e) => ({
@@ -682,33 +686,61 @@ function idleBars() {
 }
 document.addEventListener("pointerdown", () => P && idleBars(), true);
 document.addEventListener("mousemove", () => P && idleBars(), { passive: true });
-// Laptop keys in the player: space/K pause, ←/→ 10s, J/L 10s, ↑/↓ volume, F full screen, M mute, C subtitles, Esc close.
-const PKEYS = new Set([" ", "k", "arrowleft", "arrowright", "j", "l", "arrowup", "arrowdown", "m", "f", "c"]);
-// The browser's own key handling (on the video or a focused button) would undo Movio's, so Movio takes these keys first.
-for (const t of ["keyup", "keypress"]) window.addEventListener(t, (ev) => {
-  if (P && !ev.metaKey && !ev.ctrlKey && !ev.altKey && !/input|select|textarea/i.test(ev.target.tagName) && PKEYS.has(ev.key.toLowerCase())) { ev.preventDefault(); ev.stopImmediatePropagation(); }
-}, true);
+// Laptop keys in the player (press ? for the list):
+// Space/K pause · ←/→ 10s · J/L 10s · ↑/↓ volume · M mute · F full screen · C subtitles · N next episode · 0–9 jump · Esc close
+const KEYS_HELP = [["Space or K", "Play / pause"], ["← / →", "Back / forward 10 seconds"], ["J / L", "Back / forward 10 seconds"], ["↑ / ↓", "Volume up / down"],
+  ["M", "Mute / unmute"], ["F", "Full screen"], ["C", "Subtitles"], ["N", "Next episode"], ["0–9", "Jump to 0%–90%"], ["Esc", "Close menu / leave player"]];
+const PKEYS = new Set([" ", "k", "arrowleft", "arrowright", "j", "l", "arrowup", "arrowdown", "m", "f", "c", "n", "?", ..."0123456789"]);
+const playerKey = (ev) => P && !ev.metaKey && !ev.ctrlKey && !ev.altKey && !/input|select|textarea/i.test(ev.target.tagName) && PKEYS.has(ev.key.toLowerCase());
+// The browser's own key handling (on the video, its controls or a focused button) would undo Movio's, so Movio takes these keys first.
+for (const t of ["keyup", "keypress"]) window.addEventListener(t, (ev) => { if (playerKey(ev)) { ev.preventDefault(); ev.stopImmediatePropagation(); } }, true);
+/** Big centre readout (volume, seek, pause) so every key shows what it did. */
+function osd(text) {
+  const st = document.getElementById("stage");
+  if (!st) return;
+  let o = st.querySelector(".osd");
+  if (!o) { o = document.createElement("div"); o.className = "osd"; st.append(o); }
+  o.textContent = text;
+  o.classList.add("on");
+  clearTimeout(osd.t);
+  osd.t = setTimeout(() => o.classList.remove("on"), 900);
+}
+const vol = (v, d) => {
+  if (v.muted && d > 0) v.muted = false;
+  v.volume = Math.round(Math.min(1, Math.max(0, v.volume + d)) * 10) / 10;
+  if (v.volume === 0) v.muted = true;
+  localStorage.setItem("vol", v.volume);
+  osd(v.muted ? "Muted" : `Volume ${Math.round(v.volume * 100)}%`);
+};
+const seek = (v, d) => {
+  if (!(v.duration > 0)) return;
+  v.currentTime = Math.min(v.duration - 1, Math.max(0, v.currentTime + d));
+  osd(d > 0 ? `Forward ${d}s` : `Back ${-d}s`);
+};
 window.addEventListener("keydown", (ev) => {
-  if (!P || ev.metaKey || ev.ctrlKey || ev.altKey || /input|select|textarea/i.test(ev.target.tagName)) return;
-  const v = P.video;
-  const k = ev.key.toLowerCase();
-  if (k === "escape") {
-    if (document.querySelector(".sheet")) { document.querySelector(".scrim")?.click(); return; }
+  if (ev.key === "Escape" && P) {
+    if (document.querySelector(".sheet")) { ev.preventDefault(); document.querySelector(".scrim")?.click(); return; }
     if (!document.fullscreenElement) document.getElementById("pclose")?.click();
     return;
   }
-  if (PKEYS.has(k)) { ev.preventDefault(); ev.stopImmediatePropagation(); }
+  if (!playerKey(ev)) return;
+  ev.preventDefault(); ev.stopImmediatePropagation();
+  if (ev.repeat && !/arrow/i.test(ev.key)) return;
+  const k = ev.key.toLowerCase();
+  const v = P.video;
+  idleBars();
+  if (k === "?") return sheet("Keyboard shortcuts", KEYS_HELP.map(([a, b]) => ({ label: `${a}  —  ${b}`, on: false, fn: () => {} })));
   if (k === "f") return fullScreen();
   if (k === "c") return subsMenu();
+  if (k === "n") return P.t.kind === "tv" ? nextEpisode() : undefined;
   if (!v) return;
-  const acts = {
-    " ": () => (v.paused ? v.play() : v.pause()), k: () => (v.paused ? v.play() : v.pause()),
-    arrowleft: () => (v.currentTime -= 10), j: () => (v.currentTime -= 10),
-    arrowright: () => (v.currentTime += 10), l: () => (v.currentTime += 10),
-    arrowup: () => (v.volume = Math.min(1, v.volume + 0.1)), arrowdown: () => (v.volume = Math.max(0, v.volume - 0.1)),
-    m: () => (v.muted = !v.muted),
-  };
-  if (acts[k]) { acts[k](); idleBars(); }
+  if (k === " " || k === "k") { if (v.paused) { v.play().catch(() => {}); osd("Play"); } else { v.pause(); osd("Paused"); } }
+  else if (k === "arrowleft" || k === "j") seek(v, -10);
+  else if (k === "arrowright" || k === "l") seek(v, 10);
+  else if (k === "arrowup") vol(v, 0.1);
+  else if (k === "arrowdown") vol(v, -0.1);
+  else if (k === "m") { v.muted = !v.muted; if (!v.muted && v.volume === 0) v.volume = 0.5; osd(v.muted ? "Muted" : `Volume ${Math.round(v.volume * 100)}%`); }
+  else if (/^[0-9]$/.test(k) && v.duration > 0) { v.currentTime = v.duration * (+k / 10); osd(`${+k * 10}%`); }
 }, true);
 
 function footerSkip() {

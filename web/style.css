@@ -246,3 +246,6 @@ img[src=""] { opacity: 0; }
   .player .pbar { padding: 18px 28px 30px; }
   .player .pfoot { padding: 18px 28px 10px; }
 }
+.osd { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) scale(.9); z-index: 4; pointer-events: none; padding: 12px 22px; border-radius: 16px;
+  background: rgba(20,21,30,.72); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); font-weight: 800; font-size: 20px; opacity: 0; transition: opacity .2s, transform .2s; }
+.osd.on { opacity: 1; transform: translate(-50%, -50%) scale(1); }
