@@ -135,7 +135,7 @@ private fun Profile(open: Boolean, onClick: () -> Unit) {
 @Composable
 fun TvLogo() {
     // A soft dark band behind it, so page text scrolling up never runs into the logo.
-    Box(Modifier.fillMaxWidth().height(78.dp).background(Brush.verticalGradient(0f to Ink.copy(alpha = .92f), .6f to Ink.copy(alpha = .6f), 1f to Color.Transparent)))
+    Box(Modifier.fillMaxWidth().height(92.dp).background(Brush.verticalGradient(0f to Ink, .62f to Ink.copy(alpha = .9f), 1f to Color.Transparent)))
     Box(Modifier.padding(start = 20.dp, top = 20.dp)) { Logo(size = 20, anchor = true) }
 }
 
