@@ -261,7 +261,7 @@ function embedUrl(name, base, kind, id, s, e) {
   return `${base}/tv/${id}/${s}/${e}${name === "Vix" ? "?autoplay=true" : ""}`;
 }
 /** Movio's own player first (Club, then Movio Direct: no ads, Movio subtitles), then the sources' own players. */
-const OWN = ["Club", "Movio Direct", "Peach"];
+const OWN = ["Club", "Movio Direct", "Peach", "Mist", "Main"];
 function sourceOrder(kind) {
   const first = ["Nero", "Flixify"];
   const rest = EMBEDS.map((x) => x[0]).filter((n) => !first.includes(n) && !OWN.includes(n));
@@ -326,7 +326,7 @@ async function start(name, auto = true) {
   footer();
   if (!OWN.includes(name)) return embed(name);
   if (!canHls()) return next();
-  if (name === "Club" || name === "Peach") return viaHelper(name.toLowerCase());
+  if (name !== "Movio Direct") return viaHelper(name.toLowerCase());
   finding("Finding the best stream");
   try {
     const path = me.t.kind === "tv" ? `tv/${me.t.id}/${me.s}/${me.e}` : `movie/${me.t.id}`;

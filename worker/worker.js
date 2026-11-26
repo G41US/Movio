@@ -29,11 +29,20 @@ async function hls(req, env, url) {
   const buf = await r.arrayBuffer();
   const head = new TextDecoder().decode(buf.slice(0, 7));
   if (head !== "#EXTM3U") {
+    let body = buf;
+    const b = new Uint8Array(buf);
+    // Video chunks disguised as images: the real MPEG-TS starts after a short fake header.
+    if (b.length > 400 && b[0] !== 0x47 && !(b[4] === 0x66 && b[5] === 0x74 && b[6] === 0x79 && b[7] === 0x70)) {
+      for (let i = 1; i < Math.min(b.length - 376, 8192); i++) {
+        if (b[i] === 0x47 && b[i + 188] === 0x47 && b[i + 376] === 0x47) { body = buf.slice(i); break; }
+      }
+    }
     const hh = new Headers(r.headers);
     for (const [k, v] of Object.entries(CORS)) hh.set(k, v);
     hh.set("Cache-Control", "public, max-age=3600");
     hh.delete("set-cookie"); hh.delete("content-encoding"); hh.delete("content-length");
-    return new Response(buf, { status: r.status, headers: hh });
+    if (body !== buf) hh.set("Content-Type", "video/mp2t");
+    return new Response(body, { status: r.status, headers: hh });
   }
   const text = new TextDecoder().decode(buf);
   const base = r.url;
@@ -69,6 +78,18 @@ async function cached(target, init, seconds, ctx) {
   return res;
 }
 
+// Mist's player build string (part of its key); update if Mist changes its player.
+const MIST_BUILD = "spv3-build-1787821613-50e5fc97c9dce367";
+async function sha256hex(t) {
+  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(t));
+  return [...new Uint8Array(d)].map((x) => x.toString(16).padStart(2, "0")).join("");
+}
+const hexBytes = (h) => new Uint8Array(h.match(/../g).map((x) => parseInt(x, 16)));
+function b64url(s) {
+  s = s.replace(/-/g, "+").replace(/_/g, "/");
+  while (s.length % 4) s += "=";
+  return Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+}
 const json200 = (o) => new Response(JSON.stringify(o), { headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" } });
 
 export default {
@@ -120,6 +141,47 @@ export default {
           headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" } });
       }
       if (p === "/hls") return hls(req, env, url);
+      // Mist: decrypts its server list, returns the first HLS server that answers.
+      if (p.startsWith("/mist/")) {
+        const [kind, id, se, ep] = p.slice(6).split("/");
+        const MIST = "https://play.xpass.top";
+        const page = kind === "tv" ? `${MIST}/e/tv/${id}/${se}/${ep}` : `${MIST}/e/movie/${id}`;
+        const H = (ref) => ({ headers: { "User-Agent": UA, Referer: ref } });
+        const html = await fetch(page, H("https://braflix.at/")).then((r) => r.text()).catch(() => "");
+        const du = (html.match(/dataUrl="([^"]+)"/) || [])[1];
+        if (!du) return json200({ ok: false });
+        const d = new URL(du, MIST);
+        const enc = (await fetch(d.href, H(page)).then((r) => r.text()).catch(() => "")).trim();
+        let list = [];
+        try {
+          const keyHex = await sha256hex(`spv3-data-response|${MIST_BUILD}|${d.pathname}|${d.searchParams.get("token")}`);
+          const key = await crypto.subtle.importKey("raw", hexBytes(keyHex), { name: "AES-GCM" }, false, ["decrypt"]);
+          const b = b64url(enc);
+          list = JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: b.slice(0, 12) }, key, b.slice(12))));
+        } catch { return json200({ ok: false }); }
+        for (const item of list.slice(0, 10)) {
+          if (!item.url || item.url.startsWith("/video/")) continue;
+          try {
+            const pl = await fetch(new URL(item.url, MIST).href, H(page)).then((r) => r.json());
+            const arr = Array.isArray(pl) ? pl : pl.playlist;
+            const file = arr && arr[0] && ((arr[0].sources || [])[0] || {}).file;
+            if (!file || !/^https:/.test(file) || /cf-master|\.mp4($|\?)/.test(file)) continue;
+            const t = await fetch(file, H(MIST + "/"));
+            if (!t.ok || !(await t.text()).startsWith("#EXTM3U")) continue;
+            return json200({ ok: true, url: await hlsLink(env, url.origin, file, MIST + "/"), tracks: [] });
+          } catch {}
+        }
+        return json200({ ok: false });
+      }
+      // Main (Vidzee): its stream API.
+      if (p.startsWith("/main/")) {
+        const [kind, id, se, ep] = p.slice(6).split("/");
+        const q = kind === "tv" ? `type=tv&tmdb=${id}&s=${se}&e=${ep}` : `type=movie&tmdb=${id}`;
+        const d = await fetch(`https://vidzy-0aej.onrender.com/api/stream?${q}`, { headers: { "User-Agent": UA } }).then((r) => r.json()).catch(() => null);
+        const src = d && d.available !== false && (d.m3u8 || ((d.sources || []).find((x) => x && x.url) || {}).url);
+        if (!src) return json200({ ok: false });
+        return json200({ ok: true, url: await hlsLink(env, url.origin, src, "https://player.vidzee.wtf/"), tracks: [] });
+      }
       // Peach: its player's stream API (backup API for films), played through here.
       if (p.startsWith("/peach/")) {
         const [kind, id, se, ep] = p.slice(7).split("/");
