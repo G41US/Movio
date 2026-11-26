@@ -32,14 +32,15 @@ jobs:
           WYZIE_API_KEY: ${{ secrets.WYZIE_API_KEY }}
         run: |
           if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
-            echo "::warning::Add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID secrets to set up the helper."
-            echo "url=" >> "$GITHUB_OUTPUT"; exit 0
+            echo "::warning::Add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID secrets so the helper gets its keys and updates."
+            echo "url=https://movio-helper.g41us-jarvis.workers.dev" >> "$GITHUB_OUTPUT"; exit 0
           fi
           cd worker
           npx --yes wrangler@3 deploy 2>&1 | tee out.txt
           printf '%s' "$TMDB_API_KEY" | npx --yes wrangler@3 secret put TMDB_KEY
           printf '%s' "$WYZIE_API_KEY" | npx --yes wrangler@3 secret put WYZIE_KEY
           url=$(grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' out.txt | head -1)
+          url=${url:-https://movio-helper.g41us-jarvis.workers.dev}
           echo "Helper: $url"
           echo "url=$url" >> "$GITHUB_OUTPUT"
       - name: App config
