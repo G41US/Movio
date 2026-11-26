@@ -102,7 +102,7 @@ select.season { appearance: none; -webkit-appearance: none; background: none; bo
 .ep b { font-size: 14px; display: block; }
 .ep small { font-size: 12px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-top: 3px; }
 .cast { display: flex; gap: 14px; overflow-x: auto; padding: 0 18px; scrollbar-width: none; }
-.cast div { flex: 0 0 84px; text-align: center; }
+.cast > * { flex: 0 0 84px; text-align: center; }
 .cast img { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; margin: 0 auto 6px; background: var(--panel); }
 .cast b { font-size: 11px; display: block; } .cast small { font-size: 10px; color: var(--muted); }
 
@@ -159,3 +159,83 @@ img[src=""] { opacity: 0; }
 .subs span { display: inline-block; padding: 2px 8px; border-radius: 6px; background: rgba(0,0,0,.45); color: #fff; font-weight: 600; line-height: 1.3;
   font-size: 17px; font-size: calc(clamp(13px, min(4.8cqh, 3cqw), 28px) * var(--sub, .8)); text-shadow: 0 1px 2px rgba(0,0,0,.8); }
 .player.side .sheet .opt { padding: 10px; }
+
+/* Person */
+.brand, .slide .ov, .arrow { display: none; }
+.phead { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 14px; padding: calc(var(--top) + 56px) 18px 0; }
+.pphoto { width: 150px; height: 150px; border-radius: 50%; object-fit: cover; object-position: top; background: var(--panel); }
+.pinfo h1 { margin: 0 0 6px; font-size: 28px; font-weight: 800; }
+.bio { font-size: 14px; line-height: 1.55; color: var(--soft); margin: 12px 0 0; text-align: left; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
+.bio.open { -webkit-line-clamp: unset; display: block; }
+.pfilter { display: flex; gap: 8px; padding: 18px 16px 14px; overflow-x: auto; scrollbar-width: none; }
+.pcard b { display: block; font-size: 12px; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pcard small { display: block; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Laptop and desktop */
+@media (min-width: 1000px) and (pointer: fine) {
+  #tabs { top: 0; bottom: auto; justify-content: flex-start; align-items: center; gap: 6px; height: 64px; padding: 0 48px; border-top: 0;
+    background: linear-gradient(rgba(7,8,13,.92), rgba(7,8,13,.55)); border-bottom: .5px solid rgba(255,255,255,.06); }
+  .brand { display: block; font-size: 24px; font-weight: 800; margin-right: 28px; background: linear-gradient(90deg, var(--violet), var(--pink)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  #tabs a { flex: 0 0 auto; flex-direction: row; gap: 8px; font-size: 15px; font-weight: 700; color: #B9BAC6; padding: 8px 14px; border-radius: 10px; }
+  #tabs a:hover { background: rgba(255,255,255,.07); color: #fff; }
+  #tabs a.on { color: #fff; background: rgba(155,109,255,.18); }
+  #tabs svg { width: 19px; height: 19px; }
+  main { padding-bottom: 60px; }
+  .pad-top { padding-top: 92px; }
+  h1.title { padding: 0 48px 14px; font-size: 40px; }
+  h2 { padding: 0 48px; font-size: 22px; margin-bottom: 14px; }
+  .back { top: 80px; left: 40px; }
+  .hero { height: 82vh; max-height: 820px; min-height: 560px; }
+  .slide .shade { background: linear-gradient(90deg, rgba(7,8,13,.85), rgba(7,8,13,.35) 45%, transparent 70%), linear-gradient(transparent 55%, var(--ink)); }
+  .slide .info { left: 48px; right: auto; max-width: 560px; bottom: 90px; }
+  .slide h3 { font-size: 56px; margin-bottom: 12px; }
+  .slide .meta { font-size: 16px; }
+  .slide .ov { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; font-size: 16px; line-height: 1.55; color: var(--soft); margin: 14px 0 0; }
+  .btn { height: 50px; padding: 0 26px; font-size: 17px; }
+  .btn.round { width: 50px; }
+  .btn:hover { filter: brightness(1.12); }
+  .rows { gap: 38px; margin-top: 26px; }
+  .row { position: relative; }
+  .row .scroll, .cast { padding: 6px 48px; scroll-padding-inline: 48px; gap: 14px; scroll-behavior: smooth; }
+  .poster { width: 180px; height: 270px; }
+  .ranked b { font-size: 190px; letter-spacing: -10px; }
+  .ranked .poster { width: 170px; height: 255px; }
+  .cont { width: 380px; height: 214px; }
+  .cont .n { font-size: 17px; }
+  .card { cursor: pointer; transition: transform .2s; }
+  .card:hover { transform: scale(1.05); }
+  .card:hover .poster, .card.cont:hover { box-shadow: 0 10px 30px rgba(0,0,0,.6), 0 0 0 2px rgba(255,255,255,.85); }
+  .arrow { display: grid; place-items: center; position: absolute; top: 40px; bottom: 6px; width: 44px; z-index: 3; background: linear-gradient(90deg, rgba(7,8,13,.9), transparent); opacity: 0; transition: opacity .2s; }
+  .arrow.r { right: 0; background: linear-gradient(-90deg, rgba(7,8,13,.9), transparent); }
+  .arrow.l { left: 0; }
+  .row:hover .arrow { opacity: 1; }
+  .arrow svg { width: 30px; height: 30px; fill: none; stroke: #fff; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 22px 16px; padding: 0 48px; }
+  .searchbox { margin: 0 48px 22px; max-width: 640px; height: 48px; }
+  .dhead { height: 72vh; max-height: 720px; }
+  .dhead .shade { background: linear-gradient(90deg, rgba(7,8,13,.8), transparent 60%), linear-gradient(transparent 50%, var(--ink)); }
+  .dhead .logo { left: 48px; bottom: 20px; max-width: 460px; max-height: 160px; }
+  .dhead h3 { left: 48px; font-size: 52px; bottom: 16px; }
+  .dbody { padding: 14px 48px 0; max-width: 980px; }
+  .dbody p { font-size: 16px; }
+  .btn.wide { flex: 0 0 auto; min-width: 220px; }
+  select.season { padding: 0 48px; font-size: 22px; }
+  .eps { display: grid; grid-template-columns: repeat(auto-fill, minmax(440px, 1fr)); padding: 14px 40px 0; gap: 8px; }
+  .ep:hover { background: rgba(255,255,255,.06); }
+  .ep .th { flex-basis: 200px; height: 112px; }
+  .cast > * { flex-basis: 120px; }
+  .cast img { width: 104px; height: 104px; }
+  .cast a:hover img { box-shadow: 0 0 0 2px #fff; }
+  .cast b { font-size: 13px; } .cast small { font-size: 12px; }
+  .phead { flex-direction: row; align-items: flex-start; text-align: left; gap: 36px; padding: 100px 48px 0; }
+  .pphoto { width: 220px; height: 330px; border-radius: 18px; flex: 0 0 auto; }
+  .pinfo { max-width: 860px; }
+  .pinfo h1 { font-size: 44px; }
+  .bio { font-size: 16px; -webkit-line-clamp: 7; }
+  .pfilter { padding: 28px 48px 18px; }
+  .pcard b { font-size: 14px; } .pcard small { font-size: 12px; }
+  .pcard:hover .poster { box-shadow: 0 0 0 2px #fff; }
+  .sheet { left: auto; right: 24px; width: 420px; bottom: 24px; border-radius: 22px; }
+  .player .pbar { padding: 18px 28px 30px; }
+  .player .pfoot { padding: 18px 28px 10px; }
+}

@@ -136,6 +136,7 @@ async function home() {
       <div class="slide"><img src="${img(t.backdrop, "w1280")}" alt=""><div class="shade"></div>
         <div class="info"><h3>${esc(t.name)}</h3>
           <div class="meta">${[t.year, t.kind === "tv" ? "Series" : "Movie", "★ " + t.rating.toFixed(1)].filter(Boolean).join("  ·  ")}</div>
+          <p class="ov">${esc(t.overview)}</p>
           <div class="btns">
             <a class="btn white" href="${playTarget(t)}">${ICON.play}Play</a>
             <button class="btn glass" data-list="${key(t)}">${inList(t) ? ICON.check : ICON.plus}My List</button>
@@ -227,7 +228,7 @@ async function details(kind, id) {
       <div class="genres">${esc((o.genres || []).map((g) => g.name).join(" · "))}</div>
     </div>
     ${kind === "tv" && seasons.length ? `<div style="margin-top:22px"><select class="season" id="season">${seasons.map((s) => `<option value="${s.season_number}" ${s.season_number === season ? "selected" : ""}>${esc(s.name)} ⌄</option>`).join("")}</select><div class="eps" id="eps">${loading()}</div></div>` : ""}
-    ${cast.length ? `<section class="row" style="margin-top:24px"><h2>Cast</h2><div class="cast">${cast.map((c) => `<div><img loading="lazy" src="${img(c.profile_path, "w185")}" alt=""><b>${esc(c.name)}</b><small>${esc(c.character || "")}</small></div>`).join("")}</div></section>` : ""}
+    ${cast.length ? `<section class="row" style="margin-top:24px"><h2>Cast</h2><div class="cast">${cast.map((c) => `<a href="#/person/${c.id}"><img loading="lazy" src="${img(c.profile_path, "w185")}" alt=""><b>${esc(c.name)}</b><small>${esc(c.character || "")}</small></a>`).join("")}</div></section>` : ""}
     ${similar.length ? `<div style="margin-top:24px">${rowHtml({ name: "More like this", items: similar })}</div>` : ""}`;
   if (kind === "tv" && seasons.length) {
     const sel = document.getElementById("season");
@@ -248,11 +249,67 @@ async function details(kind, id) {
   }
 }
 
+// ---------- Person: everything they've been in ----------
+async function person(id) {
+  view.innerHTML = `<a class="back" href="javascript:history.back()">${ICON.back}</a>${loading()}`;
+  const o = await tmdb(`person/${id}`, { append_to_response: "combined_credits" });
+  const seen = new Set();
+  const cc = o.combined_credits || {};
+  // Actors: roles they played. Directors, writers…: their work behind the camera too.
+  const all = [...(cc.cast || []), ...(o.known_for_department && o.known_for_department !== "Acting" ? cc.crew || [] : [])]
+    .filter((c) => (c.media_type === "movie" || c.media_type === "tv") && c.poster_path)
+    // chat shows, news and award-show guest spots crowd out the real work
+    .filter((c) => !(c.media_type === "tv" && ((c.genre_ids || []).some((g) => g === 10767 || g === 10763) || /^(self|himself|herself)\b/i.test(c.character || ""))))
+    .sort((a, b) => (b.popularity || 0) - (a.popularity || 0))
+    .filter((c) => { const k = c.media_type + c.id; if (seen.has(k)) return false; seen.add(k); return true; });
+  const items = all.map((c) => ({ t: parse(c), role: c.character || c.job || "" })).filter((x) => x.t);
+  const age = o.birthday ? Math.floor((Date.now() - new Date(o.birthday)) / 31557600000) : null;
+  const facts = [o.known_for_department, o.birthday ? (o.deathday ? `${o.birthday.slice(0, 4)}–${o.deathday.slice(0, 4)}` : `Born ${o.birthday.slice(0, 4)} · ${age}`) : null, o.place_of_birth].filter(Boolean).join("  ·  ");
+  const card = (x) => `<a class="pcard" href="${href(x.t)}" data-k="${x.t.kind}"><img class="poster" loading="lazy" src="${img(x.t.poster, "w342")}" alt="">
+    <b>${esc(x.t.name)}</b><small>${esc([x.t.year, x.role].filter(Boolean).join(" · "))}</small></a>`;
+  const nMovie = items.filter((x) => x.t.kind === "movie").length, nTv = items.length - nMovie;
+  view.innerHTML = `<a class="back" href="javascript:history.back()">${ICON.back}</a>
+    <div class="phead pad-top">
+      <img class="pphoto" src="${img(o.profile_path, "h632")}" alt="">
+      <div class="pinfo"><h1>${esc(o.name)}</h1><div class="meta">${esc(facts)}</div>
+        ${o.biography ? `<p class="bio" id="bio">${esc(o.biography)}</p>` : ""}</div>
+    </div>
+    <div class="pfilter">${[["all", `All ${items.length}`], ["movie", `Movies ${nMovie}`], ["tv", `Shows ${nTv}`]].filter(([k], i) => i === 0 || (k === "movie" ? nMovie : nTv))
+      .map(([k, l], i) => `<button class="chip ${i ? "" : "on"}" data-f="${k}">${l}</button>`).join("")}</div>
+    <div class="grid pgrid">${items.map(card).join("") || `<div class="empty"><span class="muted">No titles found.</span></div>`}</div>`;
+  document.getElementById("bio")?.addEventListener("click", (e) => e.currentTarget.classList.toggle("open"));
+  view.querySelectorAll(".pfilter .chip").forEach((b) => b.onclick = () => {
+    view.querySelectorAll(".pfilter .chip").forEach((x) => x.classList.toggle("on", x === b));
+    view.querySelectorAll(".pcard").forEach((c) => (c.style.display = b.dataset.f === "all" || c.dataset.k === b.dataset.f ? "" : "none"));
+  });
+}
+
+// ---------- Rows on laptops: arrow buttons ----------
+new MutationObserver(() => {
+  if (touch) return;
+  for (const row of view.querySelectorAll(".row:not(.arrows)")) {
+    const sc = row.querySelector(".scroll, .cast");
+    if (!sc) continue;
+    row.classList.add("arrows");
+    for (const d of [-1, 1]) {
+      const b = document.createElement("button");
+      b.className = `arrow ${d < 0 ? "l" : "r"}`;
+      b.innerHTML = `<svg viewBox="0 0 24 24"><path d="${d < 0 ? "M15 5l-7 7 7 7" : "M9 5l7 7-7 7"}"/></svg>`;
+      b.onclick = () => sc.scrollBy({ left: d * sc.clientWidth * 0.85, behavior: "smooth" });
+      row.append(b);
+    }
+  }
+}).observe(view, { childList: true, subtree: true });
+
 // ---------- Player ----------
 /** Only sources that play in Movio's own player (no ads). Main has films only. */
 const OWN = ["Club", "Movio Direct", "Peach", "Mist", "Main"];
 const sourceOrder = (kind) => OWN.filter((n) => kind !== "tv" || n !== "Main");
-const canHls = () => !!document.createElement("video").canPlayType("application/vnd.apple.mpegurl");
+const nativeHls = () => !!document.createElement("video").canPlayType("application/vnd.apple.mpegurl");
+const canHls = () => nativeHls() || !!window.MediaSource;
+let hlsLib = null;
+const loadHls = () => (hlsLib ||= new Promise((ok, no) => { const sc = document.createElement("script"); sc.src = "hls.min.js"; sc.onload = () => ok(window.Hls); sc.onerror = no; document.head.append(sc); }));
+const touch = matchMedia("(pointer: coarse)").matches;
 
 let P = null; // the open player
 
@@ -261,6 +318,8 @@ function closePlayer() {
   P.dead = true;
   savePlayer();
   P.tracks?.forEach((x) => x.blob && URL.revokeObjectURL(x.blob));
+  P.hls?.destroy();
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   P = null;
   document.body.classList.remove("playing");
 }
@@ -371,14 +430,31 @@ function next() {
 function play(url) {
   const me = P;
   const st = document.getElementById("stage");
-  st.innerHTML = `<video playsinline controls autoplay preload="auto" x-webkit-airplay="allow" src="${esc(url)}"></video><div class="subs"></div>`;
-  setSideways(!localStorage.getItem("upright"));
+  me.hls?.destroy(); me.hls = null;
+  st.innerHTML = `<video playsinline controls autoplay preload="auto" x-webkit-airplay="allow"></video><div class="subs"></div>`;
+  setSideways(touch && !localStorage.getItem("upright"));
   const v = st.querySelector("video");
   me.video = v;
+  if (nativeHls()) v.src = url;
+  else loadHls().then((Hls) => {
+    if (me !== P || me.video !== v) return;
+    const h = new Hls({ maxBufferLength: 60 });
+    me.hls = h;
+    h.on(Hls.Events.ERROR, (_, d) => { if (d.fatal) { if (d.type === "mediaError") h.recoverMediaError(); else fail(); } });
+    h.loadSource(url);
+    h.attachMedia(v);
+  }).catch(() => fail());
   let ok = false, lastSave = 0;
   const fail = () => { if (me === P && !ok) { me.video = null; next(); } };
   const timer = setTimeout(fail, 30000);
-  v.addEventListener("error", () => { clearTimeout(timer); fail(); });
+  let recovered = false;
+  v.addEventListener("error", () => {
+    clearTimeout(timer);
+    // A hiccup mid-film: let hls.js try to recover once before moving to another source.
+    if (ok && me.hls && !recovered) { recovered = true; me.hls.recoverMediaError(); return; }
+    if (ok) { ok = false; }
+    fail();
+  });
   v.addEventListener("loadedmetadata", () => {
     clearTimeout(timer);
     if (v.duration > 0 && v.duration < 150) return fail(); // an ad clip, not the title
@@ -549,7 +625,7 @@ function footer() {
   const tv = P.t.kind === "tv";
   f.innerHTML = `
     <button class="chip" id="fsrc">${esc(P.source || "Source")} ▾</button>
-    <button class="chip" id="frot">${sideways() ? "Upright" : "Sideways"}</button>
+    ${touch ? `<button class="chip" id="frot">${sideways() ? "Upright" : "Sideways"}</button>` : ""}
     <button class="chip" id="ffull">Full screen</button>
     <button class="chip" id="fsub">Subs · ${P.sub ? esc(P.sub.label.split(" · ")[0].slice(0, 10)) : "Off"}${P.offset ? ` ${P.offset > 0 ? "+" : ""}${P.offset.toFixed(1)}s` : ""}</button>
     ${tv && P.episodes?.length ? `<button class="chip" id="feps">Episodes</button>` : ""}
@@ -559,7 +635,7 @@ function footer() {
     localStorage.setItem(`src:${key(P.t)}`, n); P.tried = new Set(); start(n, false);
   } })));
   f.querySelector("#ffull").onclick = fullScreen;
-  f.querySelector("#frot").onclick = () => { localStorage.setItem("upright", sideways() ? "1" : ""); setSideways(!sideways()); };
+  f.querySelector("#frot") && (f.querySelector("#frot").onclick = () => { localStorage.setItem("upright", sideways() ? "1" : ""); setSideways(!sideways()); });
   f.querySelector("#fsub").onclick = subsMenu;
   f.querySelector("#feps") && (f.querySelector("#feps").onclick = () => sheet(`Season ${P.s}`, P.episodes.map((e) => ({
     label: `${e.episode_number}. ${e.name}`, on: e.episode_number === P.e, fn: () => location.replace(playHref(P.t, P.s, e.episode_number)),
@@ -570,7 +646,7 @@ function footer() {
 const sideways = () => !!document.querySelector(".player.sideways");
 function sideClass() {
   const el = document.querySelector(".player");
-  if (el) el.classList.toggle("side", el.classList.contains("sideways") || (innerWidth > innerHeight && innerHeight < 540));
+  if (el) el.classList.toggle("side", !touch || el.classList.contains("sideways") || (innerWidth > innerHeight && innerHeight < 540));
 }
 addEventListener("resize", sideClass);
 function setSideways(on) {
@@ -581,7 +657,8 @@ function setSideways(on) {
 /** Full screen (iPhone uses its own video player, which turns sideways with the phone). */
 function fullScreen() {
   const v = P?.video;
-  if (v && v.webkitEnterFullscreen) { try { v.webkitEnterFullscreen(); return; } catch {} }
+  if (touch && v && v.webkitEnterFullscreen && !document.fullscreenEnabled) { try { v.webkitEnterFullscreen(); return; } catch {} }
+  if (document.fullscreenElement) return void document.exitFullscreen().catch(() => {});
   const el = document.querySelector(".player");
   (el?.requestFullscreen?.() || Promise.resolve()).then(() => screen.orientation?.lock?.("landscape")).catch(() => {});
 }
@@ -594,6 +671,29 @@ function idleBars() {
   idleBars.t = setTimeout(() => el.classList.add("idle"), 3000);
 }
 document.addEventListener("pointerdown", () => P && idleBars(), true);
+document.addEventListener("mousemove", () => P && idleBars(), { passive: true });
+// Laptop keys in the player: space/K pause, ←/→ 10s, J/L 10s, ↑/↓ volume, F full screen, M mute, C subtitles, Esc close.
+document.addEventListener("keydown", (ev) => {
+  if (!P || ev.metaKey || ev.ctrlKey || ev.altKey || /input|select|textarea/i.test(ev.target.tagName)) return;
+  const v = P.video;
+  const k = ev.key.toLowerCase();
+  if (k === "escape") {
+    if (document.querySelector(".sheet")) { document.querySelector(".scrim")?.click(); return; }
+    if (!document.fullscreenElement) document.getElementById("pclose")?.click();
+    return;
+  }
+  if (k === "f") return fullScreen();
+  if (k === "c") return subsMenu();
+  if (!v) return;
+  const acts = {
+    " ": () => (v.paused ? v.play() : v.pause()), k: () => (v.paused ? v.play() : v.pause()),
+    arrowleft: () => (v.currentTime -= 10), j: () => (v.currentTime -= 10),
+    arrowright: () => (v.currentTime += 10), l: () => (v.currentTime += 10),
+    arrowup: () => (v.volume = Math.min(1, v.volume + 0.1)), arrowdown: () => (v.volume = Math.max(0, v.volume - 0.1)),
+    m: () => (v.muted = !v.muted),
+  };
+  if (acts[k]) { ev.preventDefault(); acts[k](); idleBars(); }
+});
 
 function footerSkip() {
   const b = document.getElementById("fskip");
@@ -644,6 +744,7 @@ async function route() {
     else if (parts[0] === "search") await search();
     else if (parts[0] === "list") myListView();
     else if (parts[0] === "title") await details(parts[1], parts[2]);
+    else if (parts[0] === "person") await person(parts[1]);
     else if (parts[0] === "play") await player(parts[1], parts[2], parts[3] || 1, parts[4] || 1);
     else await home();
   } catch {
