@@ -431,7 +431,8 @@ function play(url) {
   const me = P;
   const st = document.getElementById("stage");
   me.hls?.destroy(); me.hls = null;
-  st.innerHTML = `<video playsinline controls autoplay preload="auto" x-webkit-airplay="allow"></video><div class="subs"></div>`;
+  // Laptops: the video's own full-screen button would leave Movio's subtitles behind, so full screen goes through Movio's (F, the chip, or a double-click).
+  st.innerHTML = `<video playsinline controls ${touch ? "" : 'controlslist="nofullscreen" disablepictureinpicture'} autoplay preload="auto" x-webkit-airplay="allow"></video><div class="subs"></div>`;
   setSideways(touch && !localStorage.getItem("upright"));
   const v = st.querySelector("video");
   me.video = v;
@@ -471,9 +472,18 @@ function play(url) {
   // iPhone's own full screen player can't see Movio's subtitle layer, so it shows the chosen track itself.
   v.addEventListener("webkitbeginfullscreen", () => P?.sub?.node && (P.sub.node.track.mode = "showing"));
   v.addEventListener("webkitendfullscreen", () => P?.tracks.forEach((y) => y.node && (y.node.track.mode = "hidden")));
+  if (!touch) v.addEventListener("dblclick", (e) => { e.preventDefault(); fullScreen(); });
+  // If the video alone still ends up full screen (e.g. Safari on a Mac), the browser draws the chosen subtitles itself.
+  const nativeFs = () => {
+    if (P?.video !== v) return;
+    const on = document.fullscreenElement === v || document.webkitFullscreenElement === v;
+    P?.tracks.forEach((y) => y.node && (y.node.track.mode = on && y === P.sub ? "showing" : "hidden"));
+  };
+  document.addEventListener("fullscreenchange", nativeFs);
+  document.addEventListener("webkitfullscreenchange", nativeFs);
   // Picking from the video's own captions menu works too.
   v.textTracks.addEventListener("change", () => {
-    if (!P || v.webkitDisplayingFullscreen) return;
+    if (!P || v.webkitDisplayingFullscreen || document.fullscreenElement === v) return;
     const on = [...v.textTracks].find((t) => t.mode === "showing");
     if (on) pickSub(P.tracks.find((y) => y.node?.track === on) || null);
   });
