@@ -50,12 +50,12 @@ body.playing #tabs { display: none; }
 
 /* Rows */
 .rows { display: flex; flex-direction: column; gap: 26px; margin-top: 18px; }
-.row .scroll { display: flex; gap: 10px; overflow-x: auto; padding: 0 18px; scroll-padding-inline: 18px; scrollbar-width: none; scroll-snap-type: x proximity; }
+.row .scroll { display: flex; gap: 10px; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; touch-action: pan-x pan-y; padding: 0 18px; scroll-padding-inline: 18px; scrollbar-width: none; scroll-snap-type: x proximity; }
 .row .scroll::-webkit-scrollbar { display: none; }
 .card { flex: 0 0 auto; scroll-snap-align: start; transition: transform .15s; }
 .poster { width: 116px; height: 174px; border-radius: 12px; object-fit: cover; background: var(--panel); }
 .ranked { display: flex; align-items: flex-end; }
-.ranked b { font-size: 112px; font-weight: 800; line-height: .8; letter-spacing: -6px; margin-right: -4px; padding-left: 10px; transform: translateY(10px);
+.ranked b { font-size: 112px; font-weight: 800; line-height: .8; letter-spacing: -6px; margin-right: -4px; padding-left: 10px;
   background: linear-gradient(#fff, #E3DEFF 55%, #8F86C2); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .ranked .poster { width: 108px; height: 162px; position: relative; }
 .cont { position: relative; width: 236px; height: 133px; border-radius: 14px; overflow: hidden; background: var(--panel); }
