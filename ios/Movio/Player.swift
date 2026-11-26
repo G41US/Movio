@@ -34,6 +34,12 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
     @Published var offset: Double = 0
     @Published var fill = false
     @Published var episodes: [Episode] = []
+    @Published var segments: [Segment] = []
+    @Published var countdown: Int?
+    @Published var syncStatus = "Waiting for the film"
+    @Published var fit = SubFit()
+    let offline: DownloadItem?
+    let nowPlaying = NowPlaying()
 
     let player = AVPlayer()
     let web: WKWebView
@@ -60,11 +66,21 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
     private var ua = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
     private let store = Store.shared
     private var observers: [NSObjectProtocol] = []
+    private var fromCache = false
+    private var countdownEnd: Date?
+    private var countdownCancelled = false
+    private var headers: [String: String] = [:]
+    private var cookies: [HTTPCookie] = []
+    private var speech: [Float]?
+    private var speechFor: URL?
+    private var cueCache: [URL: [Cue]] = [:]
+    private var posKey: String { Store.posKey(title, season, episode) }
 
     init(_ req: PlayRequest) {
         title = req.title
         season = req.season
         episode = req.episode
+        offline = req.offline.flatMap { id in Downloads.shared.item(id) }
         let cfg = WKWebViewConfiguration()
         cfg.allowsInlineMediaPlayback = true
         cfg.mediaTypesRequiringUserActionForPlayback = []
@@ -101,8 +117,32 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
             runtime = await TMDB.runtime(title.kind, title.id, season, episode)
             if title.kind == .tv { episodes = (try? await TMDB.episodes(title.id, season)) ?? [] }
         }
+        nowPlaying.attach(self)
+        loadSegments()
+        if let off = offline, let file = off.fileURL {
+            // Saved on the phone: no searching, no network.
+            sourceIndex = 0
+            if let sub = off.subtitleURL { let t = SubTrack(label: "Saved subtitles", lang: "en", url: sub); tracks = [t]; select(t) }
+            trying = (file, "")
+            status = "Opening download"
+            let item = AVPlayerItem(asset: AVURLAsset(url: file))
+            statusObs = item.observe(\.status, options: [.new]) { [weak self] it, _ in
+                Task { @MainActor in self?.itemStatus(it, 0) }
+            }
+            player.replaceCurrentItem(with: item)
+            return
+        }
         loadSubtitles()
         start(Sources.index(first), automatic: true)
+    }
+
+    private func loadSegments() {
+        segments = []; countdown = nil; countdownEnd = nil; countdownCancelled = false
+        let (s, e) = (season, episode)
+        Task {
+            let found = await Segments.find(title.kind, title.id, s, e)
+            if s == season && e == episode { segments = found }
+        }
     }
 
     var label: String { title.kind == .tv ? "S\(season) · E\(episode)" : (title.year ?? "") }
@@ -111,7 +151,7 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
 
     // MARK: Finding a stream
 
-    func start(_ index: Int, automatic: Bool) {
+    func start(_ index: Int, automatic: Bool, useCache: Bool = true) {
         if phase == .playing { savePosition() }
         if !automatic { autoTried = 0; store.setSource(Sources.all[index].name) }
         auto = automatic
@@ -125,6 +165,15 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
         phase = .finding
         status = autoTried > 0 ? "Finding the best stream" : "Loading"
         let src = Sources.all[index]
+        if useCache, !src.web, let link = Links.get(posKey, src.name) {
+            // Played this before on this source: its stream link usually still works.
+            fromCache = true
+            status = "Resuming"
+            trying = link
+            Task { await play(link.url, page: link.page) }
+            return
+        }
+        fromCache = false
         let url = src.url(title.kind, title.id, season, episode)
         pageHost = url.host ?? ""
         var r = URLRequest(url: url)
@@ -172,6 +221,8 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
         }
         let cookies = await web.configuration.websiteDataStore.httpCookieStore.allCookies()
         guard token == attempt else { return }
+        self.headers = headers
+        self.cookies = cookies
         let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": headers, AVURLAssetHTTPCookiesKey: cookies])
         let item = AVPlayerItem(asset: asset)
         item.preferredForwardBufferDuration = 20
@@ -182,7 +233,7 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
     }
 
     private func itemStatus(_ item: AVPlayerItem, _ token: Int) {
-        guard token == attempt, item === player.currentItem else { return }
+        guard token == attempt || offline != nil, item === player.currentItem else { return }
         switch item.status {
         case .readyToPlay: ready(item)
         case .failed: onFailed()
@@ -197,6 +248,7 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
         if d.isFinite && d > 0 {
             // Short clips are ads; far from the real runtime means the wrong title.
             let wrongLength = d < 150 || (runtime.map { $0 > 0 && abs(d - $0) / $0 > 0.3 } ?? false)
+            if wrongLength && fromCache { retryFresh(); return }
             if wrongLength {
                 rejected.insert(t.url.absoluteString); trying = nil
                 player.replaceCurrentItem(with: nil)
@@ -206,18 +258,33 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
         }
         phase = .playing
         reconnects = 0
-        Sources.score(sourceIndex, Date().timeIntervalSince(startedAt))
-        failedSources.remove(sourceIndex)
+        if offline == nil {
+            Sources.score(sourceIndex, Date().timeIntervalSince(startedAt))
+            failedSources.remove(sourceIndex)
+            Links.save(posKey, source.name, url: t.url, page: t.page)
+            syncSubtitles()
+        }
         if let s = savedPosition(), s.0 > 30, s.1 <= 0 || s.0 < s.1 - 60 {
             player.seek(to: CMTime(seconds: s.0, preferredTimescale: 600))
         }
         player.play()
-        stopPage()
+        Haptic.soft()
+        if offline == nil { stopPage() }
+        nowPlaying.update(self)
+    }
+
+    /// The remembered link expired: forget it and find a fresh one.
+    private func retryFresh() {
+        fromCache = false
+        Links.drop(posKey, source.name)
+        start(sourceIndex, automatic: auto, useCache: false)
     }
 
     private func savedPosition() -> (Double, Double)? { store.position(title, season, episode) }
 
     private func onFailed() {
+        if offline != nil { status = "This download can't be played"; phase = .failed; return }
+        if fromCache && phase != .playing { retryFresh(); return }
         if phase == .playing {
             // Mid-film: reconnect twice, then move to another source at the same spot.
             let pos = player.currentTime().seconds
@@ -229,6 +296,7 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
                 return
             }
             savePosition()
+            Links.drop(posKey, source.name)
             auto = true; autoTried = 0
             sourceFailed()
             return
@@ -281,11 +349,12 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
         if let d = player.currentItem?.duration.seconds, d.isFinite { duration = d }
         isPlaying = player.timeControlStatus == .playing
         buffering = phase == .playing && player.timeControlStatus == .waitingToPlayAtSpecifiedRate
-        let now = position - offset
+        let now = (position - offset - fit.offset) / fit.scale
         let lines = cues.filter { now >= $0.start && now < $0.end }.map(\.text).joined(separator: "\n")
         if lines != caption { caption = lines }
         ticks += 1
-        if ticks % 20 == 0 && phase == .playing { savePosition() }
+        if ticks % 20 == 0 && phase == .playing { savePosition(); nowPlaying.update(self) }
+        updateCountdown()
         // Stuck loading for 20 s without an error: treat it as a failure.
         if ticks % 4 == 0 {
             stuck = buffering ? stuck + 1 : 0
@@ -298,16 +367,64 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
         store.savePosition(title, season, episode, position, duration)
     }
 
-    func toggle() { isPlaying ? player.pause() : player.play() }
-    func seek(by s: Double) { seek(to: position + s) }
-    func seek(to s: Double) {
+    func toggle() {
+        isPlaying ? player.pause() : player.play()
+        Haptic.tap()
+        Task { @MainActor in try? await Task.sleep(nanoseconds: 300_000_000); nowPlaying.update(self) }
+    }
+    func seek(by s: Double) { seek(to: position + s, learn: false) }
+    func seek(to s: Double, learn: Bool = true) {
         let v = max(0, min(duration > 0 ? duration - 1 : s, s))
+        // You jumped past the opening of an episode: remember it as the show's intro.
+        if learn, title.kind == .tv, phase == .playing, !segments.contains(where: { $0.type == "intro" }) {
+            Segments.learn(title.id, from: position, to: v)
+        }
+        if v < position { countdownCancelled = false; countdownEnd = nil; countdown = nil }
         player.seek(to: CMTime(seconds: v, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
         position = v
+        nowPlaying.update(self)
+    }
+
+    /// The skip button for wherever we are (credits on a show are handled by the Next episode card).
+    var activeSegment: Segment? {
+        segments.first { $0.contains(position) && !($0.type == "credits" && hasNext) }
+    }
+
+    func skip(_ seg: Segment) {
+        Haptic.soft()
+        if let end = seg.end { seek(to: end, learn: false) } else if hasNext { next() } else { seek(to: duration - 1, learn: false) }
+    }
+
+    /// Next episode in 10 s once the credits start (or the last 25 s when nobody has timed them).
+    private func updateCountdown() {
+        guard hasNext, phase == .playing, duration > 60, !countdownCancelled else { countdown = nil; return }
+        let creditsAt = segments.first { $0.type == "credits" }?.start ?? (duration - 25)
+        if position >= creditsAt {
+            if countdownEnd == nil { countdownEnd = Date().addingTimeInterval(10) }
+            let left = Int(ceil(countdownEnd!.timeIntervalSinceNow))
+            countdown = max(0, left)
+            if left <= 0 { next() }
+        } else { countdown = nil; countdownEnd = nil }
+    }
+
+    func cancelCountdown() { countdownCancelled = true; countdown = nil }
+
+    // MARK: Download
+
+    var downloadState: DownloadItem? { Downloads.shared.item(posKey) }
+
+    func download() {
+        guard offline == nil, phase == .playing, let t = trying else { return }
+        Haptic.tap()
+        Downloads.shared.start(title: title, season: season, episode: episode, url: t.url, headers: headers, cookies: cookies,
+                               hls: t.url.absoluteString.lowercased().contains("m3u8") || candidates.first { $0.url == t.url }?.hls == true,
+                               subtitle: selected?.url)
+        objectWillChange.send()
     }
 
     func next() {
         savePosition()
+        countdownEnd = nil; countdown = nil
         let count = episodes.count
         if count > 0 && episode >= count {
             season += 1; episode = 1
@@ -316,6 +433,7 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
         failedSources = []; autoTried = 0
         Task { runtime = await TMDB.runtime(title.kind, title.id, season, episode) }
         loadSubtitles()
+        loadSegments()
         start(sourceIndex, automatic: true)
     }
 
@@ -325,6 +443,7 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
         failedSources = []; autoTried = 0
         Task { runtime = await TMDB.runtime(title.kind, title.id, season, episode) }
         loadSubtitles()
+        loadSegments()
         start(sourceIndex, automatic: true)
     }
 
@@ -341,18 +460,77 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
         }
     }
 
-    func select(_ t: SubTrack?) {
+    func select(_ t: SubTrack?, fit newFit: SubFit? = nil) {
         selected = t
         cues = []; caption = ""
+        fit = newFit ?? SubFit()
         guard let t else { return }
         Task {
-            let c = await Subtitles.load(t.url)
-            if selected == t { cues = c }
+            let c = await cuesFor(t)
+            if selected == t {
+                cues = c
+                if newFit == nil, let sp = speech { await check(t, sp) }
+            }
         }
+    }
+
+    private func cuesFor(_ t: SubTrack) async -> [Cue] {
+        if let c = cueCache[t.url] { return c }
+        let c = await Subtitles.load(t.url)
+        if !c.isEmpty { cueCache[t.url] = c }
+        return c
+    }
+
+    /// Listens to the first minutes of the stream, tries every English version against it,
+    /// and keeps the one that lines up best with frame-rate/delay mismatches fixed.
+    private func syncSubtitles() {
+        guard let t = trying, offline == nil, speechFor != t.url else { return }
+        speechFor = t.url
+        speech = nil
+        syncStatus = "Listening to the film…"
+        let (h, url) = (headers, t.url)
+        Task {
+            var hh = h
+            if !cookies.isEmpty, let c = HTTPCookie.requestHeaderFields(with: cookies)["Cookie"] { hh["Cookie"] = c }
+            let sp = await StreamAudio.speech(stream: url, headers: hh)
+            guard speechFor == url else { return }
+            guard let sp else { syncStatus = "Can't check this stream · use Timing"; return }
+            speech = sp
+            let cands = tracks.filter { $0.lang == "en" || $0.lang == "und" || $0 == selected }.prefix(6)
+            var results: [(SubTrack, SubAligner.Eval)] = []
+            for c in cands {
+                let cues = await cuesFor(c)
+                if let ev = await Task.detached(priority: .utility, operation: { SubAligner.evaluate(cues, sp) }).value { results.append((c, ev)) }
+            }
+            guard speechFor == url else { return }
+            let current = results.first { $0.0 == selected }?.1
+            if let best = results.filter({ $0.1.sure }).max(by: { $0.1.quality < $1.1.quality }),
+               best.0 != selected, best.1.quality > (current?.quality ?? -1) + 0.08 {
+                select(best.0, fit: best.1.fit)
+                syncStatus = "Switched to a better-matching version · " + describe(best.1.fit)
+                return
+            }
+            if let c = current, c.sure { fit = c.fit; syncStatus = describe(c.fit) }
+            else { syncStatus = "Looks fine · use Timing if needed" }
+        }
+    }
+
+    private func check(_ t: SubTrack, _ sp: [Float]) async {
+        let cues = await cuesFor(t)
+        guard let ev = await Task.detached(priority: .utility, operation: { SubAligner.evaluate(cues, sp) }).value else { return }
+        if selected == t && ev.sure { fit = ev.fit; syncStatus = describe(ev.fit) }
+    }
+
+    private func describe(_ f: SubFit) -> String {
+        var parts: [String] = []
+        if abs(f.scale - 1) > 0.0005 { parts.append(abs(f.scale - 1) > 0.03 ? "frame rate fixed" : "slow drift fixed") }
+        if abs(f.offset) >= 0.3 { parts.append(String(format: "%+.1fs", f.offset)) }
+        return parts.isEmpty ? "In sync" : "In sync (" + parts.joined(separator: ", ") + ")"
     }
 
     func close() {
         savePosition()
+        nowPlaying.detach()
         player.pause()
         player.replaceCurrentItem(with: nil)
         if let o = timeObs { player.removeTimeObserver(o); timeObs = nil }
@@ -393,30 +571,38 @@ struct WebSurface: UIViewRepresentable {
 struct PlayerScreen: View {
     @StateObject private var m: PlayerModel
     @EnvironmentObject var store: Store
+    @ObservedObject private var downloads = Downloads.shared
     @Environment(\.dismiss) private var dismiss
     @State private var controls = true
     @State private var lastTouch = Date()
     @State private var scrubbing = false
     @State private var scrub: Double = 0
+    @State private var ripple: (left: Bool, id: Int)?
+    @State private var hud: (icon: String, value: Double)?
+    @State private var dragStart: Double?
 
     init(request: PlayRequest) { _m = StateObject(wrappedValue: PlayerModel(request)) }
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
+            VolumeHook().frame(width: 1, height: 1).opacity(0.01)
             WebSurface(web: m.web).ignoresSafeArea().opacity(m.phase == .web ? 1 : 0.01).allowsHitTesting(m.phase == .web)
             if m.phase == .playing || m.phase == .finding {
                 VideoSurface(model: m).ignoresSafeArea().opacity(m.phase == .playing ? 1 : 0)
             }
             if m.phase == .playing {
-                Color.clear.contentShape(Rectangle()).ignoresSafeArea()
-                    .onTapGesture { withAnimation(.easeOut(duration: 0.2)) { controls.toggle() }; lastTouch = Date() }
+                gestureLayer
                 captionView
                 if controls { controlsView.transition(.opacity) }
-                if m.buffering { ProgressView().tint(.white).scaleEffect(1.4) }
+                if m.buffering { ProgressView().tint(.white).scaleEffect(1.4).allowsHitTesting(false) }
+                rippleView
+                hudView
+                skipAndNext
             }
             if m.phase == .finding { findingView }
             if m.phase == .web { webBar }
+            if m.phase == .failed { failedView }
         }
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
@@ -440,6 +626,119 @@ struct PlayerScreen: View {
     private func close() { store.playing = nil; dismiss() }
     private func touch() { lastTouch = Date() }
 
+    // MARK: Gestures: tap = controls, double-tap a side = ±10 s, swipe up/down left = brightness, right = volume
+
+    private var gestureLayer: some View {
+        GeometryReader { g in
+            Color.clear.contentShape(Rectangle())
+                .gesture(
+                    SpatialTapGesture(count: 2).onEnded { e in
+                        let left = e.location.x < g.size.width / 2
+                        m.seek(by: left ? -10 : 10)
+                        Haptic.tap()
+                        ripple = (left, (ripple?.id ?? 0) + 1)
+                        let id = ripple!.id
+                        Task { try? await Task.sleep(nanoseconds: 700_000_000); if ripple?.id == id { withAnimation { ripple = nil } } }
+                    }
+                    .exclusively(before: TapGesture().onEnded {
+                        withAnimation(.easeOut(duration: 0.2)) { controls.toggle() }
+                        touch()
+                    })
+                )
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 14)
+                        .onChanged { v in
+                            guard abs(v.translation.height) > abs(v.translation.width) else { return }
+                            let left = v.startLocation.x < g.size.width / 2
+                            if dragStart == nil { dragStart = left ? Double(UIScreen.main.brightness) : Double(VolumeHook.volume) }
+                            let value = max(0, min(1, dragStart! - Double(v.translation.height / (g.size.height * 0.8))))
+                            if left { UIScreen.main.brightness = CGFloat(value) } else { VolumeHook.volume = Float(value) }
+                            hud = (left ? "sun.max.fill" : (value == 0 ? "speaker.slash.fill" : "speaker.wave.2.fill"), value)
+                        }
+                        .onEnded { _ in
+                            dragStart = nil
+                            Task { try? await Task.sleep(nanoseconds: 600_000_000); withAnimation { hud = nil } }
+                        }
+                )
+        }
+        .ignoresSafeArea()
+    }
+
+    private var rippleView: some View {
+        HStack {
+            if let r = ripple, r.left { seekBadge("gobackward.10") }
+            Spacer()
+            if let r = ripple, !r.left { seekBadge("goforward.10") }
+        }
+        .padding(.horizontal, 70)
+        .allowsHitTesting(false)
+    }
+
+    private func seekBadge(_ icon: String) -> some View {
+        Image(systemName: icon).font(.system(size: 30, weight: .semibold)).foregroundStyle(.white)
+            .frame(width: 84, height: 84).background(.ultraThinMaterial, in: Circle())
+            .transition(.scale.combined(with: .opacity))
+    }
+
+    @ViewBuilder private var hudView: some View {
+        if let h = hud {
+            HStack(spacing: 12) {
+                Image(systemName: h.icon).font(.system(size: 16, weight: .semibold))
+                GeometryReader { g in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(.white.opacity(0.25))
+                        Capsule().fill(.white).frame(width: g.size.width * h.value)
+                    }
+                }
+                .frame(width: 140, height: 5)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 18).padding(.vertical, 12)
+            .background(.ultraThinMaterial, in: Capsule())
+            .frame(maxHeight: .infinity, alignment: .top).padding(.top, 24)
+            .allowsHitTesting(false)
+        }
+    }
+
+    // MARK: Skip intro / Next episode
+
+    @ViewBuilder private var skipAndNext: some View {
+        VStack {
+            Spacer()
+            HStack {
+                Spacer()
+                if let n = m.countdown {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Next episode in \(n)").font(jakarta(15, .extrabold))
+                        HStack(spacing: 8) {
+                            Button { Haptic.tap(); m.next() } label: {
+                                Label("Play now", systemImage: "play.fill").font(jakarta(14, .bold)).foregroundStyle(Color.ink)
+                                    .padding(.horizontal, 14).padding(.vertical, 9).background(.white, in: Capsule())
+                            }
+                            Button { m.cancelCountdown() } label: {
+                                Text("Watch credits").font(jakarta(14, .semibold)).foregroundStyle(.white)
+                                    .padding(.horizontal, 14).padding(.vertical, 9).background(.ultraThinMaterial, in: Capsule())
+                            }
+                        }
+                    }
+                    .padding(16)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                } else if let seg = m.activeSegment {
+                    Button { m.skip(seg) } label: {
+                        Label(seg.label, systemImage: "forward.fill").font(jakarta(15, .bold)).foregroundStyle(Color.ink)
+                            .padding(.horizontal, 18).padding(.vertical, 12).background(.white, in: Capsule())
+                    }
+                    .transition(.opacity)
+                }
+            }
+        }
+        .padding(.trailing, 28)
+        .padding(.bottom, controls ? 86 : 30)
+        .animation(.easeOut(duration: 0.25), value: m.countdown)
+        .animation(.easeOut(duration: 0.25), value: m.activeSegment)
+    }
+
     // Subtitles sit low, and lift above the controls when those show.
     private var captionView: some View {
         VStack {
@@ -461,24 +760,26 @@ struct PlayerScreen: View {
             LinearGradient(colors: [.black.opacity(0.7), .clear, .clear, .black.opacity(0.8)], startPoint: .top, endPoint: .bottom)
                 .ignoresSafeArea().allowsHitTesting(false)
             VStack {
-                HStack(spacing: 18) {
+                HStack(spacing: 14) {
                     icon("xmark") { close() }
                     VStack(alignment: .leading, spacing: 2) {
                         Text(m.title.name).font(jakarta(17, .extrabold)).lineLimit(1)
                         Text(m.label).font(jakarta(12, .semibold)).foregroundStyle(Color.soft)
                     }
-                    Spacer()
+                    Spacer(minLength: 8)
                     subtitlesMenu
-                    sourcesMenu
+                    if m.offline == nil { sourcesMenu }
                     if m.title.kind == .tv { episodesMenu }
-                    icon(m.fill ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right") { m.fill.toggle(); touch() }
+                    if m.offline == nil { downloadButton }
+                    AirPlayButton().frame(width: 36, height: 36)
+                    icon(m.fill ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right") { m.fill.toggle(); Haptic.tap(); touch() }
                     if m.pip != nil { icon("pip.enter") { m.pip?.startPictureInPicture() } }
                 }
                 Spacer()
                 HStack(spacing: 56) {
-                    icon("gobackward.10", 30) { m.seek(by: -10); touch() }
+                    icon("gobackward.10", 30) { m.seek(by: -10); Haptic.tap(); touch() }
                     icon(m.isPlaying ? "pause.fill" : "play.fill", 44) { m.toggle(); touch() }
-                    icon("goforward.10", 30) { m.seek(by: 10); touch() }
+                    icon("goforward.10", 30) { m.seek(by: 10); Haptic.tap(); touch() }
                 }
                 Spacer()
                 HStack(spacing: 12) {
@@ -492,7 +793,7 @@ struct PlayerScreen: View {
                         .tint(.violet)
                     Text("-" + clock(max(0, m.duration - (scrubbing ? scrub : m.position)))).font(jakarta(12, .semibold)).monospacedDigit()
                     if m.hasNext {
-                        Button { m.next() } label: {
+                        Button { Haptic.tap(); m.next() } label: {
                             Label("Next", systemImage: "forward.end.fill").font(jakarta(13, .bold))
                                 .padding(.horizontal, 12).padding(.vertical, 8)
                                 .background(.ultraThinMaterial, in: Capsule())
@@ -502,6 +803,20 @@ struct PlayerScreen: View {
             }
             .foregroundStyle(.white)
             .padding(.horizontal, 24).padding(.vertical, 16)
+        }
+    }
+
+    @ViewBuilder private var downloadButton: some View {
+        let d = downloads.items.first { $0.id == Store.posKey(m.title, m.season, m.episode) }
+        switch d?.state {
+        case .done?: icon("checkmark.circle.fill") {}
+        case .downloading?:
+            ZStack {
+                Circle().stroke(.white.opacity(0.3), lineWidth: 3)
+                Circle().trim(from: 0, to: d!.progress).stroke(Color.violet, style: StrokeStyle(lineWidth: 3, lineCap: .round)).rotationEffect(.degrees(-90))
+            }
+            .frame(width: 22, height: 22).frame(width: 36, height: 36)
+        default: icon("arrow.down.circle") { m.download(); touch() }
         }
     }
 
@@ -516,9 +831,11 @@ struct PlayerScreen: View {
 
     private var subtitlesMenu: some View {
         Menu {
-            Button { m.select(nil) } label: { choice("Off", m.selected == nil) }
-            ForEach(m.tracks) { t in
-                Button { m.select(t) } label: { choice(t.label, m.selected == t) }
+            Section("Auto-sync: " + m.syncStatus) {
+                Button { m.select(nil) } label: { choice("Off", m.selected == nil) }
+                ForEach(m.tracks) { t in
+                    Button { m.select(t) } label: { choice(t.label, m.selected == t) }
+                }
             }
             Section("Timing: " + (m.offset == 0 ? "no change" : String(format: "%+.1fs", m.offset))) {
                 Button { m.offset -= 0.5 } label: { Label("Show earlier", systemImage: "minus.circle") }
@@ -526,7 +843,6 @@ struct PlayerScreen: View {
                 if m.offset != 0 { Button { m.offset = 0 } label: { Label("Reset", systemImage: "arrow.counterclockwise") } }
             }
         } label: { Image(systemName: m.selected == nil ? "captions.bubble" : "captions.bubble.fill").font(.system(size: 20, weight: .semibold)).frame(minWidth: 36, minHeight: 36) }
-            .onTapGesture { touch() }
     }
 
     private var sourcesMenu: some View {
@@ -555,16 +871,28 @@ struct PlayerScreen: View {
                 Text(m.status).font(jakarta(13, .semibold)).foregroundStyle(Color.soft)
             }
             .foregroundStyle(.white)
+            .padding(.horizontal, 40)
             VStack {
                 HStack {
                     icon("xmark") { close() }
                     Spacer()
-                    sourcesMenu.foregroundStyle(.white)
+                    if m.offline == nil { sourcesMenu.foregroundStyle(.white) }
                 }
                 Spacer()
             }
             .padding(20)
         }
+    }
+
+    private var failedView: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "exclamationmark.triangle").font(.system(size: 34))
+            Text(m.status).font(jakarta(16, .bold)).multilineTextAlignment(.center)
+            Button { close() } label: {
+                Text("Close").font(jakarta(15, .bold)).foregroundStyle(Color.ink).padding(.horizontal, 28).padding(.vertical, 11).background(.white, in: Capsule())
+            }
+        }
+        .foregroundStyle(.white)
     }
 
     private var webBar: some View {

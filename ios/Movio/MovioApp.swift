@@ -33,6 +33,8 @@ struct MovioApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @StateObject private var store = Store.shared
 
+    init() { _ = Downloads.shared }  // reconnects to downloads that carried on in the background
+
     var body: some Scene {
         WindowGroup {
             RootView()

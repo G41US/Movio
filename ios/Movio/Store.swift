@@ -6,6 +6,8 @@ struct PlayRequest: Identifiable, Hashable {
     let title: Title
     var season: Int = 1
     var episode: Int = 1
+    /// Set when playing a download.
+    var offline: String? = nil
     var id: String { "\(title.key):\(season):\(episode)" }
 }
 

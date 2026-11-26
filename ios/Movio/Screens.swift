@@ -145,11 +145,20 @@ struct SearchView: View {
 
 struct MyListView: View {
     @EnvironmentObject var store: Store
+    @State private var showDownloads = false
     private let grid = [GridItem(.adaptive(minimum: 104), spacing: 10)]
 
     var body: some View {
         ScrollView {
-            if store.myList.isEmpty {
+            Picker("", selection: $showDownloads) {
+                Text("Saved").tag(false)
+                Text("Downloads").tag(true)
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 16).padding(.top, 6)
+            if showDownloads {
+                DownloadsList()
+            } else if store.myList.isEmpty {
                 VStack(spacing: 10) {
                     Image(systemName: "bookmark").font(.system(size: 40)).foregroundStyle(Color.muted)
                     Text("Nothing saved yet").font(jakarta(17, .bold))

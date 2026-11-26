@@ -52,3 +52,41 @@ jobs:
           else
             gh release create "$TAG" "Movio-$VER.ipa" Movio.ipa --title "Movio for iPhone $VER" --notes "" --latest=false
           fi
+      - name: AltStore source
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # AltStore / SideStore read this file and offer each new version as an update.
+          VER=$(cat ios/VERSION)
+          SIZE=$(stat -f%z Movio.ipa)
+          DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          URL="https://github.com/${{ github.repository }}/releases/download/ios-v$VER/Movio-$VER.ipa"
+          ICON="https://raw.githubusercontent.com/${{ github.repository }}/main/ios/Movio/Assets.xcassets/AppIcon.appiconset/icon-1024.png"
+          cat > altstore.json <<JSON
+          {
+            "name": "Movio",
+            "identifier": "com.g41us.movio.source",
+            "iconURL": "$ICON",
+            "tintColor": "#9B6DFF",
+            "apps": [{
+              "name": "Movio",
+              "bundleIdentifier": "com.g41us.movio",
+              "developerName": "G41US",
+              "subtitle": "Movies and shows",
+              "localizedDescription": "Movies and TV shows, with My List, Continue watching, downloads and subtitles.",
+              "iconURL": "$ICON",
+              "tintColor": "#9B6DFF",
+              "version": "$VER",
+              "versionDate": "$DATE",
+              "downloadURL": "$URL",
+              "size": $SIZE,
+              "versions": [{ "version": "$VER", "date": "$DATE", "downloadURL": "$URL", "size": $SIZE, "minOSVersion": "16.0" }],
+              "appPermissions": { "entitlements": [], "privacy": {} }
+            }],
+            "news": []
+          }
+          JSON
+          python3 -m json.tool altstore.json > /dev/null
+          gh release view ios-source >/dev/null 2>&1 || gh release create ios-source --title "Movio for iPhone · AltStore source" --notes "" --latest=false
+          gh release upload ios-source altstore.json --clobber
