@@ -49,8 +49,6 @@ jobs:
             adb shell input text Marvelous
             adb shell input keyevent KEYCODE_ENTER
             sleep 3
-            adb shell input keyevent KEYCODE_BACK
-            sleep 2
             adb exec-out screencap -p > shots/0b_setup_lang.png
             adb shell input keyevent KEYCODE_DPAD_DOWN
             adb shell input keyevent KEYCODE_DPAD_DOWN
