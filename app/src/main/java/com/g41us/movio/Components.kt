@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -341,32 +342,30 @@ fun ContinueCard(p: Progress, progress: Float? = null, leftMs: Long? = null, onC
         }
         return
     }
-    // TV: everything lives inside the artwork, like Apple TV / Netflix.
+    // TV: clean artwork with a slim progress bar; the name and time left sit underneath.
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(16.dp)
-    Box(
-        Modifier.width(300.dp).aspectRatio(16f / 9f).onFocusChanged { focused = it.hasFocus }.tappableCard(shape, onClick).clip(shape).background(Panel),
-    ) {
-        NetImage(Tmdb.img(p.title.backdrop ?: p.title.poster, "w500"), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Transparent, .4f to Color.Transparent, 1f to Ink.copy(alpha = .95f))))
-        // Play mark only on the card you're on.
-        androidx.compose.animation.AnimatedVisibility(focused, Modifier.align(Alignment.Center), enter = fadeIn(tween(160)), exit = fadeOut(tween(160))) {
-            Box(Modifier.size(46.dp).clip(CircleShape).background(Color.White.copy(alpha = .92f)), contentAlignment = Alignment.Center) {
-                Icon(painterResource(R.drawable.ic_play_fill), null, tint = Ink, modifier = Modifier.size(20.dp))
-            }
-        }
-        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
-            Text(p.title.name, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, style = jakarta(), maxLines = 1, overflow = TextOverflow.Ellipsis)
-            val left = leftMs?.let { ms -> val m = (ms / 60_000).toInt().coerceAtLeast(1); if (m >= 60) "${m / 60}h ${m % 60}m left" else "${m}m left" }
-            val sub = listOfNotNull(if (p.title.kind == Kind.TV) "S${p.season} · E${p.episode}" else null, left).joinToString("  ·  ")
-            if (sub.isNotBlank()) Text(sub, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Soft, style = jakarta(), maxLines = 1)
-            if (progress != null && progress > 0f) {
-                Spacer(Modifier.height(8.dp))
-                Box(Modifier.fillMaxWidth().height(4.dp).clip(CircleShape).background(Color.White.copy(alpha = .22f))) {
-                    Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).height(4.dp).clip(CircleShape).background(Brand))
+    Column(Modifier.width(300.dp)) {
+        Box(
+            Modifier.fillMaxWidth().aspectRatio(16f / 9f).onFocusChanged { focused = it.hasFocus }.tappableCard(shape, onClick).clip(shape).background(Panel),
+        ) {
+            NetImage(Tmdb.img(p.title.backdrop ?: p.title.poster, "w500"), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(.6f to Color.Transparent, 1f to Ink.copy(alpha = .6f))))
+            // Play mark only on the card you're on.
+            androidx.compose.animation.AnimatedVisibility(focused, Modifier.align(Alignment.Center), enter = fadeIn(tween(160)), exit = fadeOut(tween(160))) {
+                Box(Modifier.size(46.dp).clip(CircleShape).background(Color.White.copy(alpha = .92f)), contentAlignment = Alignment.Center) {
+                    Icon(painterResource(R.drawable.ic_play_fill), null, tint = Ink, modifier = Modifier.size(20.dp))
                 }
             }
+            if (progress != null && progress > 0f) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp).height(4.dp).clip(CircleShape).background(Color.White.copy(alpha = .28f))) {
+                Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).height(4.dp).clip(CircleShape).background(Color.White))
+            }
         }
+        Spacer(Modifier.height(10.dp))
+        Text(p.title.name, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = if (focused) Color.White else Soft, style = jakarta(), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        val left = leftMs?.let { ms -> val m = (ms / 60_000).toInt().coerceAtLeast(1); if (m >= 60) "${m / 60}h ${m % 60}m left" else "${m}m left" }
+        val sub = listOfNotNull(if (p.title.kind == Kind.TV) "S${p.season} · E${p.episode}" else null, left).joinToString("  ·  ")
+        if (sub.isNotBlank()) Text(sub, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Muted, style = jakarta(), maxLines = 1)
     }
 }
 
@@ -402,24 +401,34 @@ fun Hero(items: List<Title>, saved: (Title) -> Boolean, onPlay: (Title) -> Unit,
         Column(Modifier.align(Alignment.BottomStart).padding(start = if (wide) 48.dp else Gutter, end = Gutter, bottom = 18.dp)
             .then(if (wide) Modifier.width(560.dp) else Modifier).enterUp()) {
             val logo = arts[t.key]?.logo
+            val tvx = LocalTv.current
             if (logo != null) NetImage(Tmdb.img(logo, "w500"), t.name, contentScale = ContentScale.Fit, alignment = Alignment.BottomStart,
-                modifier = Modifier.width(260.dp).height(84.dp))
+                modifier = if (tvx) Modifier.width(380.dp).height(118.dp) else Modifier.width(260.dp).height(84.dp))
             else Text(t.name, fontSize = if (wide) 40.sp else 34.sp, lineHeight = if (wide) 44.sp else 38.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-1).sp, color = Color.White,
                 style = jakarta(), maxLines = 2, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(8.dp))
             Meta(t)
             if (wide && t.overview.isNotBlank()) {
                 Spacer(Modifier.height(10.dp))
-                Text(t.overview, fontSize = 14.sp, lineHeight = 20.sp, color = Soft, style = jakarta(), maxLines = 3, overflow = TextOverflow.Ellipsis)
+                Text(t.overview, fontSize = 14.sp, lineHeight = 20.sp, color = if (tvx) Soft.copy(alpha = .8f) else Soft, style = jakarta(), maxLines = if (tvx) 2 else 3, overflow = TextOverflow.Ellipsis)
             }
             Spacer(Modifier.height(18.dp))
             Row(Modifier.onFocusChanged { paused = it.hasFocus }, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                PrimaryButton("Play", R.drawable.ic_play_fill, if (wide) Modifier.widthIn(min = 200.dp) else Modifier.weight(1f)) { onPlay(t) }
+                PrimaryButton("Play", R.drawable.ic_play_fill, if (wide) Modifier.widthIn(min = 200.dp).tvFirstFocus("hero") else Modifier.weight(1f)) { onPlay(t) }
                 GhostButton(if (saved(t)) "Saved" else "My List", if (saved(t)) R.drawable.ic_check else R.drawable.ic_plus) { onToggle(t) }
                 GlassIcon(R.drawable.ic_info, size = 50.dp) { onOpen(t) }
             }
             Spacer(Modifier.height(16.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = if (wide) Arrangement.Start else Arrangement.Center) {
+            // TV: slim bars that fill up until the next film shows. Phone: dots.
+            if (tvx) Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                items.indices.forEach { i ->
+                    val fill = remember(index, paused) { androidx.compose.animation.core.Animatable(0f) }
+                    LaunchedEffect(index, paused) { if (i == index && !paused) fill.animateTo(1f, tween(7000, easing = androidx.compose.animation.core.LinearEasing)) }
+                    Box(Modifier.width(30.dp).height(3.dp).clip(CircleShape).background(Color.White.copy(alpha = if (i < index) .75f else .22f))) {
+                        if (i == index) Box(Modifier.fillMaxWidth(if (paused) 1f else fill.value).fillMaxHeight().background(Color.White))
+                    }
+                }
+            } else Row(Modifier.fillMaxWidth(), horizontalArrangement = if (wide) Arrangement.Start else Arrangement.Center) {
                 items.indices.forEach { i ->
                     val w by animateDpAsState(if (i == index) 22.dp else 6.dp, label = "dot")
                     Box(Modifier.padding(horizontal = 3.dp).width(w).height(6.dp).clip(CircleShape)

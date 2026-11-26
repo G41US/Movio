@@ -24,6 +24,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -203,8 +204,11 @@ fun App(openRequest: androidx.compose.runtime.MutableState<Title?>) {
                     onSettings = { if (top is Screen.Settings) stack.removeAt(stack.lastIndex) else stack.add(Screen.Settings) },
                 )
         }
+        var railOpen by remember { mutableStateOf(false) }
         Box(Modifier.fillMaxSize().background(Ink)) {
-            CompositionLocalProvider(LocalTopBar provides if (isTv) bar else null) {
+            // TV: pages sit to the right of the left menu; the clock heads each page.
+            Box(if (isTv) Modifier.fillMaxSize().padding(start = TvRailWidth) else Modifier.fillMaxSize()) {
+            CompositionLocalProvider(LocalTopBar provides if (isTv) ({ TvHeader() }) else null) {
             AnimatedContent(top ?: tab, transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(160)) }, label = "screen") { s ->
                 when (s) {
                     is Screen.Details -> DetailsScreen(s.title, store, ::open, { p -> stack.add(Screen.People(p)) }, ::trailer) { t, se, ep -> PlayerActivity.start(context, t, se, ep) }
@@ -231,6 +235,15 @@ fun App(openRequest: androidx.compose.runtime.MutableState<Title?>) {
                     else -> {}
                 }
             }
+            }
+            }
+            if (isTv) {
+                // Menu open: the page fades back.
+                androidx.compose.animation.AnimatedVisibility(railOpen, enter = fadeIn(tween(200)), exit = fadeOut(tween(200))) {
+                    Box(Modifier.fillMaxSize().background(Ink.copy(alpha = .6f)))
+                }
+                TvRail(tab, top, onTab = { t -> stack.clear(); tab = t }, onDownloads = { if (top !is Screen.Downloads) stack.add(Screen.Downloads) },
+                    onSettings = { if (top !is Screen.Settings) stack.add(Screen.Settings) }, open = railOpen, onOpen = { railOpen = it })
             }
             if (!isTv) bar()
             if (!wide) Dock(if (top == null) tab else null, { t -> stack.clear(); tab = t }, Modifier.align(Alignment.BottomCenter))
