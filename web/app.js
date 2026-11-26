@@ -261,9 +261,9 @@ function embedUrl(name, base, kind, id, s, e) {
   return `${base}/tv/${id}/${s}/${e}${name === "Vix" ? "?autoplay=true" : ""}`;
 }
 /** Movio's own player first (Club, then Movio Direct: no ads, Movio subtitles), then the sources' own players. */
-const OWN = ["Club", "Movio Direct"];
+const OWN = ["Club", "Movio Direct", "Peach"];
 function sourceOrder(kind) {
-  const first = ["Nero", "Peach", "Flixify"];
+  const first = ["Nero", "Flixify"];
   const rest = EMBEDS.map((x) => x[0]).filter((n) => !first.includes(n) && !OWN.includes(n));
   return [...OWN, ...first, ...rest];
 }
@@ -326,7 +326,7 @@ async function start(name, auto = true) {
   footer();
   if (!OWN.includes(name)) return embed(name);
   if (!canHls()) return next();
-  if (name === "Club") return club();
+  if (name === "Club" || name === "Peach") return viaHelper(name.toLowerCase());
   finding("Finding the best stream");
   try {
     const path = me.t.kind === "tv" ? `tv/${me.t.id}/${me.s}/${me.e}` : `movie/${me.t.id}`;
@@ -348,18 +348,18 @@ async function start(name, auto = true) {
   } catch { if (me === P) next(); }
 }
 
-/** Club's stream, played through the helper so it plays here in Movio's own player. */
-async function club() {
+/** Club / Peach streams, played through the helper so they play here in Movio's own player (no ads). */
+async function viaHelper(src) {
   const me = P;
   finding("Finding the best stream");
   try {
     const path = me.t.kind === "tv" ? `tv/${me.t.id}/${me.s}/${me.e}` : `movie/${me.t.id}`;
-    const o = await fetch(`${HELPER}/club/${path}`).then((r) => r.json());
+    const o = await fetch(`${HELPER}/${src}/${path}`).then((r) => r.json());
     if (me !== P || me.dead) return;
     if (!o.ok || !o.url) return next();
     play(o.url);
     // Subtitles: Club's own, plus Wyzie and the Alt list (fetched alongside, without slowing playback).
-    const own = (o.tracks || []).map((t, i) => ({ url: t.file, lang: /eng|english/i.test(t.label) ? "en" : "und", label: (t.label || "Subtitles") + " · Club" }));
+    const own = (o.tracks || []).map((t, i) => ({ url: t.file, lang: /eng|english/i.test(t.label) ? "en" : "und", label: (t.label || "Subtitles") + " · " + me.source }));
     partySubs(path).then((list) => { if (me === P) loadSubtitles(list, own); });
   } catch { if (me === P) next(); }
 }

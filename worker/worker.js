@@ -69,6 +69,8 @@ async function cached(target, init, seconds, ctx) {
   return res;
 }
 
+const json200 = (o) => new Response(JSON.stringify(o), { headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" } });
+
 export default {
   async fetch(req, env, ctx) {
     if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
@@ -118,6 +120,22 @@ export default {
           headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" } });
       }
       if (p === "/hls") return hls(req, env, url);
+      // Peach: its player's stream API (backup API for films), played through here.
+      if (p.startsWith("/peach/")) {
+        const [kind, id, se, ep] = p.slice(7).split("/");
+        const json = (u) => fetch(u, { headers: { "User-Agent": UA, Accept: "application/json" } }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+        const q = kind === "tv" ? `tmdb=${id}&s=${se}&e=${ep}` : `tmdb=${id}&type=movie`;
+        let d = await json(`https://vidbolt.onrender.com/api/stream?${q}`);
+        let src = d && d.available !== false && ((d.sources || []).find((x) => x && x.url) || {}).url;
+        let ref = "https://embed.filmu.in/";
+        if (!src) {
+          d = await json(`https://vidzy-0aej.onrender.com/api/stream?type=${kind === "tv" ? "tv" : "movie"}&${q.replace("&type=movie", "")}`);
+          src = d && d.available !== false && (d.m3u8 || ((d.sources || []).find((x) => x && x.url) || {}).url);
+          ref = "https://player.vidzee.wtf/";
+        }
+        if (!src) return json200({ ok: false });
+        return json200({ ok: true, url: await hlsLink(env, url.origin, src, ref), tracks: [] });
+      }
       // A subtitle file, as text (max 3 MB)
       if (p === "/sub") {
         const u = url.searchParams.get("u") || "";
