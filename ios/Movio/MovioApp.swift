@@ -33,7 +33,12 @@ struct MovioApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @StateObject private var store = Store.shared
 
-    init() { _ = Downloads.shared }  // reconnects to downloads that carried on in the background
+    init() {
+        _ = Downloads.shared  // reconnects to downloads that carried on in the background
+        // No scroll bars anywhere (lists, menus, rows).
+        UIScrollView.appearance().showsVerticalScrollIndicator = false
+        UIScrollView.appearance().showsHorizontalScrollIndicator = false
+    }
 
     var body: some Scene {
         WindowGroup {

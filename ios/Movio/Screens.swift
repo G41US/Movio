@@ -8,7 +8,7 @@ struct HomeView: View {
     @State private var loaded = false
 
     var body: some View {
-        ScrollView {
+        ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 26) {
                 if let trending = (rows.first { $0.name.hasPrefix("Trending") } ?? rows.first) {
                     Hero(items: Array(trending.items.filter { $0.backdrop != nil && !$0.overview.isEmpty }.prefix(6)))
@@ -99,7 +99,7 @@ struct BrowseView: View {
     @State private var rows: [Row] = []
 
     var body: some View {
-        ScrollView {
+        ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 26) {
                 if rows.isEmpty { Loading() }
                 ForEach(rows) { RowView(row: $0) }
@@ -121,7 +121,7 @@ struct SearchView: View {
     private let grid = [GridItem(.adaptive(minimum: 104), spacing: 10)]
 
     var body: some View {
-        ScrollView {
+        ScrollView(showsIndicators: false) {
             LazyVGrid(columns: grid, spacing: 12) {
                 ForEach(query.isEmpty ? trending : results, id: \.key) { PosterCard(title: $0, width: 108) }
             }
@@ -149,7 +149,7 @@ struct MyListView: View {
     private let grid = [GridItem(.adaptive(minimum: 104), spacing: 10)]
 
     var body: some View {
-        ScrollView {
+        ScrollView(showsIndicators: false) {
             Picker("", selection: $showDownloads) {
                 Text("Saved").tag(false)
                 Text("Downloads").tag(true)
@@ -187,7 +187,7 @@ struct DetailsView: View {
     @State private var episodes: [Episode] = []
 
     var body: some View {
-        ScrollView {
+        ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 18) {
                 ZStack(alignment: .bottomLeading) {
                     Art(url: TMDB.img(title.backdrop ?? title.poster, "w1280")).frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -340,7 +340,7 @@ struct PersonView: View {
     private let grid = [GridItem(.adaptive(minimum: 104), spacing: 12, alignment: .top)]
 
     var body: some View {
-        ScrollView {
+        ScrollView(showsIndicators: false) {
             VStack(spacing: 14) {
                 Art(url: TMDB.img(d?.person.photo ?? person.photo, "h632")).frame(width: 130, height: 130).clipShape(Circle())
                 Text(person.name).font(jakarta(26, .extrabold)).multilineTextAlignment(.center)

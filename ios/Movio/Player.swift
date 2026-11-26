@@ -880,7 +880,7 @@ struct PlayerScreen: View {
                     icon("xmark", 16) { panel = nil }
                 }
                 .padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 6)
-                ScrollView {
+                ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 2) {
                         switch p {
                         case .subtitles: subtitleRows
