@@ -89,7 +89,10 @@ final class Store: ObservableObject {
     private var busy = false
 
     private struct Item: Codable { var at: Double; var del: Bool?; var t: Title?; var s: Int?; var e: Int?; var p: Double?; var d: Double? }
-    private struct State: Codable { var list: [String: Item] = [:]; var cont: [String: Item] = [:]; var pos: [String: Item] = [:] }
+    private struct Prof: Codable { var at: Double; var name: String }
+    private struct State: Codable { var list: [String: Item] = [:]; var cont: [String: Item] = [:]; var pos: [String: Item] = [:]; var prof: Prof? }
+    /// When this device last synced.
+    @Published var lastSync: Date? = UserDefaults.standard.object(forKey: "lastSync") as? Date
     private struct Reply: Codable { var ok: Bool; var state: State?; var code: String? }
 
     private var now: Double { (Date().timeIntervalSince1970 * 1000).rounded() }
@@ -120,6 +123,12 @@ final class Store: ObservableObject {
             if k.hasPrefix("l:"), st.list[rest] == nil { st.list[rest] = Item(at: -v, del: true) }
             if k.hasPrefix("c:"), st.cont[rest] == nil { st.cont[rest] = Item(at: -v, del: true) }
         }
+        // Your name travels too, so a newly linked device can greet you. A changed name counts as newer.
+        let name = Profile.shared.name.trimmingCharacters(in: .whitespaces)
+        if !name.isEmpty {
+            if name != d.string(forKey: "nameLast") { d.set(name, forKey: "nameLast"); d.set(now, forKey: "nameAt") }
+            st.prof = Prof(at: max(d.double(forKey: "nameAt"), 1), name: name)
+        }
         return st
     }
 
@@ -148,6 +157,11 @@ final class Store: ObservableObject {
         }
         save("recent", recent)
         d.set(ledger, forKey: "syncAt")
+        if let p = st.prof, !p.name.isEmpty, p.at > d.double(forKey: "nameAt") {
+            Profile.shared.name = p.name
+            d.set(p.name, forKey: "nameLast"); d.set(p.at, forKey: "nameAt")
+        }
+        lastSync = Date(); d.set(lastSync, forKey: "lastSync")
     }
 
     /// Sends this device's lists, gets everyone's back, merged.

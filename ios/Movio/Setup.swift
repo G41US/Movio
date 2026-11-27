@@ -6,6 +6,8 @@ struct SetupView: View {
     @State private var step = 0
     @State private var name = Profile.shared.name
     @FocusState private var typing: Bool
+    @ObservedObject private var store = Store.shared
+    @State private var linked = (name: "", list: 0, cont: 0)
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -15,7 +17,8 @@ struct SetupView: View {
                     Spacer()
                     HStack(spacing: 6) {
                         ForEach(0..<3) { i in
-                            Capsule().fill(i <= step ? Color.white : Color.white.opacity(0.25)).frame(width: i == step ? 22 : 6, height: 6)
+                            let at = step > 2 ? 0 : step
+                            Capsule().fill(i <= at ? Color.white : Color.white.opacity(0.25)).frame(width: i == at ? 22 : 6, height: 6)
                         }
                     }
                 }
@@ -24,6 +27,8 @@ struct SetupView: View {
                     switch step {
                     case 0: nameStep
                     case 1: languageStep
+                    case 3: SetupLinkStep(onBack: { step = 0 }) { n, l, c in linked = (n, l, c); step = 4 }
+                    case 4: WelcomeBackStep(name: linked.name, list: linked.list, cont: linked.cont) { name = profile.name; step = 1 }
                     default: subtitleStep
                     }
                 }
@@ -51,8 +56,27 @@ struct SetupView: View {
                 .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.white.opacity(0.14)))
                 .onChange(of: name) { v in if v.count > 24 { name = String(v.prefix(24)) } }
             primary("Continue") { next() }.padding(.top, 26)
+            if store.syncCode.isEmpty {
+                // Already using Movio elsewhere: bring your list across from the start.
+                Button { typing = false; step = 3 } label: {
+                    HStack(spacing: 14) {
+                        LinkOrb(size: 42)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Already use Movio on another device?").font(jakarta(15, .bold)).foregroundStyle(.white).multilineTextAlignment(.leading)
+                            Text("Link with a code").font(jakarta(13, .bold)).foregroundStyle(Color.violet)
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.forward").font(.system(size: 14, weight: .bold)).foregroundStyle(Color.muted)
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 14)
+                    .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.white.opacity(0.09)))
+                }
+                .buttonStyle(PressStyle()).padding(.top, 26)
+            }
         }
-        .onAppear { typing = true }
+        // The keyboard waits until Movio's opening animation is over.
+        .task { try? await Task.sleep(nanoseconds: 1_300_000_000); if step == 0 && name.isEmpty { typing = true } }
     }
 
     private var languageStep: some View {
@@ -140,9 +164,6 @@ struct ProfileSheet: View {
     @ObservedObject private var store = Store.shared
     @Environment(\.dismiss) private var dismiss
     @State private var name = Profile.shared.name
-    @State private var typed = ""
-    @State private var msg: String?
-    @State private var working = false
 
     var body: some View {
         NavigationStack {
@@ -162,29 +183,18 @@ struct ProfileSheet: View {
                     row(L("No subtitles"), profile.subLang == "off") { profile.subLang = "off" }
                 }
                 Section {
-                    if store.syncCode.isEmpty {
-                        Button(L("Get a code")) { run { if await store.createCode() == nil { msg = L("Couldn't reach the server. Try again.") } } }
-                        HStack {
-                            TextField("", text: $typed, prompt: Text(verbatim: L("Type the code")))
-                                .textInputAutocapitalization(.characters).autocorrectionDisabled()
-                                .font(.system(size: 18, weight: .bold, design: .rounded))
-                                .onChange(of: typed) { v in typed = String(v.uppercased().filter { $0.isLetter || $0.isNumber }.prefix(6)) }
-                            Button(L("Link")) { run { msg = L(await store.joinCode(typed) ? "Linked" : "That code wasn't found. Check it and try again.") } }
-                                .disabled(typed.count != 6)
-                        }
-                    } else {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("This device's code").font(.footnote).foregroundStyle(Color.muted)
-                            Text(verbatim: store.syncCode).font(.system(size: 34, weight: .heavy, design: .rounded)).kerning(6).foregroundStyle(brand)
-                            Text("On your other device, open Link devices and type this code.").font(.footnote).foregroundStyle(Color.muted)
+                    NavigationLink { LinkView() } label: {
+                        HStack(spacing: 12) {
+                            LinkOrb(size: 34)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Link devices").foregroundStyle(.white)
+                                Text(verbatim: store.syncCode.isEmpty ? L("Link with a code") : L("Linked") + " · " + store.syncCode)
+                                    .font(.footnote).foregroundStyle(store.syncCode.isEmpty ? Color.muted : Color(red: 0.37, green: 0.9, blue: 0.67))
+                            }
                         }
                         .padding(.vertical, 4)
-                        Button(L("Sync now")) { run { msg = L(await store.sync() ? "Synced" : "Couldn't sync") } }
-                        Button(L("Unlink"), role: .destructive) { store.syncCode = ""; msg = nil }
                     }
-                    if working { ProgressView() }
-                    if let msg { Text(verbatim: msg).font(.footnote).foregroundStyle(Color.soft) }
-                } header: { Text("Link devices") } footer: {
+                } footer: {
                     Text("My List, Continue watching and where you stopped follow you on every device with the same code.")
                 }
                 Section {
@@ -198,11 +208,6 @@ struct ProfileSheet: View {
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Close") { dismiss() } } }
         }
         .presentationDetents([.large])
-    }
-
-    private func run(_ work: @escaping () async -> Void) {
-        working = true; msg = nil
-        Task { await work(); working = false }
     }
 
     private func row(_ label: String, _ on: Bool, _ tap: @escaping () -> Void) -> some View {
