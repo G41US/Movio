@@ -130,8 +130,7 @@ class Store private constructor(context: Context) {
     private fun wire(t: Title) = JSONObject().put("id", t.id).put("kind", t.kind.api).put("name", t.name).put("overview", t.overview.take(400))
         .put("poster", t.poster ?: JSONObject.NULL).put("backdrop", t.backdrop ?: JSONObject.NULL).put("year", t.year ?: JSONObject.NULL).put("rating", t.rating)
 
-    private fun fromWire(o: JSONObject?): Title? = try {
-        o ?: return null
+    private fun fromWire(o: JSONObject?): Title? = if (o == null) null else try {
         Title(o.getInt("id"), if (o.optString("kind") == "tv") Kind.TV else Kind.MOVIE, o.getString("name"), o.optString("overview"),
             o.optString("poster").takeIf { it.startsWith("/") }, o.optString("backdrop").takeIf { it.startsWith("/") },
             o.optString("year").takeIf { it.isNotBlank() && it != "null" }, o.optDouble("rating", 0.0))
