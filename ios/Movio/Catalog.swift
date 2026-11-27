@@ -94,6 +94,33 @@ enum TMDB {
         return ((o["genre_ids"] as? [Int]) ?? []).contains { kidsGenres.contains($0) }
     }
 
+    // MARK: Platforms (TMDB's US lists; everything still plays in Movio)
+
+    struct Platform: Identifiable, Hashable { let id: Int; let name: String; let logo: String }
+    static let platforms: [Platform] = [
+        Platform(id: 8, name: "Netflix", logo: "/rK1KljqmbvO9HQa1PBFLILWah72.png"), Platform(id: 9, name: "Prime Video", logo: "/gMZdpavHmxFNnLpMHwVxfqeux2g.png"),
+        Platform(id: 337, name: "Disney+", logo: "/5eZ872CghnHFLB1j8grszbrx0dx.png"), Platform(id: 1899, name: "HBO Max", logo: "/skypuy7SXuugIQeYg0IglmzoKaS.png"),
+        Platform(id: 350, name: "Apple TV", logo: "/v9SnyvYt0U3KGgBH3Sbh3z4yODe.png"), Platform(id: 15, name: "Hulu", logo: "/44uAnmSqvA4yBOdbPWN8YgQHjWm.png"),
+        Platform(id: 386, name: "Peacock", logo: "/a1UIdq5BrkcAxnxcUhFsNbXnxeu.png"), Platform(id: 283, name: "Crunchyroll", logo: "/uFL3c4Cq8M6WoLymlC5Y8bmGytV.png"),
+    ]
+    /// One page of a platform's titles; sort is popular / new / top. Returns the titles and whether there's more.
+    static func platform(_ id: Int, kind: Kind, sort: String, page: Int) async -> ([Title], Bool) {
+        var p = ["with_watch_providers": "\(id)", "watch_region": "US", "page": "\(page)", "include_adult": "false"]
+        switch sort {
+        case "new":
+            let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; f.locale = Locale(identifier: "en_US_POSIX")
+            p["sort_by"] = kind == .movie ? "primary_release_date.desc" : "first_air_date.desc"
+            p[kind == .movie ? "primary_release_date.lte" : "first_air_date.lte"] = f.string(from: Date())
+            p["vote_count.gte"] = "10"
+        case "top": p["sort_by"] = "vote_average.desc"; p["vote_count.gte"] = "300"
+        default: p["sort_by"] = "popularity.desc"; p["vote_count.gte"] = "20"
+        }
+        if kind == .tv { p["without_genres"] = "10763,10764,10767" }
+        guard let o = try? await get("discover/\(kind.rawValue)", p) else { return ([], false) }
+        let items = ((o["results"] as? [[String: Any]]) ?? []).filter { kidsOK($0) }.compactMap { parse($0, kind) }.filter { $0.poster != nil }
+        return (items, page < (o["total_pages"] as? Int ?? 1))
+    }
+
     // MARK: Search filters (same categories as the web and Android apps)
 
     struct Cat: Identifiable {

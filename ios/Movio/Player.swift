@@ -356,7 +356,7 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
         let lines = cues.filter { now >= $0.start && now < $0.end }.map(\.text).joined(separator: "\n")
         if lines != caption { caption = lines }
         ticks += 1
-        if ticks % 20 == 0 && phase == .playing { savePosition(); nowPlaying.update(self) }
+        if ticks % 20 == 0 && phase == .playing { savePosition(); nowPlaying.update(self); prepareNext() }
         updateCountdown()
         // Stuck loading for 20 s without an error: treat it as a failure.
         if ticks % 4 == 0 {
@@ -423,6 +423,16 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
                                hls: t.url.absoluteString.lowercased().contains("m3u8") || candidates.first { $0.url == t.url }?.hls == true,
                                subtitle: selected?.url)
         objectWillChange.send()
+    }
+
+    /// Near the end of an episode, the next one's subtitles are fetched so they're there from its first second.
+    private var preparedNext = ""
+    private func prepareNext() {
+        guard title.kind == .tv, offline == nil, duration > 300, position > duration * 0.75 else { return }
+        let (s, e) = !episodes.isEmpty && episode >= episodes.count ? (season + 1, 1) : (season, episode + 1)
+        guard preparedNext != "\(s):\(e)" else { return }
+        preparedNext = "\(s):\(e)"
+        Subtitles.prepare(title.kind, title.id, s, e)
     }
 
     func next() {

@@ -10,8 +10,29 @@ struct SubTrack: Hashable, Identifiable {
 struct Cue { let start: Double; let end: Double; let text: String }
 
 enum Subtitles {
+    /// Lists already looked up (e.g. the next episode, fetched while this one plays).
+    private static let memo = Memo()
+    final class Memo: @unchecked Sendable {
+        private var d: [String: [SubTrack]] = [:]; private let lock = NSLock()
+        subscript(k: String) -> [SubTrack]? {
+            get { lock.lock(); defer { lock.unlock() }; return d[k] }
+            set { lock.lock(); d[k] = newValue; lock.unlock() }
+        }
+    }
+    /// Look up both lists now so they're ready when that episode opens.
+    static func prepare(_ kind: Kind, _ id: Int, _ s: Int, _ e: Int) {
+        Task.detached { _ = await find(kind, id, s, e); _ = await party(kind, id, s, e) }
+    }
+
     /// Up to 5 English versions (most downloaded, plain before hearing-impaired) plus one of a few other languages.
     static func find(_ kind: Kind, _ id: Int, _ s: Int, _ e: Int) async -> [SubTrack] {
+        let k = "w:\(kind.rawValue):\(id):\(s):\(e)"
+        if let hit = memo[k] { return hit }
+        let out = await findNow(kind, id, s, e)
+        if !out.isEmpty { memo[k] = out }
+        return out
+    }
+    private static func findNow(_ kind: Kind, _ id: Int, _ s: Int, _ e: Int) async -> [SubTrack] {
         guard !Keys.wyzie.isEmpty else { return [] }
         let ep = kind == .tv ? "&season=\(s)&episode=\(e)" : ""
         guard let url = URL(string: "https://sub.wyzie.io/search?id=\(id)\(ep)&language=en,fr,es,pt,ar&key=\(Keys.wyzie)"),
@@ -36,6 +57,13 @@ enum Subtitles {
 
     /// Backup list from the player service behind braflix (often 2+ English versions per title).
     static func party(_ kind: Kind, _ id: Int, _ s: Int, _ e: Int) async -> [SubTrack] {
+        let k = "p:\(kind.rawValue):\(id):\(s):\(e)"
+        if let hit = memo[k] { return hit }
+        let out = await partyNow(kind, id, s, e)
+        if !out.isEmpty { memo[k] = out }
+        return out
+    }
+    private static func partyNow(_ kind: Kind, _ id: Int, _ s: Int, _ e: Int) async -> [SubTrack] {
         let base = "https://vidsrc.party"
         let path = kind == .tv ? "api/play/tv/\(id)/\(s)/\(e)" : "api/play/movie/\(id)"
         let h = ["Referer": base + "/", "Origin": base, "Accept": "application/json"]

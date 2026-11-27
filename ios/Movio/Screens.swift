@@ -25,6 +25,7 @@ struct HomeView: View {
                     }
                 }
                 if !loaded { Loading() }
+                if loaded && !store.kids { PlatformsRow() }
                 ForEach(rows) { RowView(row: $0) }
             }
             .padding(.bottom, 30)
@@ -47,6 +48,98 @@ struct HomeView: View {
         .toolbar(.hidden, for: .navigationBar)
         .task { if rows.isEmpty { rows = await TMDB.home(); loaded = true } }
         .refreshable { rows = await TMDB.home() }
+    }
+}
+
+/// Netflix, Prime Video…: tap one to see what's on it.
+struct PlatformsRow: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Platforms").font(jakarta(19, .extrabold)).padding(.horizontal, 18)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 14) {
+                    ForEach(TMDB.platforms) { p in
+                        NavigationLink { PlatformView(platform: p) } label: {
+                            VStack(spacing: 7) {
+                                AsyncImage(url: TMDB.img(p.logo, "w154")) { $0.resizable().scaledToFill() } placeholder: { Color.white.opacity(0.08) }
+                                    .frame(width: 68, height: 68)
+                                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                                    .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.white.opacity(0.08)))
+                                    .shadow(color: .black.opacity(0.35), radius: 9, y: 6)
+                                Text(verbatim: p.name).font(jakarta(12, .bold)).foregroundStyle(Color.soft).lineLimit(1)
+                            }
+                            .frame(width: 76)
+                        }
+                        .buttonStyle(PressStyle())
+                    }
+                }
+                .padding(.horizontal, 18)
+            }
+        }
+    }
+}
+
+struct PlatformView: View {
+    let platform: TMDB.Platform
+    @AppStorage("platKind") private var kind = "tv"
+    @AppStorage("platSort") private var sort = "popular"
+    @State private var items: [Title] = []
+    @State private var page = 1
+    @State private var more = true
+    @State private var loading = false
+    private let grid = [GridItem(.adaptive(minimum: 104), spacing: 10)]
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 14) {
+                    AsyncImage(url: TMDB.img(platform.logo, "w154")) { $0.resizable().scaledToFill() } placeholder: { Color.white.opacity(0.08) }
+                        .frame(width: 56, height: 56).clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(verbatim: platform.name).font(jakarta(28, .extrabold))
+                        Text("Everything here plays in Movio.").font(jakarta(13, .semibold)).foregroundStyle(Color.muted)
+                    }
+                }
+                .padding(.horizontal, 16)
+                chips([("tv", "Shows"), ("movie", "Movies")], $kind)
+                chips([("popular", "Popular"), ("new", "New"), ("top", "Top rated")], $sort)
+                LazyVGrid(columns: grid, spacing: 12) {
+                    ForEach(items, id: \.key) { t in
+                        PosterCard(title: t, width: 108).onAppear { if t.key == items.last?.key { Task { await load() } } }
+                    }
+                }
+                .padding(.horizontal, 16)
+                if loading { ProgressView().tint(.violet).frame(maxWidth: .infinity).padding(.vertical, 20) }
+            }
+            .padding(.vertical, 8)
+        }
+        .background(Color.ink.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .task(id: "\(kind)|\(sort)") { items = []; page = 1; more = true; await load() }
+    }
+
+    private func load() async {
+        guard more, !loading else { return }
+        loading = true
+        let (got, has) = await TMDB.platform(platform.id, kind: kind == "movie" ? .movie : .tv, sort: sort, page: page)
+        let seen = Set(items.map(\.key))
+        items += got.filter { !seen.contains($0.key) }
+        more = has && !got.isEmpty; page += 1; loading = false
+    }
+
+    private func chips(_ list: [(String, String)], _ sel: Binding<String>) -> some View {
+        HStack(spacing: 8) {
+            ForEach(list, id: \.0) { id, label in
+                let on = sel.wrappedValue == id
+                Button { sel.wrappedValue = id } label: {
+                    Text(verbatim: L(label)).font(jakarta(13, .bold)).foregroundStyle(on ? Color.ink : .white)
+                        .padding(.horizontal, 14).frame(height: 32)
+                        .background(on ? Color.white : Color.white.opacity(0.12), in: Capsule())
+                }
+                .buttonStyle(PressStyle())
+            }
+        }
+        .padding(.horizontal, 16)
     }
 }
 

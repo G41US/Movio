@@ -13,6 +13,7 @@ import java.util.Locale
  * otherwise the subtitle list of Movio's direct stream service.
  */
 object Subtitles {
+    private val bg = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
     private val wanted = listOf("en", "fr", "es", "pt", "ar", "de", "it", "yo", "ha", "ig")
 
     private val found = java.util.concurrent.ConcurrentHashMap<String, List<Subtitle>>()
@@ -29,8 +30,16 @@ object Subtitles {
      */
     private suspend fun lookup(kind: Kind, id: Int, season: Int, episode: Int): List<Subtitle> = kotlinx.coroutines.coroutineScope {
         val w = async(Dispatchers.IO) { if (BuildConfig.WYZIE_KEY.isNotBlank()) try { wyzie(kind, id, season, episode) } catch (_: Exception) { emptyList() } else emptyList() }
-        val p = async(Dispatchers.IO) { kotlinx.coroutines.withTimeoutOrNull(25_000) { try { Source.subtitles(kind, id, season, episode) } catch (_: Exception) { emptyList() } } ?: emptyList() }
-        val all = (w.await() + p.await()).distinctBy { it.url }
+        val p = bg.async { kotlinx.coroutines.withTimeoutOrNull(25_000) { try { Source.subtitles(kind, id, season, episode) } catch (_: Exception) { emptyList() } } ?: emptyList() }
+        // Don't hold Wyzie's list back for the slower "Alt" list: wait at most 4 s more for it.
+        // It still finishes in the background and joins the saved list for next time.
+        val wl = w.await()
+        val pl = if (wl.isEmpty()) p.await() else kotlinx.coroutines.withTimeoutOrNull(4_000) { p.await() } ?: run {
+            val key = "${kind.api}:$id:$season:$episode"
+            bg.launch { val late = p.await(); if (late.isNotEmpty()) found[key] = (wl + late).distinctBy { it.url }.sortedBy { if (it.lang == I18n.subLang) 0 else if (it.lang == "en") 1 else 2 } }
+            emptyList()
+        }
+        val all = (wl + pl).distinctBy { it.url }
         // English first (Wyzie then Alt), then other languages.
         // The viewer's subtitle language first, then English, then the rest.
         all.sortedBy { if (it.lang == I18n.subLang) 0 else if (it.lang == "en") 1 else 2 }
