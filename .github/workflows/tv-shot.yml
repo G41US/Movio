@@ -202,7 +202,7 @@ jobs:
             sh .github/tap.sh "Blood Sisters"
             sleep 6
             adb exec-out screencap -p > shots/s2_details.png
-            sh .github/tap.sh Play
+            sh .github/tap.sh "Play S1 E1"
             sleep 25
             adb exec-out screencap -p > shots/s3_play.png
             sleep 15
