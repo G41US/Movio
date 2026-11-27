@@ -299,7 +299,7 @@ fun PosterRow(row: Row, onOpen: (Title) -> Unit) {
     SectionTitle(rowTitle(row.name))
     // TV: room above and below so the highlighted card's outline and glow are never cut off.
     val tv = LocalTv.current
-    LazyRow(Modifier.tvEdgeFade(), contentPadding = PaddingValues(start = Gutter, end = GutterEnd, top = if (tv) 12.dp else 0.dp, bottom = if (tv) 4.dp else 0.dp),
+    LazyRow(Modifier.tvEdgeFade(), contentPadding = PaddingValues(start = Gutter, end = GutterEnd, top = if (tv) 12.dp else 0.dp, bottom = if (tv) 16.dp else 0.dp),
         horizontalArrangement = Arrangement.spacedBy(if (row.ranked) 4.dp else if (LocalWide.current) 16.dp else 12.dp)) {
         itemsIndexed(row.items, key = { _, t -> t.key }) { i, t ->
             if (row.ranked) RankedCard(i + 1, t) { onOpen(t) } else PosterCard(t, if (tv) TvCard else if (LocalWide.current) 176.dp else 118.dp) { onOpen(t) }
@@ -313,7 +313,7 @@ fun RankedCard(rank: Int, t: Title, onClick: () -> Unit) {
     val wide = LocalWide.current
     var focused by remember { mutableStateOf(false) }
     Row(Modifier.onFocusChanged { focused = it.hasFocus }.clickable(interactionSource = null, indication = null, onClick = onClick), verticalAlignment = Alignment.Bottom) {
-        val size = if (wide) 176.sp else 120.sp
+        val size = if (LocalTv.current) 156.sp else if (wide) 176.sp else 120.sp
         val chrome = Brush.verticalGradient(0f to Color.White, .55f to Color(0xFFFFE6DC), 1f to Color(0xFFC2876E))
         Box(Modifier.offset(x = 14.dp, y = 16.dp)) {
             // A stroke of the same chrome under the fill makes the digits heavier than the font allows.
@@ -321,7 +321,7 @@ fun RankedCard(rank: Int, t: Title, onClick: () -> Unit) {
                 style = jakarta(chrome).copy(drawStyle = androidx.compose.ui.graphics.drawscope.Stroke(width = if (wide) 14f else 9f, join = androidx.compose.ui.graphics.StrokeJoin.Round)))
             Text(rank.toString(), fontSize = size, lineHeight = size, fontWeight = FontWeight.Black, letterSpacing = (-8).sp, style = jakarta(chrome))
         }
-        Poster(t, Modifier.width(if (LocalTv.current) 148.dp else if (wide) 168.dp else 112.dp).lift(focused, RoundedCornerShape(12.dp)))
+        Poster(t, Modifier.width(if (LocalTv.current) 136.dp else if (wide) 168.dp else 112.dp).lift(focused, RoundedCornerShape(12.dp)))
     }
 }
 
