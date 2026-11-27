@@ -1,5 +1,6 @@
 package com.g41us.movio
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -579,6 +580,38 @@ private fun EpisodeList(show: Title, season: Int, last: Progress?, onPlay: (Int)
 }
 
 // ---------- Settings ----------
+
+/** Shown instead of the app when a newer version is out. No release notes, just the button. */
+@Composable
+fun ForceUpdate(state: UpdateState, onUpdate: () -> Unit) {
+    val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+    Box(Modifier.fillMaxSize().background(Ink), contentAlignment = Alignment.Center) {
+        Column(Modifier.widthIn(max = 420.dp).padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Image(painterResource(R.drawable.logo_tile), null, Modifier.size(84.dp).clip(RoundedCornerShape(20.dp)))
+            Spacer(Modifier.height(22.dp))
+            androidx.compose.material3.Text(t("Update required"), fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, style = jakarta())
+            Spacer(Modifier.height(8.dp))
+            androidx.compose.material3.Text(t("A new version of Movio is out. Update to keep watching."), fontSize = 15.sp, color = Soft, style = jakarta(),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            Spacer(Modifier.height(26.dp))
+            val label = when (state) {
+                is UpdateState.Checking -> t("Checking…")
+                is UpdateState.Downloading -> if (state.pct >= 0) tf("Downloading… {1}%", state.pct) else t("Downloading…")
+                is UpdateState.Ready -> t("Install update")
+                is UpdateState.Failed -> t("Try again")
+                else -> t("Update now")
+            }
+            PrimaryButton(label, R.drawable.ic_download, Modifier.focusRequester(focus)) {
+                if (state !is UpdateState.Checking && state !is UpdateState.Downloading) onUpdate()
+            }
+            if (state is UpdateState.Failed) {
+                Spacer(Modifier.height(12.dp))
+                androidx.compose.material3.Text(t(state.message), fontSize = 13.sp, color = Muted, style = jakarta(), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            }
+        }
+    }
+}
 
 sealed interface UpdateState {
     data object Idle : UpdateState

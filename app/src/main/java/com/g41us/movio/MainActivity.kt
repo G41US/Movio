@@ -135,6 +135,11 @@ fun App(openRequest: androidx.compose.runtime.MutableState<Title?>) {
         ) askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
     LaunchedEffect(stack.size) { if (stack.isNotEmpty()) Boot.ready = true }
+    // Every new version is required: if one is out, Movio waits on the update screen until it's installed.
+    var required by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        required = try { withContext(Dispatchers.IO) { Updates.latest() }?.versionName } catch (_: Exception) { null }
+    }
     // No internet at launch: go straight to Downloads.
     LaunchedEffect(Unit) {
         val cm = context.getSystemService(android.net.ConnectivityManager::class.java)
@@ -185,6 +190,14 @@ fun App(openRequest: androidx.compose.runtime.MutableState<Title?>) {
     val dir = if (I18n.rtl) androidx.compose.ui.unit.LayoutDirection.Rtl else androidx.compose.ui.unit.LayoutDirection.Ltr
     CompositionLocalProvider(LocalWide provides wide, LocalTv provides isTv, androidx.compose.ui.platform.LocalDensity provides density,
         androidx.compose.ui.platform.LocalLayoutDirection provides dir) {
+    if (required != null) {
+        BackHandler { (context as? android.app.Activity)?.finish() }
+        Box(Modifier.fillMaxSize()) {
+            ForceUpdate(update) { onUpdate() }
+            if (splash) Splash { splash = false }
+        }
+        return@CompositionLocalProvider
+    }
     // First launch: name, language and subtitles before anything loads, so it all comes in the right language.
     if (!I18n.setupDone) {
         Box(Modifier.fillMaxSize().background(Ink)) {

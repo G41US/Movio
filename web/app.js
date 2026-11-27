@@ -1481,9 +1481,16 @@ window.addEventListener("hashchange", route);
 window.addEventListener("pagehide", savePlayer);
 I.start(() => { route(); Sync.push(); });
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js").then((r) => r.update()).catch(() => {});
-  // A new version took over: reload once so it shows straight away (not in the middle of a film).
+  // Updates are required: look for a new version on open, every 15 minutes and whenever the tab comes back.
+  navigator.serviceWorker.register("sw.js").then((r) => {
+    r.update();
+    setInterval(() => r.update().catch(() => {}), 15 * 60e3);
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) r.update().catch(() => {}); });
+  }).catch(() => {});
+  // A new version took over: reload so it's in use straight away (after the film, if one is playing).
   const hadOld = !!navigator.serviceWorker.controller;
-  let reloading = false;
-  navigator.serviceWorker.addEventListener("controllerchange", () => { if (hadOld && !reloading && !P) { reloading = true; location.reload(); } });
+  let reloading = false, pending = false;
+  const reload = () => { if (!reloading && !P) { reloading = true; location.reload(); } };
+  navigator.serviceWorker.addEventListener("controllerchange", () => { if (hadOld) { pending = true; reload(); } });
+  setInterval(() => { if (pending) reload(); }, 2000);
 }

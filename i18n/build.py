@@ -442,6 +442,12 @@ W = [
 ("Volume", "Volume", "Volumen", "Volume", "الصوت"),
 ("Movio is almost ready", "Movio est presque prêt", "Movio está casi listo", "O Movio está quase pronto", "Movio على وشك الجاهزية"),
 ("The helper server isn't set up yet.", "Le serveur d'aide n'est pas encore configuré.", "El servidor auxiliar aún no está configurado.", "O servidor auxiliar ainda não está configurado.", "لم يُجهَّز الخادم المساعد بعد."),
+("Update required", "Mise à jour requise", "Actualización necesaria", "Atualização necessária", "التحديث مطلوب"),
+("A new version of Movio is out. Update to keep watching.", "Une nouvelle version de Movio est disponible. Mettez à jour pour continuer à regarder.", "Hay una nueva versión de Movio. Actualiza para seguir viendo.", "Saiu uma nova versão do Movio. Atualize para continuar assistindo.", "صدر إصدار جديد من Movio. حدّث التطبيق لمواصلة المشاهدة."),
+("Update now", "Mettre à jour", "Actualizar ahora", "Atualizar agora", "حدّث الآن"),
+("Downloading… {1}%", "Téléchargement… {1} %", "Descargando… {1} %", "Baixando… {1}%", "جارٍ التنزيل… {1}%"),
+("Downloading…", "Téléchargement…", "Descargando…", "Baixando…", "جارٍ التنزيل…"),
+("Get the update", "Obtenir la mise à jour", "Obtener la actualización", "Obter a atualização", "احصل على التحديث"),
 ]
 LANGS = ["fr", "es", "pt", "ar"]
 seen = {}

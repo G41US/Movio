@@ -63,8 +63,14 @@ struct RootView: View {
 
     var body: some View {
         // First launch: name, language and subtitles before anything loads, so it all comes in the right language.
-        if !profile.setupDone { SetupView().transition(.opacity) } else { tabs }
+        Group {
+            if let url = required { ForceUpdateView(ipa: url) }
+            else if !profile.setupDone { SetupView().transition(.opacity) } else { tabs }
+        }
+        // Every new version is required: if one is out, Movio waits on the update screen.
+        .task { required = await ForceUpdateView.newer() }
     }
+    @State private var required: URL?
 
     private var tabs: some View {
         TabView {
@@ -88,5 +94,52 @@ struct RootView: View {
                 .background(Color.ink.ignoresSafeArea())
         }
         .tabItem { Label(label, systemImage: icon) }
+    }
+}
+
+/// Shown instead of the app when a newer iPhone version is out. No release notes, just the way to get it.
+struct ForceUpdateView: View {
+    let ipa: URL
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer()
+            RoundedRectangle(cornerRadius: 22, style: .continuous).fill(LinearGradient(colors: [.violet, .pink], startPoint: .topLeading, endPoint: .bottomTrailing))
+                .frame(width: 84, height: 84)
+                .overlay(Image(systemName: "arrow.down").font(.system(size: 34, weight: .bold)).foregroundStyle(.white))
+            Text(verbatim: L("Update required")).font(jakarta(26, .extrabold)).foregroundStyle(.white).padding(.top, 22)
+            Text(verbatim: L("A new version of Movio is out. Update to keep watching.")).font(jakarta(15)).foregroundStyle(Color.soft)
+                .multilineTextAlignment(.center).padding(.top, 8)
+            BigButton(label: "Get the update") {
+                // AltStore or Scarlet installs it straight away; otherwise the file downloads in Safari.
+                let enc = ipa.absoluteString.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
+                let alt = URL(string: "altstore://install?url=\(enc)")!, sc = URL(string: "scarlet://install=\(ipa.absoluteString)")!
+                UIApplication.shared.open(alt) { ok in
+                    if ok { return }
+                    UIApplication.shared.open(sc) { ok in if !ok { UIApplication.shared.open(ipa) } }
+                }
+            }
+            .padding(.top, 26)
+            Spacer()
+        }
+        .padding(28).frame(maxWidth: 440).frame(maxWidth: .infinity, maxHeight: .infinity).background(Color.ink.ignoresSafeArea())
+    }
+
+    /// The newest iPhone release's .ipa, when it's newer than this build.
+    static func newer() async -> URL? {
+        guard let api = URL(string: "https://api.github.com/repos/G41US/Movio/releases?per_page=15") else { return nil }
+        var req = URLRequest(url: api, timeoutInterval: 10)
+        req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        guard let (data, _) = try? await URLSession.shared.data(for: req),
+              let list = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return nil }
+        let mine = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
+        for r in list {
+            guard let tag = r["tag_name"] as? String, tag.hasPrefix("ios-v") else { continue }
+            let v = String(tag.dropFirst(5))
+            guard v.compare(mine, options: .numeric) == .orderedDescending else { return nil }
+            let assets = r["assets"] as? [[String: Any]] ?? []
+            let link = assets.compactMap { $0["browser_download_url"] as? String }.first { $0.hasSuffix(".ipa") }
+            return link.flatMap(URL.init(string:))
+        }
+        return nil
     }
 }
