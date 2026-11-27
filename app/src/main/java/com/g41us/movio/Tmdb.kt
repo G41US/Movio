@@ -236,7 +236,10 @@ object Tmdb {
         } else if (cat != null || yr != null) {
             val kinds = cat?.kinds ?: listOf(Kind.MOVIE, Kind.TV)
             kinds.flatMap { k -> listOf(1, 2).map { pg -> async {
-                val p = mutableMapOf("sort_by" to "popularity.desc", "page" to "$pg", "vote_count.gte" to if (cat?.few == true) "0" else "5")
+                // Series: only ones enough people have watched, and no talk shows, news, reality, kids' TV or daily soaps.
+                val p = mutableMapOf("sort_by" to "popularity.desc", "page" to "$pg",
+                    "vote_count.gte" to if (k == Kind.TV) (if (cat?.few == true) "5" else "50") else "5")
+                if (k == Kind.TV) p["without_genres"] = "10763,10764,10767,10762,10766" + if (cat != null && cat.id != "anime" && cat.id != "nollywood") ",16" else ""
                 cat?.q?.let { p.putAll(it) }
                 if (yr != null) {
                     val (f, t) = if (k == Kind.MOVIE) "primary_release_date.gte" to "primary_release_date.lte" else "first_air_date.gte" to "first_air_date.lte"

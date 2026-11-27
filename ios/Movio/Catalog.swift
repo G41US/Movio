@@ -141,7 +141,9 @@ enum TMDB {
         } else if cat != nil || yr != nil {
             await withTaskGroup(of: [([String: Any], Kind?)].self) { g in
                 for k in cat?.kinds ?? [.movie, .tv] { for pg in [1, 2] { g.addTask {
-                    var p = ["sort_by": "popularity.desc", "page": "\(pg)", "vote_count.gte": cat?.few == true ? "0" : "5"]
+                    // Series: only ones enough people have watched, and no talk shows, news, reality, kids' TV or daily soaps.
+                    var p = ["sort_by": "popularity.desc", "page": "\(pg)", "vote_count.gte": k == .tv ? (cat?.few == true ? "5" : "50") : "5"]
+                    if k == .tv { p["without_genres"] = "10763,10764,10767,10762,10766" + ((cat != nil && cat?.id != "anime" && cat?.id != "nollywood") ? ",16" : "") }
                     cat?.q.forEach { p[$0.key] = $0.value }
                     if let yr {
                         let (f, t) = k == .movie ? ("primary_release_date.gte", "primary_release_date.lte") : ("first_air_date.gte", "first_air_date.lte")

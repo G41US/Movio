@@ -495,7 +495,10 @@ async function search() {
       } else if (cat || yr) {
         const kinds = cat ? cat.kinds : ["movie", "tv"];
         const lists = await Promise.all(kinds.flatMap((k) => [1, 2].map((page) => {
-          const prm = { sort_by: "popularity.desc", page, "vote_count.gte": cat?.few ? 0 : 5, ...(cat?.q || {}) };
+          // Series: only ones enough people have watched, and no talk shows, news, reality, kids' TV or daily soaps
+          // (those rarely have a stream). Cartoons are left out too, except under Anime.
+          const prm = { sort_by: "popularity.desc", page, "vote_count.gte": k === "tv" ? (cat?.few ? 5 : 50) : 5, ...(cat?.q || {}) };
+          if (k === "tv") prm.without_genres = "10763,10764,10767,10762,10766" + (cat && cat.id !== "anime" && cat.id !== "nollywood" ? ",16" : "");
           if (yr) {
             const [f, t] = k === "movie" ? ["primary_release_date.gte", "primary_release_date.lte"] : ["first_air_date.gte", "first_air_date.lte"];
             prm[f] = `${yr[0]}-01-01`; prm[t] = `${yr[1]}-12-31`;

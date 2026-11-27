@@ -1,3 +1,4 @@
+import VIDZEE_WASM from "./vidzee.wasm";
 // Movio helper: lets the Movio web app reach the catalogue, subtitles and the direct stream service
 // from a browser (adds CORS), and keeps the API keys off the public page.
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "*", "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS" };
@@ -252,9 +253,11 @@ export default {
         }
         return json200({ ok: false });
       }
-      // Main (Vidzee): its stream API.
+      // Main (Vidzee): its own player's servers first (films and series), then its older API (films).
       if (p.startsWith("/main/")) {
         const [kind, id, se, ep] = p.slice(6).split("/");
+        const own = await vidzee(kind, id, se, ep);
+        if (own) return json200({ ok: true, url: await hlsLink(env, url.origin, own, "https://player.vidzee.wtf/"), tracks: [] });
         const q = kind === "tv" ? `type=tv&tmdb=${id}&s=${se}&e=${ep}` : `type=movie&tmdb=${id}`;
         const d = await fetch(`https://vidzy-0aej.onrender.com/api/stream?${q}`, { headers: { "User-Agent": UA } }).then((r) => r.json()).catch(() => null);
         const src = d && d.available !== false && (d.m3u8 || ((d.sources || []).find((x) => x && x.url) || {}).url);
@@ -293,3 +296,43 @@ export default {
     return new Response("Movio helper is running", { headers: { ...CORS, "Content-Type": "text/plain" } });
   },
 };
+
+// ---------- Vidzee's player: each server answers with a link sealed by a small WebAssembly decoder ----------
+let vzx;
+function vidzeeDecrypt(b64) {
+  if (!vzx) vzx = new WebAssembly.Instance(VIDZEE_WASM, { env: { abort: () => { throw new Error("vidzee abort"); } } }).exports;
+  const e = vzx;
+  const host = "player.vidzee.wtf";
+  const sp = e.__new(host.length * 2, 2);
+  const u16 = new Uint16Array(e.memory.buffer, sp, host.length);
+  for (let i = 0; i < host.length; i++) u16[i] = host.charCodeAt(i);
+  e.__pin(sp);
+  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  const ab = e.__pin(e.__new(bytes.length, 1));
+  new Uint8Array(e.memory.buffer, ab, bytes.length).set(bytes);
+  const view = e.__new(12, 3);
+  let dv = new DataView(e.memory.buffer);
+  dv.setUint32(view, ab, true); dv.setUint32(view + 4, ab, true); dv.setUint32(view + 8, bytes.length, true);
+  e.__pin(view);
+  try {
+    const r = e.decrypt(view, sp);
+    dv = new DataView(e.memory.buffer);
+    return new TextDecoder().decode(new Uint8Array(e.memory.buffer, dv.getUint32(r + 4, true), dv.getUint32(r + 8, true)));
+  } finally { e.__unpin(view); e.__unpin(ab); e.__unpin(sp); e.__collect?.(); }
+}
+async function vidzee(kind, id, se, ep) {
+  const path = kind === "tv" ? `tv/${id}/${se}/${ep}` : `movie/${id}`;
+  const H = { "User-Agent": UA, Referer: "https://player.vidzee.wtf/", Origin: "https://player.vidzee.wtf" };
+  const one = async (srv) => {
+    const o = await fetch(`https://core.vidzee.wtf/streams/${path}?s=${encodeURIComponent(srv)}&e=1`, { headers: H }).then((r) => r.json());
+    if (!o?.c) throw 0;
+    const d = JSON.parse(vidzeeDecrypt(o.c));
+    const u = d?.url;
+    if (!u || !/^https:/.test(u)) throw 0;
+    const t = await fetch(u, { headers: H });
+    if (!t.ok || !(await t.text()).startsWith("#EXTM3U")) throw 0;
+    return u;
+  };
+  // Ask every server at once; the first that really answers wins.
+  return Promise.any(["peak", "dcloud", "tik", "v6:English"].map(one)).catch(() => null);
+}
