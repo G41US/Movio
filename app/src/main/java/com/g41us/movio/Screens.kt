@@ -182,14 +182,14 @@ private fun PlatformRow(onPlatform: (Int) -> Unit) {
     // Wide dark tiles with the service's logo and one soft Sunset glow (the same for every service).
     LazyRow(Modifier.tvEdgeFade(), contentPadding = PaddingValues(start = Gutter, end = GutterEnd, top = 6.dp, bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(if (wide) 18.dp else 12.dp)) {
         items(Tmdb.PLATFORMS, key = { it.id }) { p ->
-            Column(Modifier.width(w).clickableNoRipple { onPlatform(p.id) }) {
-                val shape = RoundedCornerShape(16.dp)
-                var focused by remember { mutableStateOf(false) }
+            val shape = RoundedCornerShape(16.dp)
+            var focused by remember { mutableStateOf(false) }
+            // The whole tile (picture and name) is one button, so the remote's highlight lands on it.
+            Column(Modifier.width(w).onFocusChanged { focused = it.isFocused }.clickableNoRipple { onPlatform(p.id) }) {
                 Box(
-                    Modifier.size(w, h).onFocusChanged { focused = it.isFocused || it.hasFocus }
+                    Modifier.size(w, h)
                         .graphicsLayer { val k = if (focused) 1.06f else 1f; scaleX = k; scaleY = k }
                         .shadow(if (focused) 26.dp else 14.dp, shape, ambientColor = Violet, spotColor = Violet)
-                        .tappableCard(shape) { onPlatform(p.id) }
                         .background(Brush.linearGradient(listOf(Color(0xFF1A1B25), Color(0xFF0F1017))), shape)
                         .border(if (focused) 2.5.dp else 1.5.dp, if (focused) Color.White else Violet.copy(alpha = .45f), shape),
                     contentAlignment = Alignment.Center,
@@ -197,7 +197,7 @@ private fun PlatformRow(onPlatform: (Int) -> Unit) {
                     NetImage(Tmdb.img(p.logo, "w154"), null, Modifier.size(logo).shadow(10.dp, RoundedCornerShape(12.dp)).clip(RoundedCornerShape(12.dp)), contentScale = ContentScale.Crop)
                 }
                 Spacer(Modifier.height(8.dp))
-                androidx.compose.material3.Text(p.name, fontSize = if (wide) 14.sp else 13.sp, fontWeight = FontWeight.Bold, color = Soft, style = jakarta(), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                androidx.compose.material3.Text(p.name, fontSize = if (wide) 14.sp else 13.sp, fontWeight = FontWeight.Bold, color = if (focused) Color.White else Soft, style = jakarta(), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }
