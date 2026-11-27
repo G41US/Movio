@@ -144,6 +144,33 @@ jobs:
             mkdir -p shots
             adb shell am start -n com.g41us.movio/.MainActivity
             for i in 1 2 3 4 5 6 7 8 9 10; do sleep 1; adb exec-out screencap -p > shots/p$i.png; done
+            adb shell am force-stop com.g41us.movio
+            adb shell "run-as com.g41us.movio sh -c 'echo \"<?xml version=\\\"1.0\\\" encoding=\\\"utf-8\\\" standalone=\\\"yes\\\" ?><map><boolean name=\\\"setup_done\\\" value=\\\"true\\\" /><string name=\\\"lang\\\">en</string><string name=\\\"sub_lang\\\">en</string><string name=\\\"name\\\">Marvelous</string></map>\" > shared_prefs/movio_profile.xml'"
+            adb shell pm grant com.g41us.movio android.permission.POST_NOTIFICATIONS
+            adb shell am start -n com.g41us.movio/.MainActivity
+            sleep 20
+            sh .github/tap.sh Search
+            sleep 4
+            adb exec-out screencap -p > shots/q1_search.png
+            adb shell input text avengers
+            adb shell input keyevent KEYCODE_ENTER
+            sleep 4
+            adb shell input keyevent KEYCODE_BACK
+            sh .github/tap.sh Nollywood
+            sleep 5
+            adb exec-out screencap -p > shots/q2_nolly.png
+            sh .github/tap.sh 2024
+            sleep 5
+            adb exec-out screencap -p > shots/q3_nolly2024.png
+            adb shell input tap 200 1500
+            sleep 6
+            adb exec-out screencap -p > shots/q4_details.png
+            sh .github/tap.sh Like
+            sleep 2
+            adb exec-out screencap -p > shots/q5_liked.png
+            sh .github/tap.sh Share
+            sleep 3
+            adb exec-out screencap -p > shots/q6_share.png
       - uses: actions/upload-artifact@v4
         with:
           name: phone-shots
