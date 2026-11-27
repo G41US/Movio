@@ -15,3 +15,4 @@ PY
 )
 echo "tap $1 -> $B"
 [ -n "$B" ] && adb shell input tap $B
+exit 0

@@ -155,7 +155,7 @@ jobs:
             adb shell input text avengers
             adb shell input keyevent KEYCODE_ENTER
             sleep 4
-            adb shell input keyevent KEYCODE_BACK
+            adb exec-out screencap -p > shots/q1b_typed.png
             sh .github/tap.sh Nollywood
             sleep 5
             adb exec-out screencap -p > shots/q2_nolly.png
@@ -172,6 +172,7 @@ jobs:
             sleep 3
             adb exec-out screencap -p > shots/q6_share.png
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: phone-shots
           path: shots
