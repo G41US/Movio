@@ -95,3 +95,4 @@ await writeFile("web/live/index.json", JSON.stringify({
   countries: Object.entries(byC).map(([k, l]) => ({ code: k, name: cn.get(k)?.name || k, n: l.length })).sort((a, b) => b.n - a.n),
   categories: categories.filter((c) => byCat[c.id] && c.id !== "xxx").map((c) => ({ id: c.id, name: c.name, n: byCat[c.id].length })).sort((a, b) => b.n - a.n),
 }));
+console.log("lists written"); process.exit(0);
