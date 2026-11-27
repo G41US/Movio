@@ -239,6 +239,7 @@ fun App(openRequest: androidx.compose.runtime.MutableState<Title?>) {
                     Tab.HOME -> FeedScreen(null, store, ::open, ::play, onPlatform = { stack.add(Screen.Platform(it)) }) { stack.add(Screen.Downloads) }
                     Tab.MOVIES -> FeedScreen(Kind.MOVIE, store, ::open, ::play) { stack.add(Screen.Downloads) }
                     Tab.TV -> FeedScreen(Kind.TV, store, ::open, ::play) { stack.add(Screen.Downloads) }
+                    Tab.LIVE -> LiveScreen()
                     Tab.SEARCH -> SearchScreen(::open)
                     Tab.LIST -> MyListScreen(store, ::open) { stack.add(Screen.Downloads) }
                     else -> {}

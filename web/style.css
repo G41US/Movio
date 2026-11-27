@@ -420,3 +420,39 @@ body.in-setup #tabs, body.in-setup .pfp { display: none; }
 .platpage .phead small { color: var(--muted); font-size: 13px; font-weight: 600; }
 .more { display: flex; justify-content: center; padding: 22px 0 10px; }
 @media (min-width: 900px) { .platpage .phead { padding: 0 48px 18px; } .plat { width: 96px; } .plat img { width: 88px; height: 88px; border-radius: 22px; } .plat span { max-width: 96px; font-size: 13px; } }
+/* ---------- Live TV ---------- */
+.live .lhead { display: flex; align-items: baseline; justify-content: space-between; padding-right: 16px; }
+.lcount { color: var(--muted); font-size: 13px; font-weight: 700; }
+.chip.cc { display: inline-flex; align-items: center; gap: 7px; }
+.chip.cc img { width: 18px; height: 13px; border-radius: 3px; object-fit: cover; }
+.lgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px 12px; padding: 4px 16px 24px; }
+.ltile { display: flex; flex-direction: column; gap: 6px; text-align: start; color: #fff; min-width: 0; }
+.lfavs .ltile { width: 150px; flex: none; }
+.lpic { position: relative; aspect-ratio: 16/10; border-radius: 16px; display: grid; place-items: center; overflow: hidden;
+  background: radial-gradient(120% 120% at 30% 20%, #2A2B3A, #15161F); border: 1px solid rgba(255,255,255,.07); transition: transform .15s; }
+.ltile:active .lpic { transform: scale(.96); }
+.lpic img { max-width: 62%; max-height: 58%; object-fit: contain; filter: drop-shadow(0 4px 12px rgba(0,0,0,.4)); }
+.lpic > b { font-size: 26px; color: var(--soft); text-transform: uppercase; }
+.lbadge { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 800; letter-spacing: .06em; color: #fff;
+  padding: 3px 7px; border-radius: 6px; background: rgba(255,59,92,.9); }
+.lpic .lbadge { position: absolute; top: 8px; left: 8px; }
+.lbadge i { width: 5px; height: 5px; border-radius: 50%; background: #fff; animation: blink 1.4s steps(1) infinite; }
+.lstar { position: absolute; top: 6px; right: 9px; color: #FFD25E; font-size: 15px; }
+.lname { font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ltile small { font-size: 12px; color: var(--muted); font-weight: 600; margin-top: -4px; }
+.lplayer { position: fixed; inset: 0; z-index: 150; background: #000; }
+.lplayer video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+.lbar { position: absolute; left: 0; right: 0; display: flex; align-items: center; gap: 12px; padding: 14px calc(16px + var(--right)) 14px calc(16px + var(--left)); transition: opacity .3s; }
+.lbar.top { top: 0; padding-top: calc(14px + var(--top)); background: linear-gradient(rgba(0,0,0,.75), transparent); }
+.lbar.bottom { bottom: 0; justify-content: center; padding-bottom: calc(18px + var(--bottom)); background: linear-gradient(transparent, rgba(0,0,0,.75)); }
+.lplayer.idle .lbar { opacity: 0; pointer-events: none; }
+.lplayer.idle { cursor: none; }
+.lbar .icon { width: 44px; height: 44px; border-radius: 22px; display: grid; place-items: center; background: rgba(255,255,255,.14); color: #fff; font-size: 20px; -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); }
+.lbar .icon svg { width: 22px; height: 22px; fill: #fff; }
+.lnow { flex: 1; display: flex; align-items: center; gap: 12px; min-width: 0; }
+.lnow img { width: 52px; height: 36px; object-fit: contain; }
+.lnow b { display: block; font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px; }
+.lnav { height: 44px; padding: 0 18px; border-radius: 22px; background: rgba(255,255,255,.14); color: #fff; font-weight: 700; font-size: 14px; -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); }
+.lmsg { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; color: #fff; font-weight: 600; pointer-events: none; }
+.lmsg button { pointer-events: auto; }
+@media (min-width: 900px) { .lgrid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); padding: 4px 48px 32px; gap: 20px 16px; } .live .lhead { padding-right: 48px; } }

@@ -19,7 +19,8 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:banner="@drawable/tv_banner"
-        android:theme="@style/Theme.App">
+        android:theme="@style/Theme.App"
+        android:usesCleartextTraffic="true">
 
         <activity
             android:name=".MainActivity"
@@ -41,6 +42,13 @@
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode"
             android:supportsPictureInPicture="true"
             android:resizeableActivity="true" />
+
+        <activity
+            android:name=".LivePlayerActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Player"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode" />
 
         <service
             android:name=".MovioDownloadService"

@@ -13,15 +13,16 @@ async function sign(env, text) {
   const sig = await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(text));
   return btoa(String.fromCharCode(...new Uint8Array(sig).slice(0, 12))).replace(/[+/=]/g, (c) => ({ "+": "-", "/": "_", "=": "" }[c]));
 }
-async function hlsLink(env, origin, u, ref) {
-  return `${origin}/hls?u=${encodeURIComponent(u)}&r=${encodeURIComponent(ref)}&k=${await sign(env, u + "|" + ref)}`;
+async function hlsLink(env, origin, u, ref, ua = "") {
+  return `${origin}/hls?u=${encodeURIComponent(u)}&r=${encodeURIComponent(ref)}${ua ? `&a=${encodeURIComponent(ua)}` : ""}&k=${await sign(env, u + "|" + ref + (ua ? "|" + ua : ""))}`;
 }
 
 /** Fetches a playlist or segment the way the source's own page would, rewriting playlists so every part comes back through here. */
 async function hls(req, env, url) {
-  const u = url.searchParams.get("u") || "", ref = url.searchParams.get("r") || "";
-  if (!/^https:\/\//.test(u) || (await sign(env, u + "|" + ref)) !== url.searchParams.get("k")) return new Response("forbidden", { status: 403, headers: CORS });
-  const h = { "User-Agent": UA, Referer: ref, Origin: new URL(ref).origin };
+  const u = url.searchParams.get("u") || "", ref = url.searchParams.get("r") || "", ua = url.searchParams.get("a") || "";
+  if (!/^https?:\/\//.test(u) || (await sign(env, u + "|" + ref + (ua ? "|" + ua : ""))) !== url.searchParams.get("k")) return new Response("forbidden", { status: 403, headers: CORS });
+  const h = { "User-Agent": ua || UA };
+  if (ref) { h.Referer = ref; h.Origin = new URL(ref).origin; }
   const range = req.headers.get("Range");
   if (range) h.Range = range;
   const r = await fetch(u, { headers: h, redirect: "follow" });
@@ -54,9 +55,9 @@ async function hls(req, env, url) {
     if (l.startsWith("#")) {
       const m = l.match(/URI="([^"]+)"/);
       if (!m) return line;
-      return l.replace(m[0], `URI="${await hlsLink(env, origin, new URL(m[1], base).href, ref)}"`);
+      return l.replace(m[0], `URI="${await hlsLink(env, origin, new URL(m[1], base).href, ref, ua)}"`);
     }
-    return hlsLink(env, origin, new URL(l, base).href, ref);
+    return hlsLink(env, origin, new URL(l, base).href, ref, ua);
   }));
   return new Response(lines.join("\n"), { headers: { ...CORS, "Content-Type": "application/vnd.apple.mpegurl", "Cache-Control": "no-store" } });
 }
@@ -181,6 +182,12 @@ export default {
           }
         }
         return json200({ ok: false });
+      }
+      // Live TV: a channel's stream through here (for browsers, which need CORS, and for plain-http streams).
+      if (p === "/live") {
+        const u = url.searchParams.get("u") || "";
+        if (!/^https?:\/\/[^\s]+$/.test(u) || !/m3u8|\/hls|playlist|manifest|live|stream/i.test(u)) return json200({ ok: false });
+        return json200({ ok: true, url: await hlsLink(env, url.origin, u, url.searchParams.get("r") || "", url.searchParams.get("a") || "") });
       }
       // What people like and watch (counts only, nothing about who).
       if (p === "/stat" && req.method === "POST") {

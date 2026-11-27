@@ -377,6 +377,142 @@ function playTarget(t) {
 }
 
 // ---------- Screens ----------
+// ---------- Live TV: free-to-air channels (iptv-org), checked every 12 hours ----------
+const LIVE = "live";
+const liveGet = (f) => fetch(`${LIVE}/${f}`, { cache: "no-cache" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+let liveIndex = null, liveFav = db.get("liveFav", {});
+const myCountry = () => {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  const byTz = { "Africa/Lagos": "NG", "Africa/Accra": "GH", "Africa/Nairobi": "KE", "Africa/Johannesburg": "ZA", "Europe/London": "UK", "Europe/Paris": "FR" };
+  return byTz[tz] || (navigator.language.split("-")[1] || "US").toUpperCase();
+};
+const flag = (cc) => `https://flagcdn.com/w40/${(cc === "UK" ? "gb" : cc).toLowerCase()}.png`;
+const LIVE_CATS = ["news", "sports", "movies", "entertainment", "music", "kids", "documentary", "religious", "general"];
+async function liveView() {
+  liveIndex ||= await liveGet("index.json");
+  if (!liveIndex) { view.innerHTML = `<div class="empty pad-top"><b>${I.t("Live TV is getting ready")}</b><span class="muted">${I.t("Try again in a few minutes.")}</span></div>`; return; }
+  const st = { cc: sessionStorage.getItem("liveCc") || myCountry(), cat: sessionStorage.getItem("liveCat") || "", q: "" };
+  if (!liveIndex.countries.some((c) => c.code === st.cc) && st.cc !== "ALL") st.cc = "US";
+  const cName = (cc) => cc === "ALL" ? I.t("Worldwide") : liveIndex.countries.find((c) => c.code === cc)?.name || cc;
+  const top = [...new Set([st.cc, myCountry(), "NG", "GH", "KE", "ZA", "US", "UK", "FR"])].filter((c) => liveIndex.countries.some((x) => x.code === c));
+  view.innerHTML = `<div class="pad-top live">
+    <div class="lhead"><h1 class="title">${I.t("Live TV")}</h1><span class="lcount">${I.f("{1} channels", liveIndex.total)}</span></div>
+    <label class="searchbox"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg><input id="lq" type="search" placeholder="${I.t("Find a channel")}" autocomplete="off"></label>
+    <div class="filters" id="lcc"></div><div class="filters" id="lcat"></div>
+    <div id="lfav"></div><div class="lgrid" id="lgrid"></div></div>`;
+  let list = [];
+  const chips = () => {
+    view.querySelector("#lcc").innerHTML = top.map((c) => `<button class="chip cc ${st.cc === c ? "on" : ""}" data-cc="${c}"><img src="${flag(c)}" alt="">${esc(cName(c))}</button>`).join("")
+      + `<button class="chip ${st.cc === "ALL" ? "on" : ""}" data-cc="ALL">🌍 ${I.t("Worldwide")}</button><button class="chip" id="lmore">${I.t("All countries")} ›</button>`;
+    view.querySelector("#lcat").innerHTML = [["", "All"], ...LIVE_CATS.map((c) => [c, c[0].toUpperCase() + c.slice(1)])]
+      .filter(([c]) => !c || liveIndex.categories.some((x) => x.id === c)).map(([c, n]) => `<button class="chip ${st.cat === c ? "on" : ""}" data-cat="${c}">${I.t(n)}</button>`).join("");
+    view.querySelectorAll("[data-cc]").forEach((b) => (b.onclick = () => { st.cc = b.dataset.cc; if (st.cc === "ALL" && !st.cat) st.cat = "news"; sessionStorage.setItem("liveCc", st.cc); sessionStorage.setItem("liveCat", st.cat); chips(); load(); }));
+    view.querySelectorAll("[data-cat]").forEach((b) => (b.onclick = () => { st.cat = b.dataset.cat; if (st.cc === "ALL" && !st.cat) st.cat = "news"; sessionStorage.setItem("liveCat", st.cat); chips(); load(); }));
+    view.querySelector("#lmore").onclick = () => sheet(I.t("Country"), liveIndex.countries.map((c) => ({ label: `${c.name} · ${c.n}`, on: c.code === st.cc, fn: () => {
+      st.cc = c.code; if (!top.includes(c.code)) top.unshift(c.code); sessionStorage.setItem("liveCc", st.cc); chips(); load(); } })));
+  };
+  const tile = (x, i) => `<button class="ltile" data-i="${i}"><div class="lpic">${x.l ? `<img src="${esc(x.l)}" alt="" loading="lazy">` : `<b>${esc(x.n.slice(0, 2))}</b>`}<span class="lbadge"><i></i>LIVE</span>${liveFav[x.id] ? `<span class="lstar">★</span>` : ""}</div><span class="lname" data-raw>${esc(x.n)}</span><small>${I.t(cap(x.c[0] || "general"))}</small></button>`;
+  const cap = (s) => s[0].toUpperCase() + s.slice(1);
+  const draw = () => {
+    const q = st.q.toLowerCase();
+    const shown = list.filter((x) => (!st.cat || x.c.includes(st.cat) || (st.cat === "general" && !x.c.length)) && (!q || x.n.toLowerCase().includes(q)));
+    const favs = Object.values(liveFav).filter((x) => x && x.id);
+    const fv = view.querySelector("#lfav");
+    fv.innerHTML = favs.length && !q ? `<section class="row"><h2>${I.t("Favourites")}</h2><div class="scroll lfavs">${favs.map((x, i) => `<button class="ltile" data-f="${i}"><div class="lpic">${x.l ? `<img src="${esc(x.l)}" alt="">` : `<b>${esc(x.n.slice(0, 2))}</b>`}</div><span class="lname" data-raw>${esc(x.n)}</span></button>`).join("")}</div></section>` : "";
+    fv.querySelectorAll("[data-f]").forEach((b) => (b.onclick = () => livePlay(favs, +b.dataset.f)));
+    const g = view.querySelector("#lgrid");
+    g.innerHTML = shown.length ? shown.map(tile).join("") : `<div class="empty" style="grid-column:1/-1"><b>${I.t("No channels here")}</b><span class="muted">${I.t("Try another country or category.")}</span></div>`;
+    g.querySelectorAll("[data-i]").forEach((b) => {
+      b.onclick = () => livePlay(shown, +b.dataset.i);
+      b.oncontextmenu = (e) => { e.preventDefault(); toggleFav(shown[+b.dataset.i]); draw(); };
+    });
+  };
+  const load = async () => {
+    view.querySelector("#lgrid").innerHTML = loading();
+    const f = st.cc === "ALL" ? `cat/${st.cat || "news"}.json` : `c/${st.cc.toLowerCase()}.json`;
+    list = (await liveGet(f)) || [];
+    draw();
+  };
+  view.querySelector("#lq").addEventListener("input", (e) => { st.q = e.target.value.trim(); draw(); });
+  chips(); load();
+}
+function toggleFav(x) {
+  if (liveFav[x.id]) delete liveFav[x.id]; else liveFav[x.id] = x;
+  db.set("liveFav", liveFav);
+  toast(I.t(liveFav[x.id] ? "Added to Favourites" : "Removed from Favourites"));
+}
+
+/** The live player: one channel, with the next / previous channel a tap (or ↑ ↓) away. */
+let LP = null;
+function closeLive() {
+  if (!LP) return;
+  LP.hls?.destroy(); LP.el.remove(); document.removeEventListener("keydown", LP.keys, true);
+  document.body.classList.remove("playing"); LP = null;
+}
+function livePlay(list, i) {
+  closeLive();
+  const el = document.createElement("div");
+  el.className = "lplayer";
+  document.body.append(el); document.body.classList.add("playing");
+  LP = { list, i, el };
+  const me = LP;
+  const tune = async () => {
+    const x = me.list[me.i];
+    me.hls?.destroy(); me.hls = null;
+    el.innerHTML = `<video playsinline autoplay></video>
+      <div class="lbar top"><button class="icon" id="lpx">${ICON.back || ICON.close}</button>
+        <div class="lnow">${x.l ? `<img src="${esc(x.l)}" alt="">` : ""}<div><b data-raw>${esc(x.n)}</b><span class="lbadge"><i></i>LIVE</span></div></div>
+        <button class="icon" id="lpf" aria-label="Favourite">${liveFav[x.id] ? "★" : "☆"}</button></div>
+      <div class="lmsg" id="lmsg"><div class="spin"></div><span>${I.t("Tuning in…")}</span></div>
+      <div class="lbar bottom"><button class="lnav" id="lprev">‹ ${I.t("Previous")}</button><button class="icon" id="lpp">${ICON.pause || "❚❚"}</button><button class="icon" id="lfs">⛶</button><button class="lnav" id="lnext">${I.t("Next")} ›</button></div>`;
+    const v = el.querySelector("video");
+    const msg = el.querySelector("#lmsg");
+    el.querySelector("#lpx").onclick = closeLive;
+    el.querySelector("#lprev").onclick = () => { me.i = (me.i - 1 + me.list.length) % me.list.length; tune(); };
+    el.querySelector("#lnext").onclick = () => { me.i = (me.i + 1) % me.list.length; tune(); };
+    el.querySelector("#lpf").onclick = (e) => { toggleFav(x); e.currentTarget.textContent = liveFav[x.id] ? "★" : "☆"; };
+    el.querySelector("#lpp").onclick = () => (v.paused ? v.play() : v.pause());
+    el.querySelector("#lfs").onclick = () => (document.fullscreenElement ? document.exitFullscreen() : (el.requestFullscreen?.() || v.webkitEnterFullscreen?.()));
+    v.onplaying = () => { msg.style.display = "none"; el.querySelector("#lpp").innerHTML = ICON.pause || "❚❚"; };
+    v.onpause = () => { el.querySelector("#lpp").innerHTML = ICON.play; };
+    const offline = () => { if (me !== LP || me.list[me.i] !== x) return; msg.style.display = ""; msg.innerHTML = `<b>${I.t("This channel is off air right now")}</b><button class="btn white" id="lskip">${I.t("Next channel")}</button>`; msg.querySelector("#lskip").onclick = () => el.querySelector("#lnext").click(); };
+    // Straight from the channel when the browser allows it; otherwise through Movio's helper.
+    const viaHelper = async () => {
+      const o = await fetch(`${HELPER}/live?u=${encodeURIComponent(x.u)}&r=${encodeURIComponent(x.r || "")}&a=${encodeURIComponent(x.a || "")}`).then((r) => r.json()).catch(() => null);
+      return o?.ok ? o.url : null;
+    };
+    const direct = x.u.startsWith("https") && !x.r && !x.a;
+    const attempt = async (src, then) => {
+      const native = v.canPlayType("application/vnd.apple.mpegurl");
+      if (!native) await loadHls().catch(() => {});
+      if (!native && window.Hls?.isSupported()) {
+        const h = new Hls({ liveSyncDurationCount: 3, manifestLoadingMaxRetry: 1, levelLoadingMaxRetry: 1 });
+        me.hls = h; h.loadSource(src); h.attachMedia(v);
+        h.on(Hls.Events.MANIFEST_PARSED, () => v.play().catch(() => {}));
+        h.on(Hls.Events.ERROR, (_, d) => { if (d.fatal) { h.destroy(); if (me.hls === h) me.hls = null; then(); } });
+      } else { v.src = src; v.onerror = then; v.play().catch(() => {}); }
+    };
+    const timer = setTimeout(() => { if (v.readyState < 2) offline(); }, 20000);
+    v.addEventListener("playing", () => clearTimeout(timer), { once: true });
+    const viaProxy = async () => { const u = await viaHelper(); if (u && me === LP && me.list[me.i] === x) attempt(u, offline); else offline(); };
+    if (direct) attempt(x.u, viaProxy); else viaProxy();
+  };
+  me.keys = (e) => {
+    if (me !== LP) return;
+    if (e.key === "ArrowUp" || e.key === "PageUp") { e.preventDefault(); el.querySelector("#lprev").click(); }
+    else if (e.key === "ArrowDown" || e.key === "PageDown") { e.preventDefault(); el.querySelector("#lnext").click(); }
+    else if (e.key === "Escape") closeLive();
+    else if (e.key === " ") { e.preventDefault(); el.querySelector("#lpp").click(); }
+    else if (e.key.toLowerCase() === "f") el.querySelector("#lfs").click();
+  };
+  document.addEventListener("keydown", me.keys, true);
+  // Controls fade after a few seconds without a touch.
+  let idle;
+  const wake = () => { el.classList.remove("idle"); clearTimeout(idle); idle = setTimeout(() => el.classList.add("idle"), 3500); };
+  el.addEventListener("pointermove", wake); el.addEventListener("pointerdown", wake); wake();
+  tune();
+}
+
 // ---------- Platforms: what's on Netflix, Prime Video… (TMDB's US lists), all played in Movio ----------
 const PLATFORMS = [
   { id: 8, name: "Netflix", logo: "/rK1KljqmbvO9HQa1PBFLILWah72.png" },
@@ -1308,7 +1444,8 @@ async function route() {
   const h = location.hash.replace(/^#/, "") || "/";
   const parts = h.split("/").filter(Boolean);
   if (parts[0] !== "play") closePlayer();
-  const tab = { "": "home", movies: "movies", tv: "tv", search: "search", list: "list" }[parts[0] || ""] || "";
+  const tab = { "": "home", movies: "movies", tv: "tv", live: "live", search: "search", list: "list" }[parts[0] || ""] || "";
+  if (parts[0] !== "live") closeLive();
   document.querySelectorAll("#tabs a").forEach((a) => a.classList.toggle("on", a.dataset.tab === tab));
   view.scrollTo(0, 0);
   if (!HELPER) { view.innerHTML = `<div class="empty pad-top"><b>Movio is almost ready</b><span class="muted">The helper server isn't set up yet.</span></div>`; return; }
@@ -1321,6 +1458,7 @@ async function route() {
     else if (parts[0] === "person") await person(parts[1]);
     else if (parts[0] === "stats") await statsView();
     else if (parts[0] === "platform") await platform(parts[1]);
+    else if (parts[0] === "live") await liveView();
     else if (parts[0] === "play") await player(parts[1], parts[2], parts[3] || 1, parts[4] || 1);
     else await home();
   } catch {
