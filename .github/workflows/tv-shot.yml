@@ -8,6 +8,7 @@ permissions:
 
 jobs:
   shots:
+    if: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -189,6 +190,23 @@ jobs:
             sh .github/tap.sh New
             sleep 5
             adb exec-out screencap -p > shots/r3_new.png
+            adb shell am start -a android.intent.action.VIEW -d "https://g41us.github.io/Movio/#/title/tv/197428" com.g41us.movio >/dev/null 2>&1 || true
+            sh .github/tap.sh Search
+            sleep 3
+            sh .github/tap.sh avengers
+            for i in 1 2 3 4 5 6 7 8 9; do adb shell input keyevent KEYCODE_DEL; done
+            adb shell input text "blood%ssisters"
+            adb shell input keyevent KEYCODE_ENTER
+            sleep 5
+            adb exec-out screencap -p > shots/s1_search.png
+            sh .github/tap.sh "Blood Sisters"
+            sleep 6
+            adb exec-out screencap -p > shots/s2_details.png
+            sh .github/tap.sh Play
+            sleep 25
+            adb exec-out screencap -p > shots/s3_play.png
+            sleep 15
+            adb exec-out screencap -p > shots/s4_play.png
       - uses: actions/upload-artifact@v4
         if: always()
         with:
