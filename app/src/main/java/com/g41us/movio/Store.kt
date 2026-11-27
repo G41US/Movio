@@ -126,6 +126,10 @@ class Store private constructor(context: Context) {
     var autoSkip: Boolean
         get() = misc.getBoolean("auto_skip", false)
         set(v) = misc.edit().putBoolean("auto_skip", v).apply()
+    /** Smart downloads: a watched episode's download is removed and the next episode is downloaded. */
+    var smartDownloads: Boolean
+        get() = misc.getBoolean("smart_dl", true)
+        set(v) = misc.edit().putBoolean("smart_dl", v).apply()
     var alerts: Boolean
         get() = misc.getBoolean("alerts", true)
         set(v) = misc.edit().putBoolean("alerts", v).apply()

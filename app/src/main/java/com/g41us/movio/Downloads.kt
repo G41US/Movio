@@ -33,6 +33,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import kotlinx.coroutines.launch
 
 /** What a download is, kept inside the download request itself. */
 data class DownloadInfo(val title: Title, val season: Int, val episode: Int, val headers: Map<String, String>, val subtitle: String?) {
@@ -152,6 +153,48 @@ object Downloads {
             }
         }
     }
+
+    private val bg = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+    private val queued = java.util.Collections.synchronizedSet(HashSet<String>())
+
+    /**
+     * Downloads without opening the player (from a title's page, a whole season, or Smart downloads):
+     * finds a clean stream from Club, then the other helper sources, plus a subtitle in your language.
+     */
+    fun fetch(context: Context, t: Title, season: Int, episode: Int, done: (String?) -> Unit = {}) {
+        val app = context.applicationContext
+        val id = idFor(t, season, episode)
+        val have = find(app, id)
+        if (have != null && have.state != Download.STATE_FAILED) { done(null); return }
+        if (!queued.add(id)) { done(null); return }
+        bg.launch {
+            try {
+                val p = listOf("Club", "Peach", "Mist", "Main").firstNotNullOfOrNull { Source.viaHelper(it, t.kind, t.id, season, episode) }
+                if (p == null) { post(app) { done("Couldn't find this one to download. Try again later.") }; return@launch }
+                val subs = p.subtitles + runCatching { Subtitles.find(t.kind, t.id, season, episode) }.getOrDefault(emptyList())
+                val sub = subs.firstOrNull { it.lang == I18n.subLang } ?: subs.firstOrNull { it.lang == "en" }
+                notificationChannel(app)
+                post(app) { start(app, DownloadInfo(t, season, episode, p.headers, null), p.url, true, sub?.url, done) }
+            } finally { queued.remove(id) }
+        }
+    }
+
+    /** Every episode of a season, one after another. */
+    fun fetchSeason(context: Context, t: Title, season: Int, episodes: List<Int>) {
+        val app = context.applicationContext
+        bg.launch { for (e in episodes) { fetch(app, t, season, e); kotlinx.coroutines.delay(1500) } }
+    }
+
+    /** Smart downloads: you finished an episode → its download goes, the next one comes down. */
+    fun finished(context: Context, t: Title, season: Int, episode: Int, next: Pair<Int, Int>?) {
+        if (t.kind != Kind.TV || !Store.get(context).smartDownloads) return
+        val id = idFor(t, season, episode)
+        if (find(context, id)?.state != Download.STATE_COMPLETED) return
+        remove(context, id)
+        next?.let { (s, e) -> fetch(context, t, s, e) }
+    }
+
+    private fun post(app: Context, f: () -> Unit) = android.os.Handler(app.mainLooper).post(f)
 
     private fun saveSubtitle(context: Context, id: String, url: String, headers: Map<String, String>): String? = try {
         val c = URL(url).openConnection() as HttpURLConnection

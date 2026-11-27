@@ -395,6 +395,11 @@ object Tmdb {
 
     suspend fun seasonCount(showId: Int): Int = get("tv/$showId").optInt("number_of_seasons")
 
+    /** IMDb id (tt…) for a title, or null. */
+    suspend fun imdb(kind: Kind, id: Int): String? = try {
+        get("/${if (kind == Kind.TV) "tv" else "movie"}/$id/external_ids").optString("imdb_id").takeIf { it.startsWith("tt") }
+    } catch (_: Exception) { null }
+
     suspend fun episodes(showId: Int, season: Int): List<Episode> {
         val a = get("tv/$showId/season/$season").optJSONArray("episodes") ?: return emptyList()
         return (0 until a.length()).map { a.getJSONObject(it) }.map {

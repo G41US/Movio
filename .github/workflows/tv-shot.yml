@@ -65,30 +65,37 @@ jobs:
             sleep 2.5
             adb exec-out screencap -p > shots/4b_posters.png
             adb shell input keyevent KEYCODE_DPAD_CENTER
-            sleep 6
+            sleep 7
             adb exec-out screencap -p > shots/4c_details.png
-            adb shell input keyevent KEYCODE_DPAD_RIGHT
-            sleep 1.5
-            adb exec-out screencap -p > shots/4d_details_btn.png
+            for i in 1 2 3 4; do adb shell input keyevent KEYCODE_DPAD_RIGHT; sleep 0.6; done
+            sleep 1
+            adb exec-out screencap -p > shots/4d_details_download.png
             adb shell input keyevent KEYCODE_BACK
             sleep 3
             for i in 1 2 3 4 5 6 7 8; do adb shell input keyevent KEYCODE_DPAD_LEFT; sleep 0.3; done
-            sleep 2
-            adb exec-out screencap -p > shots/5_menu.png
             for i in 1 2 3 4 5 6 7; do adb shell input keyevent KEYCODE_DPAD_UP; sleep 0.3; done
-            for i in 1 2 3 4; do adb shell input keyevent KEYCODE_DPAD_DOWN; sleep 0.4; done
-            sleep 1
-            adb exec-out screencap -p > shots/6_menu_live.png
+            for i in 1 2 3; do adb shell input keyevent KEYCODE_DPAD_DOWN; sleep 0.4; done
+            adb shell input keyevent KEYCODE_DPAD_CENTER
+            sleep 9
+            adb exec-out screencap -p > shots/5_tvshows.png
+            adb shell input keyevent KEYCODE_DPAD_DOWN
+            sleep 1.5
+            adb shell input keyevent KEYCODE_DPAD_DOWN
+            sleep 1.5
             adb shell input keyevent KEYCODE_DPAD_CENTER
             sleep 8
-            adb exec-out screencap -p > shots/7_live.png
+            adb exec-out screencap -p > shots/6_series.png
+            for n in 1 2 3 4 5 6 7 8 9 10; do adb shell input keyevent KEYCODE_DPAD_DOWN; sleep 0.9; adb exec-out screencap -p > shots/7_eps_$n.png; done
             adb shell input keyevent KEYCODE_DPAD_RIGHT
-            for i in 1 2 3 4; do adb shell input keyevent KEYCODE_DPAD_DOWN; sleep 0.5; done
-            sleep 2
-            adb exec-out screencap -p > shots/8_live_tiles.png
-            for i in 1 2; do adb shell input keyevent KEYCODE_DPAD_DOWN; sleep 0.5; done
-            sleep 2
-            adb exec-out screencap -p > shots/9_live_lower.png
+            sleep 1
+            adb exec-out screencap -p > shots/7z_ep_download_focus.png
+            adb shell am force-stop com.g41us.movio
+            adb shell am start -n com.g41us.movio/.MainActivity --ez demo_upnext true
+            sleep 14
+            adb exec-out screencap -p > shots/9_upnext.png
+            adb shell input keyevent KEYCODE_DPAD_RIGHT
+            sleep 1
+            adb exec-out screencap -p > shots/9b_upnext_credits_btn.png
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -140,9 +147,10 @@ jobs:
             adb shell input swipe 540 1900 540 1000 500
             sleep 3
             adb exec-out screencap -p > shots/p2_platforms.png
-            sh .github/tap.sh Live
-            sleep 8
-            adb exec-out screencap -p > shots/p3_live.png
+            adb shell am force-stop com.g41us.movio
+            adb shell am start -n com.g41us.movio/.MainActivity --ez demo_upnext true
+            sleep 14
+            adb exec-out screencap -p > shots/p4_upnext.png
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -1,5 +1,8 @@
 package com.g41us.movio
 
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -120,6 +123,10 @@ interface PlayerHost {
     fun preview(posMs: Long?)
     fun back()
     fun next()
+    /** Credits: shrink the video into the corner (true) or bring it back (false). */
+    fun shrink(on: Boolean)
+    /** Screenshot check: show Up next without anything playing. */
+    val demo: Boolean get() = false
     fun web()
     fun sources()
     fun download()
@@ -220,6 +227,7 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
                 if (inCredits) (10 - (position - credits!!) / 1000).toInt().coerceIn(0, 10).let { if (left < it * 1000L) (left / 1000).toInt() else it }
                 else (left / 1000).toInt().coerceAtLeast(0)
             } else -1
+            if (host.demo && !countdownDismissed) countdown = 7
             if (countdown == 0) { countdownDismissed = true; host.next() }
             delay(250)
         }
@@ -257,7 +265,7 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
                 val skipTo = active?.takeIf { !host.autoSkip }?.endMs
                 when {
                     // Controls hidden: OK takes Up next / Skip intro if showing, Left/Right skip 10 s, anything else shows the controls.
-                    !visible && center && countdown >= 0 -> { countdownDismissed = true; host.next(); true }
+                    countdown >= 0 -> false  // the Up next panel handles the remote itself
                     center && skipTo != null && (!visible || !focusInside) -> { player.seekTo(skipTo); hint = if (active?.type == "recap") "Skipped recap" else "Skipped intro"; true }
                     !visible && e.key == Key.DirectionLeft -> { seekBy(-10_000); true }
                     !visible && e.key == Key.DirectionRight -> { seekBy(10_000); true }
@@ -396,20 +404,61 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
             }
         }
 
-        // Up next
-        AnimatedVisibility(countdown >= 0, modifier = Modifier.align(Alignment.BottomEnd), enter = slideInVertically { it } + fadeIn(), exit = slideOutVertically { it } + fadeOut()) {
-            Column(Modifier.safeDrawingPadding().padding(22.dp).width(290.dp).clip(RoundedCornerShape(18.dp)).background(Color(0xF00E1017)).padding(16.dp)) {
-                Text("Up next", color = Muted, fontSize = 12.sp, fontWeight = FontWeight.Bold, style = jakarta())
-                Spacer(Modifier.height(4.dp))
-                val nextEp = host.episodes.firstOrNull { it.number == host.episode + 1 }
-                Text(nextEp?.let { "E${it.number} · ${it.name}" } ?: "Next episode", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold,
-                    style = jakarta(), maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Spacer(Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Play in ${countdown.coerceAtLeast(0)}", color = Ink, fontSize = 14.sp, fontWeight = FontWeight.Bold, style = jakarta(),
-                        modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(Color.White).playerGlow(RoundedCornerShape(10.dp)).clickable { countdownDismissed = true; host.next() }.padding(horizontal = 16.dp, vertical = 10.dp))
-                    Text("Cancel", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, style = jakarta(),
-                        modifier = Modifier.clip(RoundedCornerShape(10.dp)).playerGlow(RoundedCornerShape(10.dp)).clickable { countdownDismissed = true }.padding(horizontal = 12.dp, vertical = 10.dp))
+        // Up next, Netflix style: the credits shrink into the corner and the next episode fills the screen.
+        LaunchedEffect(countdown >= 0) { host.shrink(countdown >= 0); if (countdown >= 0) onVisible(false) }
+        BackHandler(enabled = countdown >= 0) { countdownDismissed = true }
+        AnimatedVisibility(countdown >= 0, modifier = Modifier.fillMaxSize(), enter = fadeIn(tween(380)), exit = fadeOut(tween(250))) {
+            val nextNo = host.episode + 1
+            val nextEp = host.episodes.firstOrNull { it.number == nextNo }
+            val goFocus = remember { FocusRequester() }
+            LaunchedEffect(Unit) { if (tv) { delay(450); runCatching { goFocus.requestFocus() } } }
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                val videoW = maxWidth * .44f
+                // A soft dark wash on the right so the card reads well over any background.
+                Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Color.Transparent, .38f to Color(0xCC07080C), 1f to Color(0xF207080C))))
+                // Under the small video: what's happening.
+                Column(Modifier.padding(start = 40.dp, top = 40.dp + videoW * 9f / 16f + 14.dp).width(videoW)) {
+                    Text(t("Credits"), color = Muted, fontSize = 13.sp, fontWeight = FontWeight.Bold, style = jakarta())
+                }
+                Column(
+                    Modifier.align(Alignment.CenterEnd).safeDrawingPadding().padding(end = 44.dp).width(minOf(maxWidth * .44f, 420.dp)),
+                ) {
+                    Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(16.dp)).background(Color(0xFF15161E))) {
+                        NetImage(Tmdb.img(nextEp?.still, "w780"), null, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+                        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(.5f to Color.Transparent, 1f to Color(0xB3000000))))
+                        Text(t("Next episode"), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, style = jakarta(),
+                            modifier = Modifier.align(Alignment.TopStart).padding(12.dp).clip(RoundedCornerShape(8.dp)).background(Violet).padding(horizontal = 9.dp, vertical = 4.dp))
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    Text(if (nextEp != null) "E$nextNo · ${nextEp.name}" else t("Next episode"), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold,
+                        style = jakarta(), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    nextEp?.overview?.takeIf { it.isNotBlank() }?.let {
+                        Spacer(Modifier.height(6.dp))
+                        Text(it, color = Soft, fontSize = 13.sp, lineHeight = 18.sp, style = jakarta(), maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    }
+                    Spacer(Modifier.height(18.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        // The button fills up as the countdown runs, like Netflix.
+                        val fill by animateFloatAsState(((10 - countdown.coerceIn(0, 10)) / 10f), tween(260), label = "fill")
+                        var goOn by remember { mutableStateOf(false) }
+                        Box(
+                            Modifier.focusRequester(goFocus).onFocusChanged { goOn = it.isFocused }.clip(RoundedCornerShape(12.dp))
+                                .background(Color.White.copy(alpha = .22f)).softRing(if (goOn) 1f else 0f, RoundedCornerShape(12.dp))
+                                .clickable { countdownDismissed = true; host.next() },
+                        ) {
+                            Box(Modifier.matchParentSize()) { Box(Modifier.fillMaxHeight().fillMaxWidth(fill).background(Color.White)) }
+                            Row(Modifier.padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(painterResource(R.drawable.ic_play_fill), null, tint = Ink, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text(t("Next episode"), color = Ink, fontSize = 15.sp, fontWeight = FontWeight.Bold, style = jakarta())
+                            }
+                        }
+                        var backOn by remember { mutableStateOf(false) }
+                        Text(t("Watch credits"), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, style = jakarta(),
+                            modifier = Modifier.onFocusChanged { backOn = it.isFocused }.clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = .1f))
+                                .softRing(if (backOn) 1f else 0f, RoundedCornerShape(12.dp))
+                                .clickable { countdownDismissed = true }.padding(horizontal = 16.dp, vertical = 12.dp))
+                    }
                 }
             }
         }

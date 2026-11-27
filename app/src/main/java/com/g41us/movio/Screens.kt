@@ -51,6 +51,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -491,6 +492,7 @@ fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPerson:
                             GhostButton(if (saved) "In My List" else "My List", if (saved) R.drawable.ic_check else R.drawable.ic_plus) { store.toggle(t) }
                             GhostButton(if (isLiked) "Liked" else "Like", if (isLiked) R.drawable.ic_heart_fill else R.drawable.ic_heart) { like() }
                             if (d.trailer != null) GhostButton("Trailer", R.drawable.ic_trailer) { onTrailer(d.trailer) }
+                            if (t.kind == Kind.MOVIE) { val dl = dlState(t, 1, 1); GhostButton(dlLabel(dl), if (dl == DL.DONE) R.drawable.ic_check else R.drawable.ic_download) { download(ctx, t, 1, 1) } }
                         } else {
                             PrimaryButton(label, R.drawable.ic_play_fill, Modifier.fillMaxWidth().tvFirstFocus(t.key)) {
                                 onPlay(t, last?.season ?: 1, last?.episode ?: 1)
@@ -502,6 +504,7 @@ fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPerson:
                                 ActionTile(if (isLiked) R.drawable.ic_heart_fill else R.drawable.ic_heart, if (isLiked) "Liked" else "Like", isLiked, Pink) { like() }
                                 ActionTile(R.drawable.ic_share, "Share", false, Color.White) { shareTitle(ctx, t) }
                                 if (d.trailer != null) ActionTile(R.drawable.ic_trailer, "Trailer", false, Color.White) { onTrailer(d.trailer) }
+                                if (t.kind == Kind.MOVIE) { val dl = dlState(t, 1, 1); ActionTile(if (dl == DL.DONE) R.drawable.ic_check else R.drawable.ic_download, dlLabel(dl), dl != DL.NONE, Color.White) { download(ctx, t, 1, 1) } }
                             }
                         }
                         if (d.genres.isNotEmpty()) {
@@ -525,9 +528,21 @@ fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPerson:
                 }
                 if (t.kind == Kind.TV && d.seasons.isNotEmpty()) {
                     item(key = "seasons") {
+                        val ctx = androidx.compose.ui.platform.LocalContext.current
+                        val scope = rememberCoroutineScope()
                         SectionTitle("Episodes")
                         LazyRow(contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             items(d.seasons) { se -> Chip("Season ${se.number}", se.number == season) { season = se.number } }
+                            item {
+                                Chip(tf("Download season {1}", season), false) {
+                                    val eps = d.seasons.firstOrNull { it.number == season }?.episodeCount ?: 0
+                                    scope.launch {
+                                        val list = runCatching { Tmdb.episodes(t.id, season).map { it.number } }.getOrNull() ?: (1..eps).toList()
+                                        Downloads.fetchSeason(ctx, t, season, list)
+                                        android.widget.Toast.makeText(ctx, tf("Downloading season {1} — see Downloads", season), android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
                         }
                         Spacer(Modifier.height(8.dp))
                     }
@@ -573,9 +588,49 @@ private fun EpisodeList(show: Title, season: Int, last: Progress?, onPlay: (Int)
                                 maxLines = if (wide) 3 else 3, overflow = TextOverflow.Ellipsis)
                         }
                     }
+                    // Download this episode (tick when it's on the device, faded while it downloads).
+                    val ctx = androidx.compose.ui.platform.LocalContext.current
+                    val dl = dlState(show, season, e.number)
+                    var dlFocus by remember { mutableStateOf(false) }
+                    Box(Modifier.padding(start = 8.dp).size(40.dp).onFocusChanged { dlFocus = it.isFocused }.clip(RoundedCornerShape(50))
+                        .background(if (dlFocus) Color.White else Color.Transparent).clickable { download(ctx, show, season, e.number) },
+                        contentAlignment = Alignment.Center) {
+                        Icon(painterResource(if (dl == DL.DONE) R.drawable.ic_check else R.drawable.ic_download), t("Download"),
+                            tint = if (dlFocus) Ink else if (dl == DL.DONE) Violet else Color.White.copy(alpha = if (dl == DL.RUNNING) .4f else .85f), modifier = Modifier.size(20.dp))
+                    }
                 }
             }
         }
+    }
+}
+
+// ---------- Downloads from a title's page ----------
+
+enum class DL { NONE, RUNNING, DONE }
+
+/** Where a download stands, refreshed every couple of seconds while the page is open. */
+@Composable
+fun dlState(t: Title, season: Int, episode: Int): DL {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var st by remember(t.key, season, episode) { mutableStateOf(DL.NONE) }
+    LaunchedEffect(t.key, season, episode) {
+        while (true) {
+            st = when (Downloads.find(ctx, Downloads.idFor(t, season, episode))?.state) {
+                androidx.media3.exoplayer.offline.Download.STATE_COMPLETED -> DL.DONE
+                null, androidx.media3.exoplayer.offline.Download.STATE_FAILED -> DL.NONE
+                else -> DL.RUNNING
+            }
+            kotlinx.coroutines.delay(2000)
+        }
+    }
+    return st
+}
+
+fun dlLabel(d: DL) = when (d) { DL.DONE -> "Downloaded"; DL.RUNNING -> "Downloading"; DL.NONE -> "Download" }
+
+fun download(ctx: android.content.Context, t: Title, season: Int, episode: Int) {
+    Downloads.fetch(ctx, t, season, episode) { err ->
+        android.widget.Toast.makeText(ctx, t(err ?: "Downloading — see Downloads"), android.widget.Toast.LENGTH_SHORT).show()
     }
 }
 
@@ -682,6 +737,8 @@ fun SettingsScreen(version: String, update: UpdateState, blocked: Int, store: St
                 ToggleRow("Autoplay next episode", "Plays the next episode after a short countdown.", autoplay) { autoplay = it; store.autoplayNext = it }
                 var autoSkip by remember { mutableStateOf(store.autoSkip) }
                 ToggleRow("Skip intros automatically", "Skips intros and recaps the moment they start.", autoSkip) { autoSkip = it; store.autoSkip = it }
+                var smart by remember { mutableStateOf(store.smartDownloads) }
+                ToggleRow("Smart downloads", "When you finish a downloaded episode, it's deleted and the next one downloads.", smart) { smart = it; store.smartDownloads = it }
                 var alerts by remember { mutableStateOf(store.alerts) }
                 ToggleRow("New episode alerts", "Know when a show in My List has a new episode.", alerts) { alerts = it; store.alerts = it; onAlerts(it) }
                 Spacer(Modifier.height(6.dp))

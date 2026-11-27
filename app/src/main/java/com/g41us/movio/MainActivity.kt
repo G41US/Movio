@@ -71,6 +71,9 @@ class MainActivity : ComponentActivity() {
         )
         super.onCreate(savedInstanceState)
         I18n.init(this)
+        // Screenshot check only: open the player's Up next screen without playing anything.
+        if (intent.getBooleanExtra("demo_upnext", false)) startActivity(Intent(this, PlayerActivity::class.java)
+            .putExtra("id", 1399).putExtra("kind", "TV").putExtra("name", "Game of Thrones").putExtra("s", 1).putExtra("e", 2).putExtra("demo", true))
         Tmdb.kids = Store.get(this).kids
         AdBlock.warm(this)
         Tmdb.diskDir = File(filesDir, "tmdb").apply { mkdirs() }
