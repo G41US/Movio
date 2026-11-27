@@ -170,6 +170,13 @@ export default {
     const p = url.pathname;
     try {
       // AVO TV channel: /avo/<channelId> → redirect to a fresh stream (no proxy needed, AVO allows any site).
+      if (p === "/avo/list") {
+        // What AVO offers to whoever's asking (the list can depend on the viewer's country).
+        const s = await avoSession(env, 0, false);
+        const r = await avoCall("channels/list", { sessionId: s.key, profileGuid: s.guid, type: "TV", playbackFormats: AVO_PF });
+        const where = req.cf?.country || "?";
+        return new Response(where + " · " + (r.channels || []).length + " channels\n\n" + (r.channels || []).map((c) => c.id + "  " + c.name).join("\n"), { headers: { ...CORS, "Content-Type": "text/plain; charset=utf-8" } });
+      }
       if (p.startsWith("/avo/")) {
         const id = Number(p.slice(5).replace(/\.m3u8$/, ""));
         if (!id || !avoAccounts(env).length) return new Response("not found", { status: 404, headers: CORS });
