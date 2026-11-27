@@ -318,7 +318,7 @@ class PlayerActivity : ComponentActivity() {
             val default = if (kind == Kind.TV) null else prefs.getString("source2", null)
             start(Sources.index(perTitle ?: default ?: order().firstOrNull()?.let { Sources.all[it].name }), automatic = true)
         }
-        lifecycleScope.launch { while (true) { refreshDownloadLabel(); kotlinx.coroutines.delay(2000) } }
+        lifecycleScope.launch { while (true) { refreshDownloadLabel(); prepareNext(); kotlinx.coroutines.delay(2000) } }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -481,13 +481,15 @@ class PlayerActivity : ComponentActivity() {
         candidates.clear(); rejected.clear(); trying = null; subtitleTracks = emptyList(); pageSubs.clear()
         resolveJob?.cancel()
         subtitleJob?.cancel()
-        if (!source.direct) subtitleJob = lifecycleScope.launch {
+        // Every source gets the full subtitle list (sources that bring their own keep theirs too).
+        subtitleJob = lifecycleScope.launch {
             val found = Subtitles.find(kind, id, season, episode)
             if (token != attempt || found.isEmpty()) return@launch
-            val had = subtitleTracks.isNotEmpty()
-            subtitleTracks = found
-            // Stream already playing without them: reload in place so the subtitles show up.
-            if (phase == Phase.NATIVE && !had) trying?.let { s -> val pos = exo.currentPosition; play(s); exo.seekTo(pos) }
+            val want = I18n.subLang
+            val hadMine = subtitleTracks.any { it.lang == want }
+            subtitleTracks = (subtitleTracks + found).distinctBy { it.url }
+            // Stream already playing without your language: reload in place so it shows up.
+            if (phase == Phase.NATIVE && !hadMine && found.any { it.lang == want }) trying?.let { s -> val pos = exo.currentPosition; play(s); exo.seekTo(pos) }
         }
         exo.stop(); exo.clearMediaItems()
         playerView.visibility = View.GONE
@@ -511,7 +513,7 @@ class PlayerActivity : ComponentActivity() {
                 try {
                     val p = Source.resolve(kind, id, season, episode)
                     if (token != attempt) return@launch
-                    subtitleTracks = p.subtitles
+                    subtitleTracks = (p.subtitles + subtitleTracks).distinctBy { it.url }
                     trying = Stream(p.url, p.headers, hls = true)
                     play(trying!!)
                 } catch (e: Exception) {
@@ -793,6 +795,19 @@ class PlayerActivity : ComponentActivity() {
         trying = null
         if (source.direct) { sourceFailed(); return }
         if (candidates.any { it.url !in rejected }) tryNext()
+    }
+
+    /** Near the end of an episode: get the next one's subtitles, intro times and episode list ready. */
+    private var preparedNext = ""
+    private fun prepareNext() {
+        val t = title ?: return
+        if (t.kind != Kind.TV || phase != Phase.NATIVE) return
+        val dur = exo.duration.takeIf { it != C.TIME_UNSET && it > 300_000 } ?: return
+        if (exo.currentPosition < dur * 3 / 4) return
+        val (s, e) = if (episodeCount in 1..episode && season < seasonCount) season + 1 to 1 else season to episode + 1
+        if (preparedNext == "$s:$e") return
+        preparedNext = "$s:$e"
+        Prefetch.title(t, s, e)
     }
 
     private fun nextEpisode() {

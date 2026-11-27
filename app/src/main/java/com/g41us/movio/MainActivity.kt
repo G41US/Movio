@@ -52,6 +52,7 @@ import java.io.File
 sealed interface Screen {
     data class Details(val title: Title) : Screen
     data class People(val person: Person) : Screen
+    data class Platform(val id: Int) : Screen
     data object Settings : Screen
     data object Downloads : Screen
 }
@@ -197,7 +198,7 @@ fun App(openRequest: androidx.compose.runtime.MutableState<Title?>) {
                     title = when {
                         top is Screen.Settings -> "Settings"
                         top is Screen.Downloads -> "Downloads"
-                        top is Screen.Details || top is Screen.People -> null
+                        top is Screen.Details || top is Screen.People || top is Screen.Platform -> null
                         tab == Tab.SEARCH -> "Search"
                         tab == Tab.LIST -> "My List"
                         else -> null
@@ -220,6 +221,7 @@ fun App(openRequest: androidx.compose.runtime.MutableState<Title?>) {
                 when (s) {
                     is Screen.Details -> DetailsScreen(s.title, store, ::open, { p -> stack.add(Screen.People(p)) }, ::trailer) { t, se, ep -> PlayerActivity.start(context, t, se, ep) }
                     is Screen.People -> PersonScreen(s.person, ::open)
+                    is Screen.Platform -> PlatformScreen(s.id, ::open)
                     Screen.Downloads -> DownloadsScreen { info, id -> PlayerActivity.start(context, info.title, info.season, info.episode, offline = id) }
                     Screen.Settings -> SettingsScreen(
                         Updates.installedName(context), update, AdBlock.size, store,
@@ -234,7 +236,7 @@ fun App(openRequest: androidx.compose.runtime.MutableState<Title?>) {
                         WebStorage.getInstance().deleteAllData()
                         Toast.makeText(context, t("Cache cleared"), Toast.LENGTH_SHORT).show()
                     }
-                    Tab.HOME -> FeedScreen(null, store, ::open, ::play) { stack.add(Screen.Downloads) }
+                    Tab.HOME -> FeedScreen(null, store, ::open, ::play, onPlatform = { stack.add(Screen.Platform(it)) }) { stack.add(Screen.Downloads) }
                     Tab.MOVIES -> FeedScreen(Kind.MOVIE, store, ::open, ::play) { stack.add(Screen.Downloads) }
                     Tab.TV -> FeedScreen(Kind.TV, store, ::open, ::play) { stack.add(Screen.Downloads) }
                     Tab.SEARCH -> SearchScreen(::open)

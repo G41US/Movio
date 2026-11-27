@@ -46,6 +46,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -107,7 +109,7 @@ private fun Failed(retry: () -> Unit) =
 // ---------- Home / Movies / TV ----------
 
 @Composable
-fun FeedScreen(kind: Kind?, store: Store, onOpen: (Title) -> Unit, onPlay: (Title) -> Unit, onDownloads: () -> Unit = {}) {
+fun FeedScreen(kind: Kind?, store: Store, onOpen: (Title) -> Unit, onPlay: (Title) -> Unit, onPlatform: (Int) -> Unit = {}, onDownloads: () -> Unit = {}) {
     var genre by remember(kind) { mutableStateOf<Genre?>(null) }
     val (state, retry) = load(kind to genre) {
         if (kind != null) Tmdb.browse(kind, genre) else {
@@ -157,11 +159,90 @@ fun FeedScreen(kind: Kind?, store: Store, onOpen: (Title) -> Unit, onPlay: (Titl
                         }
                     }
                 }
+                if (kind == null && !Tmdb.kids) item(key = "platforms") { PlatformRow(onPlatform) }
                 rows.forEachIndexed { i, row ->
                     item(key = "row$i${row.name}") { Box(Modifier.enterUp(i)) { Column { PosterRow(row, onOpen) } } }
                 }
             }
         }
+    }
+}
+
+// ---------- Platforms ----------
+
+@Composable
+private fun PlatformRow(onPlatform: (Int) -> Unit) {
+    val tv = LocalWide.current
+    val size = if (tv) 96.dp else 68.dp
+    SectionTitle("Platforms")
+    LazyRow(Modifier.tvEdgeFade(), contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(if (tv) 18.dp else 14.dp)) {
+        items(Tmdb.PLATFORMS, key = { it.id }) { p ->
+            Column(Modifier.width(size + 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                val shape = RoundedCornerShape(size * .26f)
+                Box(Modifier.size(size).tappableCard(shape) { onPlatform(p.id) }) {
+                    NetImage(Tmdb.img(p.logo, "w154"), null, Modifier.fillMaxSize().clip(shape).border(1.dp, Color.White.copy(alpha = .08f), shape), contentScale = ContentScale.Crop)
+                }
+                Spacer(Modifier.height(7.dp))
+                androidx.compose.material3.Text(p.name, fontSize = if (tv) 14.sp else 12.sp, fontWeight = FontWeight.Bold, color = Soft, style = jakarta(), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+}
+
+@Composable
+fun PlatformScreen(id: Int, onOpen: (Title) -> Unit) {
+    val p = Tmdb.PLATFORMS.firstOrNull { it.id == id } ?: Tmdb.PLATFORMS[0]
+    var kind by rememberSaveable { mutableStateOf(Kind.TV) }
+    var sort by rememberSaveable { mutableStateOf("popular") }
+    val items = remember(kind, sort) { mutableStateListOf<Title>() }
+    var page by remember(kind, sort) { mutableIntStateOf(1) }
+    var more by remember(kind, sort) { mutableStateOf(true) }
+    var loading by remember(kind, sort) { mutableStateOf(false) }
+    var failed by remember(kind, sort) { mutableStateOf(false) }
+    LaunchedEffect(kind, sort, page) {
+        loading = true
+        runCatching { Tmdb.platform(p.id, kind, sort, page) }
+            .onSuccess { (got, has) -> items.addAll(got.filter { t -> items.none { it.key == t.key } }); more = has && got.isNotEmpty(); failed = false }
+            .onFailure { failed = true }
+        loading = false
+    }
+    val grid = rememberLazyGridState()
+    // More as you reach the bottom.
+    LaunchedEffect(grid, kind, sort) {
+        snapshotFlow { grid.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }.collect { last ->
+            if (!loading && more && items.isNotEmpty() && last >= grid.layoutInfo.totalItemsCount - 6) page++
+        }
+    }
+    val tvBar = LocalTopBar.current
+    LazyVerticalGrid(
+        GridCells.Adaptive(if (LocalWide.current) 200.dp else 108.dp), Modifier.fillMaxSize().dpadScroll(grid), state = grid,
+        contentPadding = PaddingValues(start = Gutter, end = GutterEnd, top = if (tvBar != null) 0.dp else barSpace(), bottom = dockSpace()),
+        horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(18.dp),
+    ) {
+        if (tvBar != null) item(span = { GridItemSpan(maxLineSpan) }) { Box(Modifier.bleed(Gutter, GutterEnd)) { tvBar() } }
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    NetImage(Tmdb.img(p.logo, "w154"), null, Modifier.size(56.dp).clip(RoundedCornerShape(15.dp)), contentScale = ContentScale.Crop)
+                    Spacer(Modifier.width(14.dp))
+                    Column {
+                        androidx.compose.material3.Text(p.name, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, style = jakarta())
+                        Text("Everything here plays in Movio.", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Muted, style = jakarta())
+                    }
+                }
+                Spacer(Modifier.height(2.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Chip(t("Shows"), kind == Kind.TV) { kind = Kind.TV }
+                    Chip(t("Movies"), kind == Kind.MOVIE) { kind = Kind.MOVIE }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("popular" to "Popular", "new" to "New", "top" to "Top rated").forEach { (k, l) -> Chip(t(l), sort == k) { sort = k } }
+                }
+            }
+        }
+        items(items, key = { it.key }) { t -> PosterCard(t, 108.dp) { onOpen(t) } }
+        if (loading) items(if (items.isEmpty()) 9 else 3) { Box(Modifier.aspectRatio(2f / 3f).shimmer()) }
+        if (failed && items.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) { Failed { page = 1; failed = false; loading = false } }
     }
 }
 

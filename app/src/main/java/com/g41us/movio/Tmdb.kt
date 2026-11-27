@@ -257,6 +257,33 @@ object Tmdb {
         10751 to "Family", 14 to "Fantasy", 36 to "History", 27 to "Horror", 10402 to "Music", 9648 to "Mystery", 10749 to "Romance", 878 to "Science Fiction",
         53 to "Thriller", 10752 to "War", 37 to "Western", 10759 to "Action & Adventure", 10762 to "Kids", 10764 to "Reality", 10765 to "Sci-Fi & Fantasy", 10766 to "Soap", 10768 to "War & Politics")
 
+    /** Streaming platforms (TMDB's US lists); everything still plays in Movio. */
+    class Platform(val id: Int, val name: String, val logo: String)
+    val PLATFORMS = listOf(
+        Platform(8, "Netflix", "/rK1KljqmbvO9HQa1PBFLILWah72.png"), Platform(9, "Prime Video", "/gMZdpavHmxFNnLpMHwVxfqeux2g.png"),
+        Platform(337, "Disney+", "/5eZ872CghnHFLB1j8grszbrx0dx.png"), Platform(1899, "HBO Max", "/skypuy7SXuugIQeYg0IglmzoKaS.png"),
+        Platform(350, "Apple TV", "/v9SnyvYt0U3KGgBH3Sbh3z4yODe.png"), Platform(15, "Hulu", "/44uAnmSqvA4yBOdbPWN8YgQHjWm.png"),
+        Platform(386, "Peacock", "/a1UIdq5BrkcAxnxcUhFsNbXnxeu.png"), Platform(283, "Crunchyroll", "/uFL3c4Cq8M6WoLymlC5Y8bmGytV.png"),
+    )
+    /** One page of a platform's titles. sort: popular / new / top. Returns the titles and whether there's more. */
+    suspend fun platform(id: Int, kind: Kind, sort: String, page: Int): Pair<List<Title>, Boolean> {
+        val p = mutableMapOf("with_watch_providers" to "$id", "watch_region" to "US", "page" to "$page", "include_adult" to "false")
+        when (sort) {
+            "new" -> {
+                p["sort_by"] = if (kind == Kind.MOVIE) "primary_release_date.desc" else "first_air_date.desc"
+                p[if (kind == Kind.MOVIE) "primary_release_date.lte" else "first_air_date.lte"] = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+                p["vote_count.gte"] = "10"
+            }
+            "top" -> { p["sort_by"] = "vote_average.desc"; p["vote_count.gte"] = "300" }
+            else -> { p["sort_by"] = "popularity.desc"; p["vote_count.gte"] = "20" }
+        }
+        if (kind == Kind.TV) p["without_genres"] = "10763,10764,10767"
+        val o = get("discover/${kind.api}", p)
+        val a = o.optJSONArray("results") ?: return emptyList<Title>() to false
+        val items = (0 until a.length()).mapNotNull { parse(a.getJSONObject(it), kind) }.filter { it.poster != null && kidsOk(it) }
+        return items to (page < o.optInt("total_pages", 1))
+    }
+
     class Cat(val id: String, val name: String, val kinds: List<Kind>, val q: Map<String, String>, val few: Boolean = false, val ok: (JSONObject) -> Boolean)
     private fun lang(o: JSONObject) = o.optString("original_language")
     val CATS = listOf(
