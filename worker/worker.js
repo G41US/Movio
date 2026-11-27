@@ -1,6 +1,6 @@
 // Movio helper: lets the Movio web app reach the catalogue, subtitles and the direct stream service
 // from a browser (adds CORS), and keeps the API keys off the public page.
-const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "*", "Access-Control-Allow-Methods": "GET, OPTIONS" };
+const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "*", "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS" };
 const UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
 const PARTY = "https://vidsrc.party";
 const CLUB = "https://moviesapi.to";
@@ -90,6 +90,30 @@ function b64url(s) {
   while (s.length % 4) s += "=";
   return Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 }
+// ---- Sync ----
+const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+function newCode() {
+  const b = crypto.getRandomValues(new Uint8Array(6));
+  return [...b].map((x) => CODE_CHARS[x % CODE_CHARS.length]).join("");
+}
+const emptyState = () => ({ list: {}, cont: {}, pos: {} });
+/** Per item, the newest change wins (deletions are kept as {del:true} so they spread too). */
+function mergeState(a, b) {
+  const out = emptyState();
+  const LIMIT = { list: 500, cont: 60, pos: 800 };
+  for (const sec of ["list", "cont", "pos"]) {
+    const m = { ...(a?.[sec] || {}) };
+    for (const [k, v] of Object.entries(b?.[sec] || {})) {
+      if (!v || typeof v.at !== "number" || k.length > 80) continue;
+      if (!m[k] || v.at > m[k].at) m[k] = v;
+    }
+    // Keep the newest; drop deletions older than 90 days.
+    const cutoff = Date.now() - 90 * 864e5;
+    out[sec] = Object.fromEntries(Object.entries(m).filter(([, v]) => !(v.del && v.at < cutoff))
+      .sort((x, y) => y[1].at - x[1].at).slice(0, LIMIT[sec]));
+  }
+  return out;
+}
 const json200 = (o) => new Response(JSON.stringify(o), { headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" } });
 
 export default {
@@ -141,6 +165,33 @@ export default {
           headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" } });
       }
       if (p === "/hls") return hls(req, env, url);
+      // Sync between devices: a short link code names a shared record.
+      if (p === "/sync/new" && req.method === "POST") {
+        for (let i = 0; i < 5; i++) {
+          const code = newCode();
+          if (!(await env.MOVIO_SYNC.get("s:" + code))) {
+            await env.MOVIO_SYNC.put("s:" + code, JSON.stringify(emptyState()));
+            return json200({ ok: true, code });
+          }
+        }
+        return json200({ ok: false });
+      }
+      if (p.startsWith("/sync/")) {
+        const code = p.slice(6).toUpperCase();
+        if (!/^[A-Z2-9]{6}$/.test(code)) return withCors(new Response(JSON.stringify({ ok: false, error: "bad code" }), { status: 400, headers: { "Content-Type": "application/json" } }));
+        const raw = await env.MOVIO_SYNC.get("s:" + code);
+        if (!raw) return withCors(new Response(JSON.stringify({ ok: false, error: "unknown code" }), { status: 404, headers: { "Content-Type": "application/json" } }));
+        let state = JSON.parse(raw);
+        if (req.method === "PUT" || req.method === "POST") {
+          const body = await req.text();
+          if (body.length > 900_000) return withCors(new Response("too big", { status: 413 }));
+          let incoming;
+          try { incoming = JSON.parse(body); } catch { return withCors(new Response("bad json", { status: 400 })); }
+          state = mergeState(state, incoming);
+          await env.MOVIO_SYNC.put("s:" + code, JSON.stringify(state));
+        }
+        return json200({ ok: true, state });
+      }
       // Mist: decrypts its server list, returns the first HLS server that answers.
       if (p.startsWith("/mist/")) {
         const [kind, id, se, ep] = p.slice(6).split("/");

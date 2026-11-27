@@ -29,17 +29,159 @@ const posKey = (t, s, e) => (t.kind === "tv" ? `${key(t)}:${s}:${e}` : key(t));
 const remember = (t) => { titles[key(t)] = t; return t; };
 const inList = (t) => myList.some((x) => key(x) === key(t));
 function toggleList(t) {
-  myList = inList(t) ? myList.filter((x) => key(x) !== key(t)) : [t, ...myList];
+  const had = inList(t);
+  myList = had ? myList.filter((x) => key(x) !== key(t)) : [t, ...myList];
   db.set("myList", myList);
+  Sync.mark("l:" + key(t), had);
   toast(inList(t) ? "Added to My List" : "Removed from My List");
 }
 function savePos(t, s, e, pos, dur) {
   if (!(dur > 0)) return;
   positions[posKey(t, s, e)] = [pos, dur];
   db.set("positions", positions);
-  if (pos > dur - 90 && t.kind === "movie") delete recent[key(t)];
-  else recent[key(t)] = { t, s, e, pos, dur, at: Date.now() };
+  Sync.mark("p:" + posKey(t, s, e), false, true);
+  if (pos > dur - 90 && t.kind === "movie") { delete recent[key(t)]; Sync.mark("c:" + key(t), true); }
+  else { recent[key(t)] = { t, s, e, pos, dur, at: Date.now() }; Sync.mark("c:" + key(t), false, true); }
   db.set("recent", recent);
+}
+
+// ---------- Sync between devices (a short link code, kept by the helper) ----------
+const Sync = (() => {
+  let ledger = db.get("syncAt", {}); // key -> time of last change (negative = removed)
+  let timer = null, busy = false;
+  const code = () => db.get("syncCode", "");
+  const strip = (t) => ({ id: t.id, kind: t.kind, name: t.name, overview: (t.overview || "").slice(0, 400), poster: t.poster || null, backdrop: t.backdrop || null, year: t.year || null, rating: t.rating || 0 });
+  const at = (k) => Math.abs(ledger[k] || 0);
+  function mark(k, removed, quiet) {
+    ledger[k] = (removed ? -1 : 1) * Date.now();
+    db.set("syncAt", ledger);
+    if (!code()) return;
+    clearTimeout(timer);
+    timer = setTimeout(push, quiet ? 15000 : 1500);
+  }
+  function state() {
+    const st = { list: {}, cont: {}, pos: {} };
+    myList.forEach((t, i) => { st.list[key(t)] = { at: at("l:" + key(t)) || 1000 - i, t: strip(t) }; });
+    Object.values(recent).forEach((r) => { st.cont[key(r.t)] = { at: Math.max(at("c:" + key(r.t)), r.at || 0), t: strip(r.t), s: r.s, e: r.e }; });
+    for (const [k, [p, d]] of Object.entries(positions)) st.pos[k] = { at: at("p:" + k) || 1, p: p > d - 90 ? -1 : p, d };
+    for (const [k, v] of Object.entries(ledger)) {
+      if (v >= 0) continue;
+      const [sec, rest] = [k[0], k.slice(2)];
+      if (sec === "l" && !st.list[rest]) st.list[rest] = { at: -v, del: true };
+      if (sec === "c" && !st.cont[rest]) st.cont[rest] = { at: -v, del: true };
+    }
+    return st;
+  }
+  function apply(st) {
+    for (const [k, v] of Object.entries(st.list || {})) {
+      if (v.at <= at("l:" + k)) continue;
+      myList = myList.filter((x) => key(x) !== k);
+      if (!v.del && v.t) myList.push(remember(v.t));
+      ledger["l:" + k] = (v.del ? -1 : 1) * v.at;
+    }
+    myList.sort((a, b) => at("l:" + key(b)) - at("l:" + key(a)));
+    for (const [k, v] of Object.entries(st.cont || {})) {
+      if (v.at <= at("c:" + k)) continue;
+      if (v.del) delete recent[k];
+      else if (v.t) {
+        const pk = v.t.kind === "tv" ? `${k}:${v.s}:${v.e}` : k;
+        const pp = st.pos?.[pk];
+        recent[k] = { t: remember(v.t), s: v.s || 1, e: v.e || 1, pos: pp ? (pp.p < 0 ? pp.d : pp.p) : 0, dur: pp?.d || 0, at: v.at };
+      }
+      ledger["c:" + k] = (v.del ? -1 : 1) * v.at;
+    }
+    for (const [k, v] of Object.entries(st.pos || {})) {
+      if (v.at <= at("p:" + k)) continue;
+      positions[k] = [v.p < 0 ? v.d : v.p, v.d];
+      ledger["p:" + k] = v.at;
+    }
+    db.set("myList", myList); db.set("recent", recent); db.set("positions", positions); db.set("syncAt", ledger);
+  }
+  async function push() {
+    const c = code();
+    if (!c || busy) return false;
+    busy = true;
+    try {
+      const r = await fetch(`${HELPER}/sync/${c}`, { method: "PUT", body: JSON.stringify(state()) });
+      const o = await r.json();
+      if (o.ok && o.state) { apply(o.state); if (!P && (location.hash === "" || /^#\/(list)?$/.test(location.hash))) route(); return true; }
+      if (r.status === 404) db.set("syncCode", "");
+    } catch {} finally { busy = false; }
+    return false;
+  }
+  async function create() {
+    const o = await fetch(`${HELPER}/sync/new`, { method: "POST" }).then((r) => r.json()).catch(() => null);
+    if (!o?.ok) return null;
+    db.set("syncCode", o.code); await push(); return o.code;
+  }
+  async function join(c) {
+    c = (c || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const r = await fetch(`${HELPER}/sync/${c}`).catch(() => null);
+    if (!r || !r.ok) return false;
+    db.set("syncCode", c); await push(); return true;
+  }
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") push(); else if (timer) { clearTimeout(timer); push(); } });
+  return { mark, push, create, join, code, off: () => db.set("syncCode", "") };
+})();
+
+/** The round profile button: language, linking devices, kids mode. */
+function profileMenu() {
+  const c = Sync.code();
+  sheet(I.name || "Profile", [
+    { label: I.t("Language & subtitles"), on: false, fn: () => I.edit() },
+    { label: c ? I.f("Linked · code {1}", c) : I.t("Link devices"), on: !!c, fn: () => setTimeout(linkPanel, 50) },
+    { label: I.t("Kids mode") + " · " + I.t(kids() ? "On" : "Off"), on: kids(), fn: () => { db.set("kids", !kids()); toast(I.t(kids() ? "Kids mode on" : "Kids mode off")); route(); } },
+  ]);
+}
+
+/** Link devices: show this device's code, or type one from another device. */
+function linkPanel() {
+  const box = document.createElement("div");
+  box.className = "setup";
+  document.body.append(box);
+  const close = () => { box.classList.add("bye"); setTimeout(() => box.remove(), 300); };
+  const draw = (msg = "") => {
+    const c = Sync.code();
+    box.innerHTML = `<div class="sin"><div class="shead"><b class="sbrand">Movio</b><button class="icon" id="lx">${ICON.close}</button></div>
+      <h1>${I.t("Link devices")}</h1><p>${I.t("My List, Continue watching and where you stopped follow you on every device with the same code.")}</p>
+      ${c ? `<label>${I.t("This device's code")}</label><div class="code" data-raw>${esc(c)}</div>
+        <p>${I.t("On your other device, open Link devices and type this code.")}</p>
+        <div class="sbtns"><button class="btn glass" id="lun">${I.t("Unlink")}</button><button class="btn white wide" id="lnow">${I.t("Sync now")}</button></div>`
+      : `<div class="sbtns" style="margin-top:6px"><button class="btn white wide" id="lnew">${I.t("Get a code")}</button></div>
+        <label style="margin-top:26px">${I.t("Have a code from another device?")}</label>
+        <input id="lcode" maxlength="7" autocapitalize="characters" autocomplete="off" placeholder="ABC123" style="text-transform:uppercase;letter-spacing:4px">
+        <div class="sbtns"><button class="btn glass wide" id="ljoin">${I.t("Link")}</button></div>`}
+      ${msg ? `<p style="color:var(--pink);margin-top:16px">${esc(msg)}</p>` : ""}</div>`;
+    box.querySelector("#lx").onclick = close;
+    box.querySelector("#lnew") && (box.querySelector("#lnew").onclick = async () => { (await Sync.create()) ? draw() : draw(I.t("Couldn't reach the server. Try again.")); });
+    box.querySelector("#ljoin") && (box.querySelector("#ljoin").onclick = async () => {
+      (await Sync.join(box.querySelector("#lcode").value)) ? (toast(I.t("Linked")), close(), route()) : draw(I.t("That code wasn't found. Check it and try again."));
+    });
+    box.querySelector("#lun") && (box.querySelector("#lun").onclick = () => { Sync.off(); draw(); });
+    box.querySelector("#lnow") && (box.querySelector("#lnow").onclick = async () => { toast(I.t((await Sync.push()) ? "Synced" : "Couldn't sync")); });
+  };
+  draw();
+}
+
+// ---------- Kids mode: family and animation titles only ----------
+const KIDS_GENRES = new Set([16, 10751, 10762]);
+const kids = () => db.get("kids", false);
+const kidsOk = (o) => !kids() || (!o.adult && (o.genre_ids || (o.genres || []).map((g) => g.id)).some((g) => KIDS_GENRES.has(g)));
+
+// ---------- Faster starts: remember which sources work ----------
+const srcStats = db.get("srcStats", {});
+function srcResult(name, ok) {
+  const s = (srcStats[name] ||= { ok: 0, bad: 0 });
+  ok ? s.ok++ : s.bad++;
+  if (s.ok + s.bad > 40) { s.ok = Math.round(s.ok / 2); s.bad = Math.round(s.bad / 2); }
+  db.set("srcStats", srcStats);
+}
+/** Sources that have been working lately move up; the one that played this title last goes first. */
+function rankSources(order, t) {
+  const score = (n) => { const s = srcStats[n]; return s ? (s.ok + 1) / (s.ok + s.bad + 2) : 0.5; };
+  const ranked = [...order].sort((a, b) => score(b) - score(a) || order.indexOf(a) - order.indexOf(b));
+  const last = localStorage.getItem(`ok:${key(t)}`);
+  return last && ranked.includes(last) ? [last, ...ranked.filter((n) => n !== last)] : ranked;
 }
 const continueWatching = () => Object.values(recent).sort((a, b) => b.at - a.at);
 
@@ -74,13 +216,21 @@ function parse(o, kind) {
 }
 async function list(path, kind, params) {
   const o = await tmdb(path, params);
-  return (o.results || []).map((x) => parse(x, kind)).filter((t) => t && t.poster);
+  return (o.results || []).filter(kidsOk).map((x) => parse(x, kind)).filter((t) => t && t.poster);
 }
 async function rows(specs, ranked) {
   const res = await Promise.all(specs.map(([, f]) => f().catch(() => [])));
   return specs.map(([n], i) => ({ name: n, items: res[i], ranked: n === ranked })).filter((r) => r.items.length);
 }
-const homeRows = () => rows([
+// Kids mode: rows made for families instead of the usual charts.
+const kidsRows = () => rows([
+  ["Family movies", () => list("discover/movie", "movie", { with_genres: "10751", sort_by: "popularity.desc", certification_country: "US", "certification.lte": "PG" })],
+  ["Animated movies", () => list("discover/movie", "movie", { with_genres: "16", sort_by: "popularity.desc", certification_country: "US", "certification.lte": "PG" })],
+  ["Kids shows", () => list("discover/tv", "tv", { with_genres: "10762", sort_by: "popularity.desc" })],
+  ["Animated shows", () => list("discover/tv", "tv", { with_genres: "16,10751", sort_by: "popularity.desc" })],
+  ["Top rated family movies", () => list("discover/movie", "movie", { with_genres: "10751", sort_by: "vote_average.desc", "vote_count.gte": "500", certification_country: "US", "certification.lte": "PG" })],
+], "");
+const homeRows = () => kids() ? kidsRows() : rows([
   ["Top 10 today", async () => (await list("trending/all/day")).slice(0, 10)],
   ["New in cinemas", () => list("movie/now_playing", "movie")],
   ["Trending this week", () => list("trending/all/week")],
@@ -89,7 +239,7 @@ const homeRows = () => rows([
   ["Top rated movies", () => list("movie/top_rated", "movie")],
   ["Top rated shows", () => list("tv/top_rated", "tv")],
 ], "Top 10 today");
-const browseRows = (kind) => kind === "movie"
+const browseRows = (kind) => kids() ? kidsRows().then((r) => r.filter((x) => x.items.some((t) => t.kind === kind))) : kind === "movie"
   ? rows([
     ["Top 10 movies", async () => (await list("trending/movie/day", "movie")).slice(0, 10)],
     ["Now playing", () => list("movie/now_playing", "movie")],
@@ -134,7 +284,7 @@ async function home() {
   const cw = continueWatching();
   const initial = (I.name || "").trim().charAt(0).toUpperCase();
   view.innerHTML = `
-    <button class="pfp ${initial ? "named" : ""}" onclick="I.edit()" aria-label="Profile">${initial ? esc(initial) : '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7z"/></svg>'}</button>
+    <button class="pfp ${initial ? "named" : ""}" onclick="profileMenu()" aria-label="Profile">${initial ? esc(initial) : '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7z"/></svg>'}</button>
     <section class="hero"><div class="slides">${trending.map((t) => `
       <div class="slide"><img src="${img(t.backdrop, "w1280")}" alt=""><div class="shade"></div>
         <div class="info"><h3>${esc(t.name)}</h3>
@@ -361,7 +511,7 @@ async function player(kind, id, s, e) {
   view.innerHTML = loading();
   let t = titles[`${kind}:${id}`];
   if (!t) t = parse(await tmdb(`${kind}/${id}`), kind);
-  P = { t, s: +s, e: +e, order: sourceOrder(kind), tried: new Set(), tracks: [], offset: 0, segments: [] };
+  P = { t, s: +s, e: +e, order: rankSources(sourceOrder(kind), t), tried: new Set(), tracks: [], offset: 0, segments: [], pre: {} };
   const me = P;
   const pick = localStorage.getItem(`src:${key(t)}`);
   view.innerHTML = `<div class="player">
@@ -379,6 +529,9 @@ async function player(kind, id, s, e) {
     if (me !== P) return;
     for (const type of ["recap", "intro", "credits"]) for (const x of o[type] || []) me.segments.push({ type, a: (x.start_ms || 0) / 1000, b: x.end_ms == null ? null : x.end_ms / 1000 });
   }).catch(() => {});
+  // Ask the next two sources at the same time, so a dead one doesn't make you wait.
+  const path = kind === "tv" ? `tv/${id}/${s}/${e}` : `movie/${id}`;
+  for (const n of P.order.slice(0, 3)) P.pre[n] = fetch(`${HELPER}/${n.toLowerCase()}/${path}`).then((r) => r.json()).catch(() => null);
   start(pick && P.order.includes(pick) ? pick : P.order[0], !pick);
 }
 
@@ -404,9 +557,9 @@ async function viaHelper(src) {
   finding("Finding the best stream");
   try {
     const path = me.t.kind === "tv" ? `tv/${me.t.id}/${me.s}/${me.e}` : `movie/${me.t.id}`;
-    const o = await fetch(`${HELPER}/${src}/${path}`).then((r) => r.json());
+    const o = (await (me.pre[me.source] || fetch(`${HELPER}/${src}/${path}`).then((r) => r.json()))) || {};
     if (me !== P || me.dead) return;
-    if (!o.ok || !o.url) return next();
+    if (!o.ok || !o.url) { srcResult(me.source, false); return next(); }
     play(o.url);
     // Subtitles: Club's own, plus Wyzie and the Alt list (fetched alongside, without slowing playback).
     const own = (o.tracks || []).map((t, i) => ({ url: t.file, lang: /eng|english/i.test(t.label) ? "en" : "und", label: (t.label || "Subtitles") + " · " + me.source }));
@@ -455,7 +608,7 @@ function play(url) {
     h.attachMedia(v);
   }).catch(() => fail());
   let ok = false, lastSave = 0;
-  const fail = () => { if (me === P && !ok) { me.video = null; next(); } };
+  const fail = () => { if (me === P && !ok) { me.video = null; srcResult(me.source, false); next(); } };
   const timer = setTimeout(fail, 30000);
   let recovered = false;
   v.addEventListener("error", () => {
@@ -469,6 +622,8 @@ function play(url) {
     clearTimeout(timer);
     if (v.duration > 0 && v.duration < 150) return fail(); // an ad clip, not the title
     ok = true;
+    srcResult(me.source, true);
+    localStorage.setItem(`ok:${key(me.t)}`, me.source);
     const saved = positions[posKey(me.t, me.s, me.e)];
     if (saved && saved[0] > 30 && saved[0] < v.duration - 60) v.currentTime = saved[0];
     v.play().catch(() => {});
@@ -823,7 +978,7 @@ async function route() {
 document.addEventListener("error", (e) => { if (e.target.tagName === "IMG") e.target.style.opacity = 0; }, true);
 window.addEventListener("hashchange", route);
 window.addEventListener("pagehide", savePlayer);
-I.start(route);
+I.start(() => { route(); Sync.push(); });
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").then((r) => r.update()).catch(() => {});
   // A new version took over: reload once so it shows straight away (not in the middle of a film).
