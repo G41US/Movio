@@ -25,7 +25,7 @@ struct HomeView: View {
                     }
                 }
                 if !loaded { Loading() }
-                if loaded && !store.kids { PlatformsRow() }
+                if loaded && !store.kids { PlatformsRow(); LiveCard() }
                 ForEach(rows) { RowView(row: $0) }
             }
             .padding(.bottom, 30)
