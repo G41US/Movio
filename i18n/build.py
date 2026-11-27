@@ -105,6 +105,7 @@ W = [
 ("Movies", "Films", "Películas", "Filmes", "أفلام"),
 ("New", "Nouveautés", "Nuevos", "Novos", "الجديد"),
 ("Show more", "Voir plus", "Ver más", "Ver mais", "عرض المزيد"),
+("{1} doesn't have this one. Trying another source…", "{1} n'a pas ce titre. Essai d'une autre source…", "{1} no tiene este título. Probando otra fuente…", "{1} não tem este título. Tentando outra fonte…", "{1} لا يتوفر فيه هذا العمل. جارٍ تجربة مصدر آخر…"),
 ("Type the code", "Saisissez le code", "Escribe el código", "Digite o código", "اكتب الرمز"),
 ("Family movies", "Films familiaux", "Películas familiares", "Filmes de família", "أفلام عائلية"),
 ("Animated movies", "Films d'animation", "Películas animadas", "Filmes de animação", "أفلام رسوم متحركة"),

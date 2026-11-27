@@ -328,6 +328,11 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
     private func sourceFailed() {
         failedSources.insert(sourceIndex)
         Sources.score(sourceIndex, 30)
+        // A helper source that doesn't have this title: move on by itself, even if it's the one you picked.
+        if !auto && Sources.helped.contains(source.name) {
+            status = I18n.f("{1} doesn't have this one. Trying another source…", source.name)
+            auto = true; autoTried = 0
+        }
         if auto && autoTried < 6, let next = Sources.order(title.kind).first(where: { !failedSources.contains($0) }) {
             autoTried += 1
             start(next, automatic: true)

@@ -554,6 +554,11 @@ class PlayerActivity : ComponentActivity() {
     private fun sourceFailed() {
         failedSources.add(sourceIndex)
         score(sourceIndex, 30_000)
+        // A helper source that doesn't have this title: move on by itself, even if it's the one you picked.
+        if (!auto && source.name in Source.HELPED) {
+            Toast.makeText(this, tf("{1} doesn't have this one. Trying another source…", source.name), Toast.LENGTH_SHORT).show()
+            auto = true; autoTried = 0
+        }
         if (auto && autoTried < 5) {
             autoTried++
             val next = order().firstOrNull { it !in failedSources }
@@ -749,7 +754,9 @@ class PlayerActivity : ComponentActivity() {
             (runtimeMs > 0 && d != C.TIME_UNSET && d > 0 && kotlin.math.abs(d - runtimeMs).toDouble() / runtimeMs > 0.3)
         if (wrong && fromCache) { fromCache = false; exo.stop(); dropLink(); start(sourceIndex, auto, save = false, useCache = false); return }
         if (!source.direct && d != C.TIME_UNSET && d in 1 until 150_000) {
-            rejected.add(s.url); trying = null; exo.stop(); tryNext(); return
+            rejected.add(s.url); trying = null; exo.stop()
+            if (source.name in Source.HELPED) sourceFailed() else tryNext()
+            return
         }
         val rt = runtimeMs
         if (rt > 0 && d != C.TIME_UNSET && d > 0 && kotlin.math.abs(d - rt).toDouble() / rt > 0.3) {
