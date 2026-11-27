@@ -117,12 +117,8 @@ private fun CodeField(value: String, onValue: (String) -> Unit, onDone: () -> Un
             keyboardActions = KeyboardActions(onDone = { onDone() }),
             modifier = mod.fillMaxWidth().onFocusChanged { focused = it.isFocused },
             decorationBox = { inner -> Box { CodeTiles(value, true, focused); Box(Modifier.matchParentSize().alpha(0f)) { inner() } } })
-    }) { f ->
-        Column {
-            CodeTiles(value, true, f)
-            if (tv) { Spacer(Modifier.height(8.dp)); Text("Press OK to type the code", fontSize = 13.sp, color = if (f) Soft else Muted, style = jakarta()) }
-        }
-    }
+    }) { f -> CodeTiles(value, true, f) }
+    if (tv) { Spacer(Modifier.height(10.dp)); Text("Press OK to type the code", fontSize = 13.sp, color = Muted, style = jakarta()) }
 }
 
 @Composable
@@ -262,12 +258,18 @@ fun SetupLink(store: Store, ready: Boolean, onLinked: (name: String, list: Int, 
         store.joinCode(typed) { ok -> busy = false
             if (ok) onLinked(I18n.name, store.myList.size, store.continueWatching.size) else err = t("That code wasn't found. Check it and try again.") }
     }
-    LinkOrb()
-    Spacer(Modifier.height(20.dp))
-    Text("Link with a code", fontSize = if (LocalTv.current) 26.sp else 30.sp, lineHeight = 36.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, style = jakarta())
-    Spacer(Modifier.height(8.dp))
-    Text("Enter the code shown on your other device.", fontSize = 15.sp, lineHeight = 21.sp, color = Muted, style = jakarta())
-    Spacer(Modifier.height(22.dp))
+    val tv = LocalTv.current
+    // TV screens are short: the icon sits beside the title there.
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (tv) { LinkOrb(size = 52.dp); Spacer(Modifier.width(16.dp)) }
+        Column {
+            if (!tv) { LinkOrb(); Spacer(Modifier.height(20.dp)) }
+            Text("Link with a code", fontSize = if (tv) 26.sp else 30.sp, lineHeight = 36.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, style = jakarta())
+            Spacer(Modifier.height(if (tv) 4.dp else 8.dp))
+            Text("Enter the code shown on your other device.", fontSize = 15.sp, lineHeight = 21.sp, color = Muted, style = jakarta())
+        }
+    }
+    Spacer(Modifier.height(if (tv) 16.dp else 22.dp))
     Panel {
         Caps("Type the code")
         Spacer(Modifier.height(10.dp))
@@ -281,8 +283,8 @@ fun SetupLink(store: Store, ready: Boolean, onLinked: (name: String, list: Int, 
 /** After linking during setup: "Welcome back, Marvelous" and what came across. */
 @Composable
 fun WelcomeBack(name: String, list: Int, cont: Int) {
-    LinkOrb(ok = true)
-    Spacer(Modifier.height(20.dp))
+    LinkOrb(ok = true, size = if (LocalTv.current) 52.dp else 60.dp)
+    Spacer(Modifier.height(if (LocalTv.current) 14.dp else 20.dp))
     Text(if (name.isNotBlank()) tf("Welcome back, {1}", name) else t("You're linked"), fontSize = if (LocalTv.current) 26.sp else 30.sp, lineHeight = 36.sp,
         fontWeight = FontWeight.ExtraBold, color = Color.White, style = jakarta())
     Spacer(Modifier.height(8.dp))
