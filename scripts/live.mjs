@@ -23,19 +23,31 @@ for (const s of streams) {
 const q = (s) => parseInt(s.quality) || 0;
 for (const l of cand.values()) l.sort((a, b) => (b.url.startsWith("https") - a.url.startsWith("https")) || (q(b) - q(a)) || (a.labels.length - b.labels.length));
 
-async function works(s) {
+// Reads at most 64 KB (some "streams" are endless video files).
+async function head(r) {
+  const rd = r.body?.getReader(); if (!rd) return "";
+  let out = "", n = 0;
+  const dec = new TextDecoder();
+  while (n < 65536) { const { done, value } = await rd.read(); if (done) break; n += value.length; out += dec.decode(value, { stream: true }); if (out.length > 20000) break; }
+  rd.cancel().catch(() => {});
+  return out;
+}
+// Each check gives up after 10 s, whatever it's waiting on.
+const within = (p, ms) => Promise.race([p, new Promise((ok) => setTimeout(() => ok(false), ms))]);
+const works = (s) => within(check(s), 10000);
+async function check(s) {
   const h = { "User-Agent": s.user_agent || UA, ...(s.referrer ? { Referer: s.referrer } : {}) };
   try {
     const r = await fetch(s.url, { headers: h, signal: AbortSignal.timeout(8000), redirect: "follow" });
     if (!r.ok) return false;
-    const t = (await r.text()).slice(0, 20000);
+    const t = await head(r);
     if (!t.includes("#EXTM3U")) return false;
     // Master playlist: make sure its first variant answers too.
     if (t.includes("#EXT-X-STREAM-INF")) {
       const v = t.split("\n").map((x) => x.trim()).find((x) => x && !x.startsWith("#"));
       if (!v) return false;
       const r2 = await fetch(new URL(v, r.url), { headers: h, signal: AbortSignal.timeout(8000) });
-      return r2.ok && (await r2.text()).includes("#EXT");
+      return r2.ok && (await head(r2)).includes("#EXT");
     }
     return t.includes("#EXTINF") || t.includes("#EXT-X-");
   } catch { return false; }
