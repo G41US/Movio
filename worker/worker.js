@@ -181,6 +181,28 @@ export default {
         }
         return json200({ ok: false });
       }
+      // What people like and watch (counts only, nothing about who).
+      if (p === "/stat" && req.method === "POST") {
+        let e; try { e = await req.json(); } catch { return json200({ ok: false }); }
+        const ev = { like: "likes", unlike: "likes", play: "plays" }[e?.ev];
+        const kind = e?.kind === "tv" ? "tv" : "movie", id = +e?.id;
+        if (!ev || !id) return json200({ ok: false });
+        const st = JSON.parse((await env.MOVIO_SYNC.get("stats")) || '{"titles":{},"genres":{},"days":{}}');
+        const d = e.ev === "unlike" ? -1 : 1;
+        const k = `${kind}:${id}`;
+        const t = (st.titles[k] ||= { name: String(e.name || "").slice(0, 80), kind, poster: e.poster || null, likes: 0, plays: 0 });
+        t[ev] = Math.max(0, t[ev] + d);
+        for (const g of (Array.isArray(e.genres) ? e.genres : []).slice(0, 6)) { const x = (st.genres[String(g).slice(0, 30)] ||= { likes: 0, plays: 0 }); x[ev] = Math.max(0, x[ev] + d); }
+        const day = new Date().toISOString().slice(0, 10);
+        const y = (st.days[day] ||= { likes: 0, plays: 0 }); y[ev] = Math.max(0, y[ev] + d);
+        // Keep it small: the 400 busiest titles and the last 60 days.
+        const top = Object.entries(st.titles).sort((a, b) => b[1].plays + b[1].likes * 3 - (a[1].plays + a[1].likes * 3)).slice(0, 400);
+        st.titles = Object.fromEntries(top);
+        st.days = Object.fromEntries(Object.entries(st.days).sort().slice(-60));
+        await env.MOVIO_SYNC.put("stats", JSON.stringify(st));
+        return json200({ ok: true });
+      }
+      if (p === "/stats") return json200(JSON.parse((await env.MOVIO_SYNC.get("stats")) || '{"titles":{},"genres":{},"days":{}}'));
       if (p.startsWith("/sync/")) {
         const code = p.slice(6).toUpperCase();
         if (!/^[A-Z2-9]{6}$/.test(code)) return withCors(new Response(JSON.stringify({ ok: false, error: "bad code" }), { status: 400, headers: { "Content-Type": "application/json" } }));
@@ -193,7 +215,8 @@ export default {
           let incoming;
           try { incoming = JSON.parse(body); } catch { return withCors(new Response("bad json", { status: 400 })); }
           state = mergeState(state, incoming);
-          await env.MOVIO_SYNC.put("s:" + code, JSON.stringify(state));
+          const next = JSON.stringify(state);
+          if (next !== raw) await env.MOVIO_SYNC.put("s:" + code, next);  // only write when something changed
         }
         return json200({ ok: true, state });
       }

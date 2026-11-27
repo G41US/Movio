@@ -10,6 +10,9 @@ const ICON = {
   play: '<svg viewBox="0 0 24 24"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L8.5 3.64A1 1 0 0 0 7 4.5z"/></svg>',
   plus: '<svg viewBox="0 0 24 24"><path d="M11 4h2v7h7v2h-7v7h-2v-7H4v-2h7z"/></svg>',
   check: '<svg viewBox="0 0 24 24"><path d="m9.5 16.6-4.6-4.6-1.4 1.4 6 6 11-11-1.4-1.4z"/></svg>',
+  heart: '<svg viewBox="0 0 24 24" class="line"><path d="M12 20.3s-7.8-4.6-7.8-10.4A4.4 4.4 0 0 1 12 7.2a4.4 4.4 0 0 1 7.8 2.7c0 5.8-7.8 10.4-7.8 10.4z"/></svg>',
+  share: '<svg viewBox="0 0 24 24" class="line"><path d="M12 3.5v11M8 7.3l4-3.8 4 3.8M7.5 10.5H6.8a1.8 1.8 0 0 0-1.8 1.8v6.4a1.8 1.8 0 0 0 1.8 1.8h10.4a1.8 1.8 0 0 0 1.8-1.8v-6.4a1.8 1.8 0 0 0-1.8-1.8h-.7"/></svg>',
+  down: '<svg viewBox="0 0 24 24" class="line"><path d="M12 4v11M7.5 10.8 12 15.3l4.5-4.5M5 19.5h14"/></svg>',
   info: '<svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm-1 8v7h2v-7zm0-3v2h2V7z"/></svg>',
   back: '<svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>',
   close: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>',
@@ -35,6 +38,38 @@ function toggleList(t) {
   Sync.mark("l:" + key(t), had);
   toast(inList(t) ? "Added to My List" : "Removed from My List");
 }
+// ---------- Likes, shares, and what people watch (counts only) ----------
+let likes = db.get("likes", {});
+const liked = (t) => !!likes[key(t)];
+function stat(ev, t, genres = []) {
+  fetch(`${HELPER}/stat`, { method: "POST", body: JSON.stringify({ ev, kind: t.kind, id: t.id, name: t.name, poster: t.poster, genres }), keepalive: true }).catch(() => {});
+}
+function toggleLike(t, genres) {
+  const on = !liked(t);
+  if (on) likes[key(t)] = { at: Date.now(), t }; else delete likes[key(t)];
+  db.set("likes", likes);
+  stat(on ? "like" : "unlike", t, genres);
+  toast(I.t(on ? "Liked" : "Removed from Liked"));
+  return on;
+}
+const shareUrl = (t) => location.origin + location.pathname.replace(/index\.html$/, "") + href(t);
+async function shareTitle(t) {
+  const url = shareUrl(t);
+  try {
+    if (navigator.share) return await navigator.share({ title: t.name, text: I.f("Watch {1} on Movio", t.name), url });
+  } catch (e) { if (e?.name === "AbortError") return; }
+  try { await navigator.clipboard.writeText(url); toast(I.t("Link copied")); } catch { prompt(I.t("Copy this link"), url); }
+}
+const APK = "https://github.com/G41US/Movio/releases/latest";
+function downloadNote() {
+  const iphone = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  sheet(I.t("Watch offline"), [
+    { label: I.t("Browsers can't keep films for offline. The Movio app can."), on: false, fn: () => {} },
+    iphone ? { label: I.t("Get Movio for iPhone"), on: true, fn: () => window.open("https://github.com/G41US/Movio/releases/tag/ios-source", "_blank") }
+           : { label: I.t("Get Movio for Android"), on: true, fn: () => window.open(APK, "_blank") },
+  ]);
+}
+
 function savePos(t, s, e, pos, dur) {
   if (!(dur > 0)) return;
   positions[posKey(t, s, e)] = [pos, dur];
@@ -391,29 +426,108 @@ async function browse(kind) {
   view.innerHTML = `<div class="pad-top"><h1 class="title">${kind === "movie" ? "Movies" : "TV Shows"}</h1><div class="rows">${rs.map(rowHtml).join("")}</div></div>`;
 }
 
-let lastQuery = "";
+// ---------- Search: history, and filters by kind of film and year ----------
+/** Movio's categories, by country and language (TMDB "discover"). kinds: which of movie/tv to look in. */
+const CATS = [
+  { id: "hollywood", name: "Hollywood", kinds: ["movie"], q: { with_origin_country: "US", with_original_language: "en" }, ok: (o) => o.original_language === "en" },
+  { id: "nollywood", name: "Nollywood", kinds: ["movie", "tv"], q: { with_origin_country: "NG" }, ok: (o) => (o.origin_country || []).includes("NG"), few: true },
+  { id: "kdrama", name: "K-drama", kinds: ["tv"], q: { with_original_language: "ko", with_genres: "18" }, ok: (o) => o.original_language === "ko" },
+  { id: "anime", name: "Anime", kinds: ["tv", "movie"], q: { with_original_language: "ja", with_genres: "16" }, ok: (o) => o.original_language === "ja" && (o.genre_ids || []).includes(16) },
+  { id: "chinese", name: "Chinese", kinds: ["tv", "movie"], q: { with_original_language: "zh" }, ok: (o) => ["zh", "cn"].includes(o.original_language) },
+  { id: "bollywood", name: "Bollywood", kinds: ["movie"], q: { with_original_language: "hi" }, ok: (o) => o.original_language === "hi" },
+  { id: "korean", name: "Korean movies", kinds: ["movie"], q: { with_original_language: "ko" }, ok: (o) => o.original_language === "ko" },
+  { id: "turkish", name: "Turkish", kinds: ["tv"], q: { with_original_language: "tr" }, ok: (o) => o.original_language === "tr" },
+  { id: "spanish", name: "Spanish", kinds: ["tv", "movie"], q: { with_original_language: "es" }, ok: (o) => o.original_language === "es" },
+];
+const thisYear = new Date().getFullYear();
+const YEARS = [...Array(12)].map((_, i) => String(thisYear - i)).concat(["2010s", "2000s", "1990s", "Older"]);
+const yearRange = (y) => !y ? null : y === "Older" ? [1900, 1989] : y.endsWith("s") ? [+y.slice(0, 4), +y.slice(0, 4) + 9] : [+y, +y];
+const ofYear = (o, r) => { const y = +(o.release_date || o.first_air_date || "").slice(0, 4); return !r || (y >= r[0] && y <= r[1]); };
+let lastQuery = "", filt = { cat: "", year: "" };
+let history_ = db.get("searches", []);
+function rememberSearch(text) {
+  text = text.trim();
+  if (text.length < 2) return;
+  history_ = [text, ...history_.filter((x) => x.toLowerCase() !== text.toLowerCase())].slice(0, 12);
+  db.set("searches", history_);
+}
 async function search() {
   view.innerHTML = `<div class="pad-top"><h1 class="title">Search</h1>
     <label class="searchbox"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg>
-    <input id="q" type="search" placeholder="Movies, shows…" autocomplete="off" value="${esc(lastQuery)}"></label><div class="grid" id="results"></div></div>`;
+    <input id="q" type="search" placeholder="Movies, shows…" autocomplete="off" enterkeyhint="search" value="${esc(lastQuery)}"></label>
+    <div class="filters" id="cats"></div><div class="filters" id="years"></div>
+    <div id="recent"></div><div class="grid" id="results"></div></div>`;
   const q = document.getElementById("q");
   const out = document.getElementById("results");
+  const chips = () => {
+    document.getElementById("cats").innerHTML = [{ id: "", name: "All" }, ...CATS].map((c) => `<button class="chip ${filt.cat === c.id ? "on" : ""}" data-cat="${c.id}">${I.t(c.name)}</button>`).join("");
+    document.getElementById("years").innerHTML = [`<button class="chip ${!filt.year ? "on" : ""}" data-year="">${I.t("Any year")}</button>`,
+      ...YEARS.map((y) => `<button class="chip ${filt.year === y ? "on" : ""}" data-year="${y}">${I.t(y)}</button>`)].join("");
+    view.querySelectorAll("[data-cat]").forEach((b) => (b.onclick = () => { filt.cat = b.dataset.cat; chips(); run(); }));
+    view.querySelectorAll("[data-year]").forEach((b) => (b.onclick = () => { filt.year = b.dataset.year; chips(); run(); }));
+    view.querySelector("#cats .on")?.scrollIntoView({ inline: "nearest", block: "nearest" });
+  };
+  const recentBox = () => {
+    const r = document.getElementById("recent");
+    const show = !q.value.trim() && history_.length;
+    r.innerHTML = show ? `<div class="recent"><div class="rhead"><b>${I.t("Recent searches")}</b><button id="rclear">${I.t("Clear")}</button></div>
+      ${history_.map((x, i) => `<div class="rrow"><button class="rq" data-i="${i}"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg><span data-raw>${esc(x)}</span></button><button class="rx" data-x="${i}" aria-label="Remove">${ICON.close}</button></div>`).join("")}</div>` : "";
+    if (!show) return;
+    r.querySelector("#rclear").onclick = () => { history_ = []; db.set("searches", []); recentBox(); };
+    r.querySelectorAll(".rq").forEach((b) => (b.onclick = () => { q.value = history_[+b.dataset.i]; rememberSearch(q.value); run(); }));
+    r.querySelectorAll(".rx").forEach((b) => (b.onclick = () => { history_.splice(+b.dataset.x, 1); db.set("searches", history_); recentBox(); }));
+  };
   let timer, token = 0;
   const run = async () => {
     const text = q.value.trim();
     lastQuery = q.value;
+    recentBox();
     const my = ++token;
-    const items = text.length >= 2 ? await list("search/multi", null, { query: text, include_adult: "false" }).catch(() => []) : await list("trending/all/week").catch(() => []);
-    if (my === token) out.innerHTML = items.map(poster).join("");
+    out.innerHTML = loading();
+    const cat = CATS.find((c) => c.id === filt.cat), yr = yearRange(filt.year);
+    let raw = [];
+    try {
+      if (text.length >= 2) {
+        // Search, then keep only what matches the chosen kind and year.
+        const pages = await Promise.all([1, 2].map((page) => tmdb("search/multi", { query: text, include_adult: "false", page })));
+        raw = pages.flatMap((o) => o.results || []).filter((o) => o.media_type === "movie" || o.media_type === "tv")
+          .filter((o) => (!cat || (cat.kinds.includes(o.media_type) && cat.ok(o))) && ofYear(o, yr));
+      } else if (cat || yr) {
+        const kinds = cat ? cat.kinds : ["movie", "tv"];
+        const lists = await Promise.all(kinds.flatMap((k) => [1, 2].map((page) => {
+          const prm = { sort_by: "popularity.desc", page, "vote_count.gte": cat?.few ? 0 : 5, ...(cat?.q || {}) };
+          if (yr) {
+            const [f, t] = k === "movie" ? ["primary_release_date.gte", "primary_release_date.lte"] : ["first_air_date.gte", "first_air_date.lte"];
+            prm[f] = `${yr[0]}-01-01`; prm[t] = `${yr[1]}-12-31`;
+          }
+          return tmdb(`discover/${k}`, prm).then((o) => (o.results || []).map((x) => ({ ...x, media_type: k }))).catch(() => []);
+        })));
+        raw = lists.flat().sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
+      } else raw = (await tmdb("trending/all/week")).results || [];
+    } catch {}
+    if (my !== token) return;
+    const seen = new Set();
+    const items = raw.filter(kidsOk).map((x) => parse(x, x.media_type)).filter((t) => t && t.poster && !seen.has(key(t)) && seen.add(key(t)));
+    out.innerHTML = items.length ? items.map(poster).join("") : `<div class="empty" style="grid-column:1/-1"><b>${I.t("No results")}</b><span class="muted">${I.t(cat || yr ? "Try another year or category." : "Try a different title.")}</span></div>`;
   };
   q.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(run, 350); });
+  q.addEventListener("keydown", (e) => { if (e.key === "Enter") { rememberSearch(q.value); q.blur(); } });
+  // Opening a result counts as a finished search.
+  out.addEventListener("click", (e) => { if (e.target.closest("a.card")) rememberSearch(q.value); });
+  chips();
   run();
 }
 
 function myListView() {
-  view.innerHTML = `<div class="pad-top"><h1 class="title">My List</h1>${myList.length
-    ? `<div class="grid">${myList.map(poster).join("")}</div>`
+  const tab = sessionStorage.getItem("listTab") || "list";
+  const lk = Object.values(likes).filter((x) => x?.t).sort((a, b) => b.at - a.at).map((x) => remember(x.t));
+  const items = tab === "liked" ? lk : myList;
+  view.innerHTML = `<div class="pad-top"><h1 class="title">My List</h1>
+    <div class="chips seg"><button class="chip ${tab === "list" ? "on" : ""}" data-tab="list">${I.t("Saved")} · ${myList.length}</button><button class="chip ${tab === "liked" ? "on" : ""}" data-tab="liked">${I.t("Liked")} · ${lk.length}</button></div>
+    ${items.length ? `<div class="grid">${items.map(poster).join("")}</div>`
+    : tab === "liked" ? `<div class="empty"><b>${I.t("Nothing liked yet")}</b><span class="muted">${I.t("Tap ♥ Like on any title to keep it here.")}</span></div>`
     : `<div class="empty"><b>Nothing saved yet</b><span class="muted">Tap My List on any title to keep it here.</span></div>`}</div>`;
+  view.querySelectorAll(".seg .chip").forEach((b) => (b.onclick = () => { sessionStorage.setItem("listTab", b.dataset.tab); myListView(); }));
 }
 
 async function details(kind, id) {
@@ -439,8 +553,13 @@ async function details(kind, id) {
       ${logo ? `<img class="logo" src="${img(logo, "w500")}" alt="">` : `<h3>${esc(t.name)}</h3>`}</div>
     <div class="dbody">
       <div class="meta">${esc(meta)}</div>
-      <div class="btns"><a class="btn white wide" href="${playTarget(t)}">${ICON.play}${label}</a>
-        <button class="btn glass round" data-list="${key(t)}">${inList(t) ? ICON.check : ICON.plus}</button></div>
+      <div class="btns"><a class="btn white wide" href="${playTarget(t)}">${ICON.play}${label}</a></div>
+      <div class="acts">
+        <button class="act ${inList(t) ? "on" : ""}" data-list="${key(t)}">${inList(t) ? ICON.check : ICON.plus}<span>${I.t("My List")}</span></button>
+        <button class="act ${liked(t) ? "on" : ""}" id="alike">${ICON.heart}<span>${I.t(liked(t) ? "Liked" : "Like")}</span></button>
+        <button class="act" id="ashare">${ICON.share}<span>${I.t("Share")}</span></button>
+        <button class="act" id="adown">${ICON.down}<span>${I.t("Download")}</span></button>
+      </div>
       ${o.tagline ? `<div class="tag">${esc(o.tagline)}</div>` : ""}
       <p>${esc(t.overview)}</p>
       <div class="genres">${esc((o.genres || []).map((g) => g.name).join(" · "))}</div>
@@ -452,6 +571,11 @@ async function details(kind, id) {
       <div class="eps" id="eps">${loading()}</div></div>` : ""}
     ${cast.length ? `<section class="row" style="margin-top:24px"><h2>Cast</h2><div class="cast">${cast.map((c) => `<a href="#/person/${c.id}"><img loading="lazy" src="${img(c.profile_path, "w185")}" alt=""><b>${esc(c.name)}</b><small>${esc(c.character || "")}</small></a>`).join("")}</div></section>` : ""}
     ${similar.length ? `<div style="margin-top:24px">${rowHtml({ name: "More like this", items: similar })}</div>` : ""}`;
+  const genres = (o.genres || []).map((g) => g.name);
+  const lb = document.getElementById("alike");
+  lb.onclick = () => { const on = toggleLike(t, genres); lb.classList.toggle("on", on); lb.querySelector("span").textContent = I.t(on ? "Liked" : "Like"); };
+  document.getElementById("ashare").onclick = () => shareTitle(t);
+  document.getElementById("adown").onclick = downloadNote;
   if (kind === "tv" && seasons.length) {
     const sel = document.getElementById("season");
     const menu = document.getElementById("smenu");
@@ -488,6 +612,25 @@ async function details(kind, id) {
     };
     load();
   }
+}
+
+// ---------- What people like and watch (open #/stats) ----------
+async function statsView() {
+  view.innerHTML = `<div class="pad-top">${loading()}</div>`;
+  const st = await fetch(`${HELPER}/stats`, { cache: "no-store" }).then((r) => r.json()).catch(() => null);
+  if (!st) { view.innerHTML = `<div class="empty pad-top"><b>Couldn't load</b></div>`; return; }
+  const T = Object.entries(st.titles || {});
+  const top = (f) => T.filter(([, v]) => v[f] > 0).sort((a, b) => b[1][f] - a[1][f]).slice(0, 20);
+  const G = Object.entries(st.genres || {}).sort((a, b) => b[1].plays + b[1].likes - a[1].plays - a[1].likes).slice(0, 12);
+  const D = Object.entries(st.days || {}).slice(-14);
+  const sum = (f) => D.reduce((n, [, v]) => n + v[f], 0);
+  const maxG = Math.max(1, ...G.map(([, v]) => v.plays + v.likes));
+  const lst = (rows, f) => rows.length ? rows.map(([k, v], i) => `<a class="srow" href="#/title/${k.replace(":", "/")}"><i>${i + 1}</i>${v.poster ? `<img src="${img(v.poster, "w92")}" alt="">` : "<span></span>"}<b data-raw>${esc(v.name)}</b><em>${v[f]}</em></a>`).join("") : `<p class="muted" style="padding:8px 0">—</p>`;
+  view.innerHTML = `<div class="pad-top stats"><h1 class="title">What people watch</h1>
+    <div class="tiles"><div><b>${sum("plays")}</b><span>Plays · 14 days</span></div><div><b>${sum("likes")}</b><span>Likes · 14 days</span></div></div>
+    <h2>Most played</h2>${lst(top("plays"), "plays")}
+    <h2>Most liked</h2>${lst(top("likes"), "likes")}
+    <h2>Categories</h2>${G.map(([g, v]) => `<div class="gbar"><span data-raw>${esc(g)}</span><div><i style="width:${((v.plays + v.likes) / maxG) * 100}%"></i></div><em>${v.plays} ▶ · ${v.likes} ♥</em></div>`).join("") || `<p class="muted">—</p>`}</div>`;
 }
 
 // ---------- Person: everything they've been in ----------
@@ -589,20 +732,57 @@ async function player(kind, id, s, e) {
     navigator.mediaSession.metadata = new MediaMetadata({ title: kind === "tv" ? `${t.name} · S${s} E${e}` : t.name, artist: "Movio",
       artwork: t.poster ? [{ src: img(t.poster, "w342"), sizes: "342x513", type: "image/jpeg" }] : [] });
   }
+  tmdb(`${kind}/${id}`).then((o) => { me.genres = (o.genres || []).map((g) => g.name); }).catch(() => {});
   if (kind === "tv") tmdb(`tv/${id}/season/${s}`).then((o) => { if (me === P) { me.episodes = o.episodes || []; footer(); } }).catch(() => {});
   fetch(`${HELPER}/intro?${kind === "tv" ? `tmdb_id=${id}&season=${s}&episode=${e}` : `tmdb_id=${id}`}`).then((r) => r.json()).then((o) => {
     if (me !== P) return;
     for (const type of ["recap", "intro", "credits"]) for (const x of o[type] || []) me.segments.push({ type, a: (x.start_ms || 0) / 1000, b: x.end_ms == null ? null : x.end_ms / 1000 });
   }).catch(() => {});
-  // Ask the next two sources at the same time, so a dead one doesn't make you wait.
+  // Ask every source at the same time (each gets 12 s), so a slow or dead one never makes you wait.
   const path = kind === "tv" ? `tv/${id}/${s}/${e}` : `movie/${id}`;
-  for (const n of P.order.slice(0, 3)) P.pre[n] = fetch(`${HELPER}/${n.toLowerCase()}/${path}`).then((r) => r.json()).catch(() => null);
-  start(pick && P.order.includes(pick) ? pick : P.order[0], !pick);
+  for (const n of P.order) P.pre[n] = lookup(`${HELPER}/${n.toLowerCase()}/${path}`);
+  P.began = Date.now();
+  // Never just spin: after 25 s with nothing playing, show what each source is doing and let the viewer pick.
+  setTimeout(() => { if (me === P && !me.playing) slowPanel(); }, 25000);
+  if (pick && P.order.includes(pick)) return start(pick, false);
+  // Prefer the best-ranked source, but don't wait more than 3 s for it if another is already ready.
+  start(await firstReady(me), true);
+}
+
+const lookup = (u) => fetch(u, { signal: AbortSignal.timeout ? AbortSignal.timeout(12000) : undefined }).then((r) => r.json()).catch(() => null);
+async function firstReady(me) {
+  const done = {};
+  me.order.forEach((n) => me.pre[n].then((o) => (done[n] = o || {})));
+  const t0 = Date.now();
+  while (me === P) {
+    const best = me.order.find((n) => !(n in done) || done[n].ok);
+    if (!best) return me.order[0];
+    if (done[best]?.ok) return best;
+    if (Date.now() - t0 > 3000) { const ready = me.order.find((n) => done[n]?.ok); if (ready) return ready; }
+    await sleep(150);
+  }
+  return me.order[0];
+}
+
+/** Taking too long: each source with how it's doing, plus try again. */
+function slowPanel() {
+  const st = document.getElementById("stage");
+  if (!st || !P || P.playing) return;
+  const me = P;
+  const state = (n) => (me.source === n ? "Trying now" : me.tried.has(n) ? "Didn't play this title" : "Ready to try");
+  st.innerHTML = `<div class="finding slow"><img src="${img(me.t.backdrop, "w1280")}" alt="">
+    <b style="font-size:20px">${I.t("This is taking longer than usual")}</b>
+    <span class="soft" style="font-size:13px;font-weight:600;max-width:340px">${I.t("Pick a source to try it now.")}</span>
+    <div class="srcs">${me.order.map((n, i) => `<button class="srcb ${me.source === n ? "on" : ""}" data-n="${n}"><b>${I.f("Source {1}", i + 1)} · ${esc(n)}</b><small>${I.t(state(n))}</small></button>`).join("")}</div>
+    <button class="btn glass" id="sagain">${I.t("Try again")}</button></div>`;
+  st.querySelectorAll(".srcb").forEach((b) => (b.onclick = () => { me.tried = new Set(); start(b.dataset.n, false); }));
+  st.querySelector("#sagain").onclick = () => { closePlayer(); route(); };
 }
 
 function finding(text) {
   const st = document.getElementById("stage");
   if (!st || !P) return;
+  if (st.querySelector(".slow")) return;  // the source list is up: leave it
   st.innerHTML = `<div class="finding"><img src="${img(P.t.backdrop, "w1280")}" alt=""><b style="font-size:22px">${esc(P.t.name)}</b><div class="spin"></div><span class="soft" style="font-size:13px;font-weight:600">${esc(text)}</span></div>`;
 }
 
@@ -624,7 +804,7 @@ async function viaHelper(src) {
     const path = me.t.kind === "tv" ? `tv/${me.t.id}/${me.s}/${me.e}` : `movie/${me.t.id}`;
     const o = (await (me.pre[me.source] || fetch(`${HELPER}/${src}/${path}`).then((r) => r.json()))) || {};
     if (me !== P || me.dead) return;
-    if (!o.ok || !o.url) { srcResult(me.source, false); return next(); }
+    if (!o.ok || !o.url) { if (o.ok === false) srcResult(me.source, false); return next(); }
     play(o.url);
     // Subtitles: Club's own, plus Wyzie and the Alt list (fetched alongside, without slowing playback).
     const own = (o.tracks || []).map((t, i) => ({ url: t.file, lang: /eng|english/i.test(t.label) ? "en" : "und", label: (t.label || "Subtitles") + " · " + me.source }));
@@ -648,6 +828,7 @@ function next() {
   if (!P) return;
   const n = P.order.find((x) => !P.tried.has(x));
   if (n) return start(n, P.auto);
+  if (Date.now() - P.began > 4000) return slowPanel();
   const st = document.getElementById("stage");
   if (st) st.innerHTML = `<div class="finding"><img src="${img(P.t.backdrop, "w1280")}" alt=""><b style="font-size:22px">${esc(P.t.name)}</b><span class="soft" style="font-size:13px;font-weight:600">No stream found right now. Try again later.</span></div>`;
 }
@@ -674,7 +855,9 @@ function play(url) {
   }).catch(() => fail());
   let ok = false, lastSave = 0;
   const fail = () => { if (me === P && !ok) { me.video = null; srcResult(me.source, false); next(); } };
-  const timer = setTimeout(fail, 30000);
+  // A stream that hasn't started within 15 s is skipped.
+  const timer = setTimeout(fail, 15000);
+  v.addEventListener("playing", () => { if (!me.counted) { me.counted = true; stat("play", me.t, me.genres || []); } me.playing = true; }, { once: true });
   let recovered = false;
   v.addEventListener("error", () => {
     clearTimeout(timer);
@@ -1016,6 +1199,7 @@ document.addEventListener("click", (ev) => {
   if (!t) return;
   toggleList(t);
   b.innerHTML = b.innerHTML.replace(/<svg[\s\S]*?<\/svg>/, inList(t) ? ICON.check : ICON.plus);
+  b.classList.toggle("on", inList(t));
 });
 
 async function route() {
@@ -1033,6 +1217,7 @@ async function route() {
     else if (parts[0] === "list") myListView();
     else if (parts[0] === "title") await details(parts[1], parts[2]);
     else if (parts[0] === "person") await person(parts[1]);
+    else if (parts[0] === "stats") await statsView();
     else if (parts[0] === "play") await player(parts[1], parts[2], parts[3] || 1, parts[4] || 1);
     else await home();
   } catch {

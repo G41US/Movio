@@ -368,3 +368,44 @@ body.in-setup #tabs, body.in-setup .pfp { display: none; }
 .slink span:nth-child(2) { flex: 1; } .slink b { display: block; font-size: 15px; } .slink small { display: block; font-size: 13px; color: var(--violet); font-weight: 700; margin-top: 2px; }
 .slink > i { font-style: normal; font-size: 24px; color: var(--muted); }
 [dir=rtl] .slink > i { transform: scaleX(-1); }
+.finding.slow { gap: 12px; }
+.srcs { display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 340px; margin-top: 6px; }
+.srcb { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 12px 16px; border-radius: 14px; text-align: start; color: #fff;
+  background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.12); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); }
+.srcb b { font-size: 15px; } .srcb small { font-size: 12px; color: var(--muted); font-weight: 600; }
+.srcb.on { border-color: var(--violet); }
+.filters { display: flex; gap: 8px; overflow-x: auto; padding: 0 16px 10px; scrollbar-width: none; }
+.filters::-webkit-scrollbar { display: none; }
+.filters .chip { height: 32px; }
+#years { padding-bottom: 16px; }
+.recent { margin: 0 16px 18px; }
+.rhead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.rhead b { font-size: 17px; } .rhead button { color: var(--violet); font-weight: 700; font-size: 14px; }
+.rrow { display: flex; align-items: center; border-bottom: 1px solid rgba(255,255,255,.07); }
+.rq { flex: 1; display: flex; align-items: center; gap: 12px; padding: 12px 0; color: #fff; font-size: 15px; font-weight: 600; text-align: start; }
+.rq svg { width: 18px; height: 18px; fill: none; stroke: var(--muted); stroke-width: 2; stroke-linecap: round; flex: none; }
+.rx { width: 32px; height: 32px; display: grid; place-items: center; }
+.rx svg { width: 14px; height: 14px; fill: none; stroke: var(--muted); stroke-width: 2.4; stroke-linecap: round; }
+.acts { display: flex; gap: 6px; margin-top: 14px; }
+.act { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 4px; border-radius: 14px; color: var(--soft); font-size: 12px; font-weight: 700; transition: transform .15s, background .15s; }
+.act:active { transform: scale(.94); background: rgba(255,255,255,.08); }
+.act svg { width: 24px; height: 24px; fill: #fff; }
+.act svg.line { fill: none; stroke: #fff; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.act.on { color: #fff; }
+#alike.on svg { fill: var(--pink); stroke: var(--pink); }
+.act[data-list].on svg { fill: var(--violet); }
+.chips.seg { display: flex; gap: 8px; padding: 0 16px 16px; }
+@media (min-width: 900px) { .filters { padding-left: 48px; padding-right: 48px; } .recent { margin: 0 48px 22px; max-width: 640px; } .chips.seg { padding: 0 48px 22px; } .acts { max-width: 420px; } }
+.stats { padding-left: 16px; padding-right: 16px; max-width: 760px; }
+.stats h2 { font-size: 19px; margin: 26px 0 8px; }
+.stats .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.stats .tiles div { padding: 16px; border-radius: 18px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.08); }
+.stats .tiles b { display: block; font-size: 30px; } .stats .tiles span { font-size: 13px; color: var(--muted); font-weight: 600; }
+.srow { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,.06); }
+.srow i { width: 22px; font-style: normal; color: var(--muted); font-weight: 800; }
+.srow img, .srow span { width: 34px; height: 51px; border-radius: 6px; object-fit: cover; background: var(--panel); }
+.srow b { flex: 1; font-size: 15px; } .srow em { font-style: normal; font-weight: 800; color: var(--violet); }
+.gbar { display: grid; grid-template-columns: 110px 1fr auto; gap: 10px; align-items: center; padding: 7px 0; font-size: 14px; font-weight: 600; }
+.gbar div { height: 8px; border-radius: 4px; background: rgba(255,255,255,.08); overflow: hidden; }
+.gbar i { display: block; height: 100%; background: linear-gradient(90deg, var(--violet), var(--pink)); }
+.gbar em { font-style: normal; color: var(--muted); font-size: 12px; }
