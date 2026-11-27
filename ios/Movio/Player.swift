@@ -19,6 +19,7 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
     enum Phase { case finding, playing, web, failed }
 
     let title: Title
+    private var counted = false
     @Published var season: Int
     @Published var episode: Int
     @Published var phase: Phase = .finding
@@ -259,6 +260,7 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
         }
         phase = .playing
         reconnects = 0
+        if offline == nil && !counted { counted = true; Store.shared.stat("play", title, []) }
         if offline == nil {
             Sources.score(sourceIndex, Date().timeIntervalSince(startedAt))
             failedSources.remove(sourceIndex)
@@ -606,6 +608,7 @@ struct PlayerScreen: View {
     @State private var hud: (icon: String, value: Double)?
     @State private var dragStart: Double?
     @State private var panel: Panel?
+    @State private var slow = false
     private enum Panel { case subtitles, sources, episodes }
 
     init(request: PlayRequest) { _m = StateObject(wrappedValue: PlayerModel(request)) }
@@ -951,7 +954,15 @@ struct PlayerScreen: View {
                 if m.title.kind == .tv { Text(m.label).font(jakarta(14, .semibold)).foregroundStyle(Color.soft) }
                 ProgressView().tint(.white).scaleEffect(1.3).padding(.top, 6)
                 Text(m.status).font(jakarta(13, .semibold)).foregroundStyle(Color.soft)
+                // Never just spin: after 20 s, offer the source list.
+                if slow && m.offline == nil {
+                    Text("This is taking longer than usual").font(jakarta(15, .bold)).padding(.top, 14)
+                    Button { panel = .sources; touch() } label: {
+                        Text("Pick a source").font(jakarta(15, .bold)).foregroundStyle(Color.ink).padding(.horizontal, 24).padding(.vertical, 11).background(.white, in: Capsule())
+                    }
+                }
             }
+            .task { slow = false; try? await Task.sleep(nanoseconds: 20_000_000_000); slow = true }
             .foregroundStyle(.white)
             .padding(.horizontal, 40)
             VStack {

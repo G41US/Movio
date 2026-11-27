@@ -130,28 +130,91 @@ struct BrowseView: View {
 // MARK: - Search
 
 struct SearchView: View {
+    @EnvironmentObject var store: Store
     @State private var query = ""
     @State private var results: [Title] = []
-    @State private var trending: [Title] = []
+    @State private var cat = ""
+    @State private var year = ""
+    @State private var loading = false
     private let grid = [GridItem(.adaptive(minimum: 104), spacing: 10)]
+    private var filtering: Bool { !cat.isEmpty || !year.isEmpty }
 
     var body: some View {
         ScrollView(showsIndicators: false) {
-            LazyVGrid(columns: grid, spacing: 12) {
-                ForEach(query.isEmpty ? trending : results, id: \.key) { PosterCard(title: $0, width: 108) }
+            VStack(alignment: .leading, spacing: 12) {
+                chips([("", L("All"))] + TMDB.cats.map { ($0.id, L($0.name)) }, $cat)
+                chips([("", L("Any year"))] + TMDB.years.map { ($0, L($0)) }, $year)
+                if query.trimmingCharacters(in: .whitespaces).isEmpty && !store.searches.isEmpty { recent }
+                if loading && results.isEmpty { ProgressView().tint(.violet).frame(maxWidth: .infinity).padding(.top, 40) }
+                else if results.isEmpty && (filtering || query.count >= 2) {
+                    VStack(spacing: 8) {
+                        Text("No results").font(jakarta(17, .bold))
+                        Text(filtering ? "Try another year or category." : "Try a different title.").font(jakarta(14)).foregroundStyle(Color.muted)
+                    }.frame(maxWidth: .infinity).padding(.top, 60)
+                }
+                LazyVGrid(columns: grid, spacing: 12) {
+                    ForEach(results, id: \.key) { t in
+                        PosterCard(title: t, width: 108).simultaneousGesture(TapGesture().onEnded { store.rememberSearch(query) })
+                    }
+                }
+                .padding(.horizontal, 16)
             }
-            .padding(16)
+            .padding(.top, 8).padding(.bottom, 16)
         }
         .background(Color.ink.ignoresSafeArea())
         .navigationTitle("Search")
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Movies, shows…")
-        .task { if trending.isEmpty { trending = (try? await TMDB.list("trending/all/week", nil)) ?? [] } }
-        .task(id: query) {
+        .onSubmit(of: .search) { store.rememberSearch(query) }
+        .task(id: "\(query)|\(cat)|\(year)") {
             let q = query.trimmingCharacters(in: .whitespaces)
-            guard q.count >= 2 else { results = []; return }
-            try? await Task.sleep(nanoseconds: 350_000_000)
+            if q.count >= 2 { try? await Task.sleep(nanoseconds: 350_000_000) }
             if Task.isCancelled { return }
-            results = (try? await TMDB.search(q)) ?? []
+            loading = true
+            let r = await TMDB.find(q.count >= 2 ? q : "", cat: TMDB.cats.first { $0.id == cat }, year: year.isEmpty ? nil : year)
+            if !Task.isCancelled { results = r; loading = false }
+        }
+    }
+
+    private var recent: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Recent searches").font(jakarta(17, .bold))
+                Spacer()
+                Button(L("Clear")) { store.forgetSearch(nil) }.font(jakarta(14, .bold)).foregroundStyle(Color.violet)
+            }
+            .padding(.bottom, 4)
+            ForEach(store.searches, id: \.self) { q in
+                HStack(spacing: 12) {
+                    Button { query = q; store.rememberSearch(q) } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "clock.arrow.circlepath").foregroundStyle(Color.muted)
+                            Text(verbatim: q).font(jakarta(15, .semibold)).foregroundStyle(.white)
+                            Spacer()
+                        }.contentShape(Rectangle())
+                    }
+                    Button { store.forgetSearch(q) } label: { Image(systemName: "xmark").font(.system(size: 12, weight: .bold)).foregroundStyle(Color.muted).padding(8) }
+                }
+                .padding(.vertical, 8)
+                Divider().overlay(Color.white.opacity(0.07))
+            }
+        }
+        .padding(.horizontal, 16)
+    }
+
+    private func chips(_ items: [(String, String)], _ sel: Binding<String>) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(items, id: \.0) { id, label in
+                    let on = sel.wrappedValue == id
+                    Button { sel.wrappedValue = id } label: {
+                        Text(verbatim: label).font(jakarta(13, .bold)).foregroundStyle(on ? Color.ink : .white)
+                            .padding(.horizontal, 14).frame(height: 32)
+                            .background(on ? Color.white : Color.white.opacity(0.12), in: Capsule())
+                    }
+                    .buttonStyle(PressStyle())
+                }
+            }
+            .padding(.horizontal, 16)
         }
     }
 }
@@ -160,19 +223,31 @@ struct SearchView: View {
 
 struct MyListView: View {
     @EnvironmentObject var store: Store
-    @State private var showDownloads = false
+    @State private var tab = 0
     private let grid = [GridItem(.adaptive(minimum: 104), spacing: 10)]
 
     var body: some View {
         ScrollView(showsIndicators: false) {
-            Picker("", selection: $showDownloads) {
-                Text("Saved").tag(false)
-                Text("Downloads").tag(true)
+            Picker("", selection: $tab) {
+                Text("Saved").tag(0)
+                Text("Liked").tag(1)
+                Text("Downloads").tag(2)
             }
             .pickerStyle(.segmented)
             .padding(.horizontal, 16).padding(.top, 6)
-            if showDownloads {
+            if tab == 2 {
                 DownloadsList()
+            } else if tab == 1 {
+                if store.liked.isEmpty {
+                    VStack(spacing: 10) {
+                        Image(systemName: "heart").font(.system(size: 40)).foregroundStyle(Color.muted)
+                        Text("Nothing liked yet").font(jakarta(17, .bold))
+                        Text("Tap ♥ Like on any title to keep it here.").font(jakarta(14)).foregroundStyle(Color.muted)
+                    }
+                    .frame(maxWidth: .infinity).padding(.top, 120)
+                } else {
+                    LazyVGrid(columns: grid, spacing: 12) { ForEach(store.liked, id: \.key) { PosterCard(title: $0, width: 108) } }.padding(16)
+                }
             } else if store.myList.isEmpty {
                 VStack(spacing: 10) {
                     Image(systemName: "bookmark").font(.system(size: 40)).foregroundStyle(Color.muted)
@@ -229,13 +304,21 @@ struct DetailsView: View {
                                 .frame(maxWidth: .infinity, minHeight: 48)
                                 .background(.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                         }
-                        Button { store.toggle(title) } label: {
-                            Image(systemName: store.inList(title) ? "checkmark" : "plus").font(.system(size: 18, weight: .bold)).foregroundStyle(.white)
-                                .frame(width: 52, height: 48)
-                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        }
                     }
                     .buttonStyle(PressStyle())
+                    // Icon-over-label actions.
+                    HStack(spacing: 0) {
+                        action(store.inList(title) ? "checkmark" : "plus", "My List", on: store.inList(title), tint: .violet) { store.toggle(title) }
+                        action(store.isLiked(title) ? "heart.fill" : "heart", store.isLiked(title) ? "Liked" : "Like", on: store.isLiked(title), tint: .pink) {
+                            store.toggleLike(title, genres: d?.genres ?? [])
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        }
+                        ShareLink(item: URL(string: "https://g41us.github.io/Movio/#/title/\(title.kind.rawValue)/\(title.id)")!,
+                                  subject: Text(verbatim: title.name), message: Text(verbatim: I18n.f("Watch {1} on Movio", title.name))) {
+                            actionLabel("square.and.arrow.up", "Share", on: false, tint: .white)
+                        }
+                        .buttonStyle(PressStyle())
+                    }
                     if let tag = d?.tagline, !tag.isEmpty { Text(tag).font(jakarta(15, .bold)) }
                     Text(d?.title.overview ?? title.overview).font(jakarta(14)).foregroundStyle(Color.soft).lineSpacing(3)
                     if let g = d?.genres, !g.isEmpty { Text(g.joined(separator: " · ")).font(jakarta(12, .semibold)).foregroundStyle(Color.muted) }
@@ -298,6 +381,17 @@ struct DetailsView: View {
     }
 
     private func play() { store.play(title) }
+
+    private func actionLabel(_ icon: String, _ label: String, on: Bool, tint: Color) -> some View {
+        VStack(spacing: 6) {
+            Image(systemName: icon).font(.system(size: 21, weight: .semibold)).foregroundStyle(on ? tint : .white).frame(height: 24)
+            Text(label).font(jakarta(12, .bold)).foregroundStyle(on ? Color.white : Color.soft)
+        }
+        .frame(maxWidth: .infinity).padding(.vertical, 8).contentShape(Rectangle())
+    }
+    private func action(_ icon: String, _ label: String, on: Bool, tint: Color, _ tap: @escaping () -> Void) -> some View {
+        Button(action: tap) { actionLabel(icon, label, on: on, tint: tint) }.buttonStyle(PressStyle())
+    }
 
     @ViewBuilder private func episodeList(_ seasons: [Season]) -> some View {
         VStack(alignment: .leading, spacing: 12) {

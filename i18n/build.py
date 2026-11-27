@@ -98,6 +98,7 @@ W = [
 ("Try another year or category.", "Essayez une autre année ou catégorie.", "Prueba otro año o categoría.", "Tente outro ano ou categoria.", "جرّب سنة أو فئة أخرى."),
 ("Saved · {1}", "Enregistrés · {1}", "Guardados · {1}", "Salvos · {1}", "المحفوظة · {1}"),
 ("Liked · {1}", "Aimés · {1}", "Te gusta · {1}", "Curtidos · {1}", "أُعجبت بها · {1}"),
+("Pick a source", "Choisir une source", "Elegir una fuente", "Escolher uma fonte", "اختر مصدرًا"),
 ("Type the code", "Saisissez le code", "Escribe el código", "Digite o código", "اكتب الرمز"),
 ("Family movies", "Films familiaux", "Películas familiares", "Filmes de família", "أفلام عائلية"),
 ("Animated movies", "Films d'animation", "Películas animadas", "Filmes de animação", "أفلام رسوم متحركة"),

@@ -37,6 +37,7 @@ final class Store: ObservableObject {
 
     private init() {
         myList = load("myList") ?? []
+        liked = load("liked") ?? []
         recent = load("recent") ?? [:]
         positions = load("positions") ?? [:]
         sourceName = d.string(forKey: "source")
@@ -78,6 +79,37 @@ final class Store: ObservableObject {
     }
 
     func remove(_ t: Title) { recent[t.key] = nil; save("recent", recent); mark("c:\(t.key)", removed: true) }
+
+    // MARK: Likes, search history, and what people watch (counts only)
+
+    @Published private(set) var liked: [Title] = []
+    @Published private(set) var searches: [String] = UserDefaults.standard.stringArray(forKey: "searches") ?? []
+    func isLiked(_ t: Title) -> Bool { liked.contains { $0.key == t.key } }
+    @discardableResult
+    func toggleLike(_ t: Title, genres: [String]) -> Bool {
+        let on = !isLiked(t)
+        if on { liked.insert(t, at: 0) } else { liked.removeAll { $0.key == t.key } }
+        save("liked", liked)
+        stat(on ? "like" : "unlike", t, genres)
+        return on
+    }
+    func stat(_ ev: String, _ t: Title, _ genres: [String]) {
+        guard let url = URL(string: "\(Store.helper)/stat") else { return }
+        var req = URLRequest(url: url, timeoutInterval: 10)
+        req.httpMethod = "POST"
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["ev": ev, "kind": t.kind.rawValue, "id": t.id, "name": t.name, "poster": t.poster ?? NSNull(), "genres": genres])
+        URLSession.shared.dataTask(with: req).resume()
+    }
+    func rememberSearch(_ q: String) {
+        let v = q.trimmingCharacters(in: .whitespaces)
+        guard v.count >= 2 else { return }
+        searches = Array(([v] + searches.filter { $0.lowercased() != v.lowercased() }).prefix(12))
+        d.set(searches, forKey: "searches")
+    }
+    func forgetSearch(_ q: String?) {
+        if let q { searches.removeAll { $0 == q } } else { searches = [] }
+        d.set(searches, forKey: "searches")
+    }
 
     // MARK: Sync between devices (a short link code, kept by Movio's helper)
 

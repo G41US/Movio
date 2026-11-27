@@ -94,6 +94,70 @@ enum TMDB {
         return ((o["genre_ids"] as? [Int]) ?? []).contains { kidsGenres.contains($0) }
     }
 
+    // MARK: Search filters (same categories as the web and Android apps)
+
+    struct Cat: Identifiable {
+        let id: String; let name: String; let kinds: [Kind]; let q: [String: String]; var few = false
+        let ok: ([String: Any]) -> Bool
+    }
+    private static func lang(_ o: [String: Any]) -> String { o["original_language"] as? String ?? "" }
+    static let cats: [Cat] = [
+        Cat(id: "hollywood", name: "Hollywood", kinds: [.movie], q: ["with_origin_country": "US", "with_original_language": "en"]) { lang($0) == "en" },
+        Cat(id: "nollywood", name: "Nollywood", kinds: [.movie, .tv], q: ["with_origin_country": "NG"], few: true) { (($0["origin_country"] as? [String]) ?? []).contains("NG") },
+        Cat(id: "kdrama", name: "K-drama", kinds: [.tv], q: ["with_original_language": "ko", "with_genres": "18"]) { lang($0) == "ko" },
+        Cat(id: "anime", name: "Anime", kinds: [.tv, .movie], q: ["with_original_language": "ja", "with_genres": "16"]) { lang($0) == "ja" && (($0["genre_ids"] as? [Int]) ?? []).contains(16) },
+        Cat(id: "chinese", name: "Chinese", kinds: [.tv, .movie], q: ["with_original_language": "zh"]) { ["zh", "cn"].contains(lang($0)) },
+        Cat(id: "bollywood", name: "Bollywood", kinds: [.movie], q: ["with_original_language": "hi"]) { lang($0) == "hi" },
+        Cat(id: "korean", name: "Korean movies", kinds: [.movie], q: ["with_original_language": "ko"]) { lang($0) == "ko" },
+        Cat(id: "turkish", name: "Turkish", kinds: [.tv], q: ["with_original_language": "tr"]) { lang($0) == "tr" },
+        Cat(id: "spanish", name: "Spanish", kinds: [.tv, .movie], q: ["with_original_language": "es"]) { lang($0) == "es" },
+    ]
+    static var years: [String] { let y = Calendar.current.component(.year, from: Date()); return (0..<12).map { "\(y - $0)" } + ["2010s", "2000s", "1990s", "Older"] }
+    private static func yearRange(_ y: String?) -> ClosedRange<Int>? {
+        guard let y, !y.isEmpty else { return nil }
+        if y == "Older" { return 1900...1989 }
+        if y.hasSuffix("s"), let d = Int(y.prefix(4)) { return d...(d + 9) }
+        return Int(y).map { $0...$0 }
+    }
+
+    /// Search, or browse by category and year when there's no text.
+    static func find(_ q: String, cat: Cat?, year: String?) async -> [Title] {
+        let yr = yearRange(year)
+        func ofYear(_ o: [String: Any]) -> Bool {
+            guard let yr else { return true }
+            let d = (o["release_date"] as? String) ?? (o["first_air_date"] as? String) ?? ""
+            return Int(d.prefix(4)).map { yr.contains($0) } ?? false
+        }
+        var raw: [([String: Any], Kind?)] = []
+        if q.count >= 2 {
+            for pg in [1, 2] {
+                let o = (try? await get("search/multi", ["query": q, "include_adult": "false", "page": "\(pg)"])) ?? [:]
+                for x in (o["results"] as? [[String: Any]]) ?? [] {
+                    guard let mt = x["media_type"] as? String, let k = Kind(rawValue: mt) else { continue }
+                    if let cat, !(cat.kinds.contains(k) && cat.ok(x)) { continue }
+                    if ofYear(x) { raw.append((x, nil)) }
+                }
+            }
+        } else if cat != nil || yr != nil {
+            await withTaskGroup(of: [([String: Any], Kind?)].self) { g in
+                for k in cat?.kinds ?? [.movie, .tv] { for pg in [1, 2] { g.addTask {
+                    var p = ["sort_by": "popularity.desc", "page": "\(pg)", "vote_count.gte": cat?.few == true ? "0" : "5"]
+                    cat?.q.forEach { p[$0.key] = $0.value }
+                    if let yr {
+                        let (f, t) = k == .movie ? ("primary_release_date.gte", "primary_release_date.lte") : ("first_air_date.gte", "first_air_date.lte")
+                        p[f] = "\(yr.lowerBound)-01-01"; p[t] = "\(yr.upperBound)-12-31"
+                    }
+                    let o = (try? await get("discover/\(k.rawValue)", p)) ?? [:]
+                    return ((o["results"] as? [[String: Any]]) ?? []).map { ($0, k) }
+                } } }
+                for await part in g { raw += part }
+            }
+            raw.sort { (($0.0["popularity"] as? Double) ?? 0) > (($1.0["popularity"] as? Double) ?? 0) }
+        } else { return (try? await list("trending/all/week", nil)) ?? [] }
+        var seen = Set<String>()
+        return raw.filter { kidsOK($0.0) }.compactMap { parse($0.0, $0.1) }.filter { $0.poster != nil && seen.insert($0.key).inserted }
+    }
+
     static func list(_ path: String, _ kind: Kind?, _ params: [String: String] = [:]) async throws -> [Title] {
         let o = try await get(path, params)
         return ((o["results"] as? [[String: Any]]) ?? []).filter(kidsOK).compactMap { parse($0, kind) }.filter { $0.poster != nil }
