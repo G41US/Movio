@@ -506,6 +506,21 @@ class PlayerActivity : ComponentActivity() {
             return
         }
         fromCache = false
+        // Club, Peach, Mist and Main: Movio's helper hands over the stream itself, so it plays in Movio's
+        // own player (never the source's web page with its ads). If it doesn't have the title, try the next source.
+        if (source.name in Source.HELPED) {
+            pageHost = ""
+            webView.loadUrl("about:blank")
+            resolveJob = lifecycleScope.launch {
+                val p = Source.viaHelper(source.name, kind, id, season, episode)
+                if (token != attempt) return@launch
+                if (p == null) { sourceFailed(); return@launch }
+                subtitleTracks = (p.subtitles + subtitleTracks).distinctBy { it.url }
+                trying = Stream(p.url, p.headers, hls = true)
+                play(trying!!)
+            }
+            return
+        }
         if (source.direct) {
             pageHost = ""
             webView.loadUrl("about:blank")
@@ -544,7 +559,7 @@ class PlayerActivity : ComponentActivity() {
             val next = order().firstOrNull { it !in failedSources }
             if (next != null) { start(next, automatic = true); return }
         }
-        if (source.direct) { phase = Phase.FAILED; return }
+        if (source.direct || source.name in Source.HELPED) { phase = Phase.FAILED; return }
         showWeb(reload = false)
     }
 
@@ -793,7 +808,7 @@ class PlayerActivity : ComponentActivity() {
         }
         trying?.let { rejected.add(it.url) }
         trying = null
-        if (source.direct) { sourceFailed(); return }
+        if (source.direct || source.name in Source.HELPED) { sourceFailed(); return }
         if (candidates.any { it.url !in rejected }) tryNext()
     }
 

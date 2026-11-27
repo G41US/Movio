@@ -176,6 +176,21 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
             return
         }
         fromCache = false
+        // Club, Peach, Mist and Main: Movio's helper hands over the stream itself, so it plays in Movio's
+        // own player (never the source's web page with its ads). If it doesn't have the title, the next source is tried.
+        if Sources.helped.contains(src.name) {
+            pageHost = ""
+            Task {
+                let got = await Sources.viaHelper(src.name, title.kind, title.id, season, episode)
+                guard token == attempt else { return }
+                guard let (url, subs) = got else { sourceFailed(); return }
+                for t in subs where !tracks.contains(where: { $0.url == t.url }) { tracks.append(t) }
+                trying = (url, "")
+                status = "Almost ready"
+                await play(url, page: "")
+            }
+            return
+        }
         let url = src.url(title.kind, title.id, season, episode)
         pageHost = url.host ?? ""
         var r = URLRequest(url: url)
@@ -306,6 +321,7 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
         }
         if let t = trying { rejected.insert(t.url.absoluteString) }
         trying = nil
+        if Sources.helped.contains(source.name) { sourceFailed(); return }
         if candidates.contains(where: { !rejected.contains($0.url.absoluteString) }) { tryNext() }
     }
 
@@ -317,6 +333,8 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
             start(next, automatic: true)
             return
         }
+        // A helper source has no page worth showing (it would only bring the source's ads).
+        if Sources.helped.contains(source.name) { status = "No stream found right now. Try another source."; phase = .failed; return }
         showPage()
     }
 

@@ -17,6 +17,28 @@ data class Playable(val url: String, val subtitles: List<Subtitle>, val headers:
  * (and none of its ads) ever loads. Returns an HLS master playlist with every quality.
  */
 object Source {
+    /** Sources Movio's helper can hand over as a clean stream (no web page, no ads), like the web app. */
+    val HELPED = setOf("Club", "Peach", "Mist", "Main")
+
+    /** The helper's stream for [name], or null if that source doesn't have this title. */
+    suspend fun viaHelper(name: String, kind: Kind, id: Int, season: Int, episode: Int): Playable? = withContext(Dispatchers.IO) {
+        val path = if (kind == Kind.TV) "tv/$id/$season/$episode" else "movie/$id"
+        val c = URL("$HELPER/${name.lowercase()}/$path").openConnection() as HttpURLConnection
+        try {
+            c.connectTimeout = 10_000; c.readTimeout = 15_000
+            if (c.responseCode !in 200..299) return@withContext null
+            val o = JSONObject(c.inputStream.bufferedReader().use { it.readText() })
+            val url = o.optString("url")
+            if (!o.optBoolean("ok") || !url.startsWith("http")) return@withContext null
+            val t = o.optJSONArray("tracks")
+            val subs = (0 until (t?.length() ?: 0)).mapNotNull { i ->
+                val x = t!!.getJSONObject(i); val f = x.optString("file"); val l = x.optString("label", "Subtitles")
+                if (!f.startsWith("http")) null else Subtitle("$l · $name", if (Regex("eng|english", RegexOption.IGNORE_CASE).containsMatchIn(l)) "en" else "und", f)
+            }
+            Playable(url, subs, emptyMap())
+        } catch (_: Exception) { null } finally { c.disconnect() }
+    }
+
     const val BASE = "https://vidsrc.party"
     private const val UA = "Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
     val headers = mapOf("Referer" to "$BASE/", "Origin" to BASE, "User-Agent" to UA)

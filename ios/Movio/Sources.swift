@@ -23,6 +23,26 @@ struct StreamSource: Hashable {
 }
 
 enum Sources {
+    /// Sources Movio's helper can hand over as a clean stream (no web page, no ads), like the web app.
+    static let helped: Set<String> = ["Club", "Peach", "Mist", "Main"]
+
+    /// The helper's stream for a source, with any subtitles it brings; nil if it doesn't have the title.
+    static func viaHelper(_ name: String, _ kind: Kind, _ id: Int, _ s: Int, _ e: Int) async -> (URL, [SubTrack])? {
+        let path = kind == .tv ? "tv/\(id)/\(s)/\(e)" : "movie/\(id)"
+        guard let u = URL(string: "\(Store.helper)/\(name.lowercased())/\(path)") else { return nil }
+        var req = URLRequest(url: u, timeoutInterval: 15)
+        req.cachePolicy = .reloadIgnoringLocalCacheData
+        guard let (data, _) = try? await URLSession.shared.data(for: req),
+              let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              o["ok"] as? Bool == true, let s = o["url"] as? String, let url = URL(string: s) else { return nil }
+        let subs: [SubTrack] = ((o["tracks"] as? [[String: Any]]) ?? []).compactMap { t in
+            guard let f = t["file"] as? String, let fu = URL(string: f), f.hasPrefix("http") else { return nil }
+            let label = (t["label"] as? String) ?? "Subtitles"
+            return SubTrack(label: "\(label) · \(name)", lang: label.range(of: "eng", options: .caseInsensitive) != nil ? "en" : "und", url: fu)
+        }
+        return (url, subs)
+    }
+
     static let all: [StreamSource] = [
         StreamSource(name: "Nero", base: "https://vidfast.pro"),
         StreamSource(name: "Flixify", base: "https://vidflix.club"),
