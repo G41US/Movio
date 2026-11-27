@@ -377,6 +377,58 @@ function playTarget(t) {
 }
 
 // ---------- Screens ----------
+// ---------- Platforms: what's on Netflix, Prime Video… (TMDB's US lists), all played in Movio ----------
+const PLATFORMS = [
+  { id: 8, name: "Netflix", logo: "/rK1KljqmbvO9HQa1PBFLILWah72.png" },
+  { id: 9, name: "Prime Video", logo: "/gMZdpavHmxFNnLpMHwVxfqeux2g.png" },
+  { id: 337, name: "Disney+", logo: "/5eZ872CghnHFLB1j8grszbrx0dx.png" },
+  { id: 1899, name: "HBO Max", logo: "/skypuy7SXuugIQeYg0IglmzoKaS.png" },
+  { id: 350, name: "Apple TV", logo: "/v9SnyvYt0U3KGgBH3Sbh3z4yODe.png" },
+  { id: 15, name: "Hulu", logo: "/44uAnmSqvA4yBOdbPWN8YgQHjWm.png" },
+  { id: 386, name: "Peacock", logo: "/a1UIdq5BrkcAxnxcUhFsNbXnxeu.png" },
+  { id: 283, name: "Crunchyroll", logo: "/uFL3c4Cq8M6WoLymlC5Y8bmGytV.png" },
+];
+const platRow = () => `<section class="row"><h2>${I.t("Platforms")}</h2><div class="scroll plats">${PLATFORMS.map((x) =>
+  `<a class="plat" href="#/platform/${x.id}"><img src="${img(x.logo, "w154")}" alt="" loading="lazy"><span data-raw>${esc(x.name)}</span></a>`).join("")}</div></section>`;
+const PLAT_SORT = { popular: "popularity.desc", new: null, top: "vote_average.desc" };
+async function platform(id) {
+  const x = PLATFORMS.find((p) => p.id === +id) || PLATFORMS[0];
+  const st = { kind: sessionStorage.getItem("platKind") || "tv", sort: sessionStorage.getItem("platSort") || "popular", page: 1, items: [] };
+  view.innerHTML = `<div class="pad-top platpage">
+    <div class="phead"><img src="${img(x.logo, "w154")}" alt=""><div><h1 class="title" data-raw>${esc(x.name)}</h1><small>${I.t("Everything here plays in Movio.")}</small></div></div>
+    <div class="filters" id="pk"></div><div class="filters" id="ps"></div>
+    <div class="grid" id="pg"></div><div class="more" id="pm"></div></div>`;
+  const chips = () => {
+    view.querySelector("#pk").innerHTML = [["tv", "Shows"], ["movie", "Movies"]].map(([k, l]) => `<button class="chip ${st.kind === k ? "on" : ""}" data-k="${k}">${I.t(l)}</button>`).join("");
+    view.querySelector("#ps").innerHTML = [["popular", "Popular"], ["new", "New"], ["top", "Top rated"]].map(([k, l]) => `<button class="chip ${st.sort === k ? "on" : ""}" data-s="${k}">${I.t(l)}</button>`).join("");
+    view.querySelectorAll("[data-k]").forEach((b) => (b.onclick = () => { st.kind = b.dataset.k; sessionStorage.setItem("platKind", st.kind); reset(); }));
+    view.querySelectorAll("[data-s]").forEach((b) => (b.onclick = () => { st.sort = b.dataset.s; sessionStorage.setItem("platSort", st.sort); reset(); }));
+  };
+  const load = async () => {
+    const prm = { with_watch_providers: x.id, watch_region: "US", page: st.page, include_adult: "false" };
+    if (st.sort === "new") {
+      prm.sort_by = st.kind === "movie" ? "primary_release_date.desc" : "first_air_date.desc";
+      prm[st.kind === "movie" ? "primary_release_date.lte" : "first_air_date.lte"] = new Date().toISOString().slice(0, 10);
+      prm["vote_count.gte"] = 10;
+    } else { prm.sort_by = PLAT_SORT[st.sort]; prm["vote_count.gte"] = st.sort === "top" ? 300 : 20; }
+    if (st.kind === "tv") prm.without_genres = "10763,10764,10767";
+    const my = st;
+    const o = await tmdb(`discover/${st.kind}`, prm).catch(() => ({}));
+    if (my !== st && st.kind !== my.kind) return;
+    const got = (o.results || []).filter(kidsOk).map((r) => parse(r, st.kind)).filter((t) => t && t.poster && !st.items.some((y) => key(y) === key(t)));
+    st.items.push(...got);
+    const g = view.querySelector("#pg");
+    if (!g) return;
+    g.insertAdjacentHTML("beforeend", got.map(poster).join(""));
+    const more = view.querySelector("#pm");
+    more.innerHTML = st.page < (o.total_pages || 1) && got.length ? `<button class="btn glass" id="pmore">${I.t("Show more")}</button>` : "";
+    more.querySelector("#pmore")?.addEventListener("click", () => { st.page++; more.innerHTML = loading(); load(); });
+    if (!st.items.length) g.innerHTML = `<div class="empty" style="grid-column:1/-1"><b>${I.t("No results")}</b></div>`;
+  };
+  const reset = () => { st.page = 1; st.items = []; view.querySelector("#pg").innerHTML = ""; view.querySelector("#pm").innerHTML = loading(); chips(); load(); };
+  reset();
+}
+
 async function home() {
   view.innerHTML = loading();
   const rs = await homeRows();
@@ -398,6 +450,7 @@ async function home() {
       <div class="dots">${trending.map((_, i) => `<i class="${i ? "" : "on"}"></i>`).join("")}</div></section>
     <div class="rows">
       ${cw.length ? `<section class="row"><h2>Continue watching</h2><div class="scroll">${cw.map(contCard).join("")}</div></section>` : ""}
+      ${kids() ? "" : platRow()}
       ${rs.map(rowHtml).join("")}
     </div>`;
   heroCarousel();
@@ -742,8 +795,15 @@ async function player(kind, id, s, e) {
     for (const type of ["recap", "intro", "credits"]) for (const x of o[type] || []) me.segments.push({ type, a: (x.start_ms || 0) / 1000, b: x.end_ms == null ? null : x.end_ms / 1000 });
   }).catch(() => {});
   // Ask every source at the same time (each gets 12 s), so a slow or dead one never makes you wait.
+  // If this is the episode we got ready while the last one was playing, its answers are already here.
   const path = kind === "tv" ? `tv/${id}/${s}/${e}` : `movie/${id}`;
-  for (const n of P.order) P.pre[n] = lookup(`${HELPER}/${n.toLowerCase()}/${path}`);
+  const ready = ahead && ahead.path === path && Date.now() - ahead.at < 20 * 60000 ? ahead : null;
+  ahead = null;
+  for (const n of P.order) P.pre[n] = ready?.pre[n] || lookup(`${HELPER}/${n.toLowerCase()}/${path}`);
+  // Subtitles load straight away, alongside the stream (not after it).
+  if (ready?.subs) ready.subs.then((items) => { if (me === P) items.length ? loadSubtitles(null, items, true) : loadSubtitles(null); });
+  else loadSubtitles(null);
+  partySubs(path).then((list) => { if (me === P && list) loadSubtitles(list, [], true); });
   P.began = Date.now();
   // Never just spin: after 25 s with nothing playing, show what each source is doing and let the viewer pick.
   setTimeout(() => { if (me === P && !me.playing) slowPanel(); }, 25000);
@@ -809,9 +869,9 @@ async function viaHelper(src) {
     if (me !== P || me.dead) return;
     if (!o.ok || !o.url) { if (o.ok === false) srcResult(me.source, false); return next(); }
     play(o.url);
-    // Subtitles: Club's own, plus Wyzie and the Alt list (fetched alongside, without slowing playback).
+    // The source's own subtitles join the list that's already loading.
     const own = (o.tracks || []).map((t, i) => ({ url: t.file, lang: /eng|english/i.test(t.label) ? "en" : "und", label: (t.label || "Subtitles") + " · " + me.source }));
-    partySubs(path).then((list) => { if (me === P) loadSubtitles(list, own); });
+    if (own.length) loadSubtitles(null, own, true);
   } catch { if (me === P) next(); }
 }
 
@@ -845,6 +905,8 @@ function play(url) {
   setSideways(touch && !localStorage.getItem("upright"));
   const v = st.querySelector("video");
   me.video = v;
+  // Switching source (or a new try) makes a new video: give it the subtitles already loaded.
+  me.tracks.forEach((x) => { x.node = null; if (x.text) build(x); });
   const savedVol = parseFloat(localStorage.getItem("vol"));
   if (savedVol > 0 && savedVol <= 1) v.volume = savedVol;
   if (nativeHls()) v.src = url;
@@ -881,6 +943,8 @@ function play(url) {
   });
   v.addEventListener("timeupdate", () => {
     if (Date.now() - lastSave > 5000) { lastSave = Date.now(); savePlayer(); }
+    // Near the end of an episode, get the next one ready (its streams and subtitles), so it starts at once.
+    if (me.t.kind === "tv" && !me.aheadDone && v.duration > 300 && v.currentTime > v.duration * 0.75) { me.aheadDone = true; prepareNext(me); }
     footerSkip();
   });
   v.addEventListener("pause", savePlayer);
@@ -905,10 +969,38 @@ function play(url) {
   v.addEventListener("ended", () => { savePlayer(); if (me.t.kind === "tv") nextEpisode(); });
 }
 
+let ahead = null; // the next episode, made ready while this one plays
+function nextOf(me) {
+  const count = me.episodes?.length || 0;
+  return count && me.e >= count ? [me.s + 1, 1] : [me.s, me.e + 1];
+}
+function prepareNext(me) {
+  const [s, e] = nextOf(me);
+  const path = `tv/${me.t.id}/${s}/${e}`;
+  const pre = {};
+  // Ask the sources that work best first; the rest are asked when the episode opens.
+  for (const n of me.order.slice(0, 3)) pre[n] = lookup(`${HELPER}/${n.toLowerCase()}/${path}`);
+  const subs = fetch(`${HELPER}/wyzie?id=${me.t.id}&season=${s}&episode=${e}&language=en,fr,es,pt,ar`).then((r) => r.json()).then((a) => {
+    const by = {};
+    for (const o of Array.isArray(a) ? a : []) if (/^https:/.test(o.url || "")) (by[o.language] ||= []).push(o);
+    const items = [];
+    for (const [lang, l] of Object.entries(by)) {
+      l.sort((x, y) => (x.isHearingImpaired - y.isHearingImpaired) || ((y.downloadCount || 0) - (x.downloadCount || 0)));
+      l.slice(0, lang === "en" || lang === I.sub ? 5 : 1).forEach((o, i) => {
+        // The subtitle in your language is downloaded now, so it's there from the first second.
+        const it = { url: o.url, lang, label: (o.display || langName(lang)) + (i ? ` · ${i + 1}` : "") };
+        if (i === 0 && (lang === I.sub || lang === "en")) it.pre = fetch(`${HELPER}/sub?u=${encodeURIComponent(o.url)}`).then((r) => (r.ok ? r.text() : "")).catch(() => "");
+        items.push(it);
+      });
+    }
+    return items;
+  }).catch(() => []);
+  ahead = { path, pre, subs, at: Date.now() };
+}
+
 function nextEpisode() {
   if (!P) return;
-  const count = P.episodes?.length || 0;
-  const [s, e] = count && P.e >= count ? [P.s + 1, 1] : [P.s, P.e + 1];
+  const [s, e] = nextOf(P);
   location.replace(playHref(P.t, s, e));
 }
 
@@ -934,8 +1026,9 @@ function toVtt(text, offset) {
 }
 const langName = (l) => { try { return new Intl.DisplayNames(["en"], { type: "language" }).of(l); } catch { return l; } };
 
-async function loadSubtitles(partyList, extra = []) {
+async function loadSubtitles(partyList, extra = [], noWyzie = false) {
   const me = P;
+  if (!me) return;
   const kind = me.t.kind;
   const add = (items) => {
     if (me !== P) return;
@@ -945,6 +1038,8 @@ async function loadSubtitles(partyList, extra = []) {
     me.tracks.slice(0, 14).forEach(attach);
   };
   if (extra.length) add(extra);
+  if (noWyzie || me.wyzie) return partyList ? partyAlt(me, partyList, add) : undefined;
+  me.wyzie = true;
   // Wyzie: most downloaded first, plain before hearing-impaired; 5 English + 1 per other language
   fetch(`${HELPER}/wyzie?id=${me.t.id}${kind === "tv" ? `&season=${me.s}&episode=${me.e}` : ""}&language=en,fr,es,pt,ar`).then((r) => r.json()).then((a) => {
     const by = {};
@@ -956,8 +1051,11 @@ async function loadSubtitles(partyList, extra = []) {
     }
     add(items);
   }).catch(() => {});
-  // The stream service's own list ("Alt")
-  if (partyList) fetch(`${HELPER}/party/api${partyList.replace("https://vidsrc.party/api", "")}`).then((r) => r.json()).then((a) => {
+  if (partyList) partyAlt(me, partyList, add);
+}
+// The stream service's own list ("Alt")
+function partyAlt(me, partyList, add) {
+  fetch(`${HELPER}/party/api${partyList.replace("https://vidsrc.party/api", "")}`).then((r) => r.json()).then((a) => {
     const count = {};
     const items = [];
     for (const o of Array.isArray(a) ? a : []) {
@@ -973,13 +1071,14 @@ async function loadSubtitles(partyList, extra = []) {
 
 async function attach(x) {
   const me = P;
-  if (!me?.video || x.el) return;
+  if (!me || x.el) return;
   x.el = true;
-  try {
-    x.text = await fetch(`${HELPER}/sub?u=${encodeURIComponent(x.url)}`).then((r) => (r.ok ? r.text() : ""));
-  } catch { x.text = ""; }
+  // The text loads even before there's a video; it's put on whichever video is playing once it arrives.
+  if (!x.text) {
+    try { x.text = await (x.pre || fetch(`${HELPER}/sub?u=${encodeURIComponent(x.url)}`).then((r) => (r.ok ? r.text() : ""))); } catch { x.text = ""; }
+  }
   if (me !== P || !x.text) { x.el = false; return; }
-  build(x);
+  if (me.video) build(x);
 }
 
 function build(x) {
@@ -1221,6 +1320,7 @@ async function route() {
     else if (parts[0] === "title") await details(parts[1], parts[2]);
     else if (parts[0] === "person") await person(parts[1]);
     else if (parts[0] === "stats") await statsView();
+    else if (parts[0] === "platform") await platform(parts[1]);
     else if (parts[0] === "play") await player(parts[1], parts[2], parts[3] || 1, parts[4] || 1);
     else await home();
   } catch {

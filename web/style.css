@@ -409,3 +409,14 @@ body.in-setup #tabs, body.in-setup .pfp { display: none; }
 .gbar div { height: 8px; border-radius: 4px; background: rgba(255,255,255,.08); overflow: hidden; }
 .gbar i { display: block; height: 100%; background: linear-gradient(90deg, var(--violet), var(--pink)); }
 .gbar em { font-style: normal; color: var(--muted); font-size: 12px; }
+.plats { gap: 14px !important; }
+.plat { flex: none; width: 76px; display: flex; flex-direction: column; align-items: center; gap: 7px; }
+.plat img { width: 68px; height: 68px; border-radius: 18px; object-fit: cover; box-shadow: 0 6px 18px rgba(0,0,0,.35); border: 1px solid rgba(255,255,255,.08); transition: transform .15s; }
+.plat:active img { transform: scale(.94); }
+.plat span { font-size: 12px; font-weight: 700; color: var(--soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 76px; }
+.platpage .phead { display: flex; align-items: center; gap: 14px; padding: 0 16px 16px; }
+.platpage .phead img { width: 56px; height: 56px; border-radius: 15px; }
+.platpage .phead .title { padding: 0; margin: 0; }
+.platpage .phead small { color: var(--muted); font-size: 13px; font-weight: 600; }
+.more { display: flex; justify-content: center; padding: 22px 0 10px; }
+@media (min-width: 900px) { .platpage .phead { padding: 0 48px 18px; } .plat { width: 96px; } .plat img { width: 88px; height: 88px; border-radius: 22px; } .plat span { max-width: 96px; font-size: 13px; } }
