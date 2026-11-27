@@ -43,11 +43,7 @@ jobs:
           script: |
             adb install -r app/build/outputs/apk/debug/app-debug.apk
             mkdir -p shots
-            H=https://movio-helper.g41us-jarvis.workers.dev
-            CODE=$(curl -s -X POST $H/sync/new | sed 's/.*"code":"\([A-Z0-9]*\)".*/\1/')
-            NOW=$(date +%s000)
-            curl -s -X PUT $H/sync/$CODE -d "{\"list\":{\"movie:550\":{\"at\":$NOW,\"t\":{\"id\":550,\"kind\":\"movie\",\"name\":\"Fight Club\"}}},\"cont\":{},\"pos\":{},\"prof\":{\"at\":$NOW,\"name\":\"Marvelous\"}}" > /dev/null
-            echo "code $CODE"
+            sh .github/link-code.sh > /tmp/code
             adb shell am start -n com.g41us.movio/.MainActivity
             sleep 3
             adb exec-out screencap -p > shots/0_splash.png
@@ -68,7 +64,7 @@ jobs:
             adb shell input keyevent KEYCODE_DPAD_CENTER
             sleep 2
             adb exec-out screencap -p > shots/0f_link_keyboard.png
-            adb shell input text $CODE
+            adb shell input text $(cat /tmp/code)
             sleep 6
             adb exec-out screencap -p > shots/0g_welcome.png
             adb shell input keyevent KEYCODE_BACK
@@ -128,6 +124,8 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.13"
