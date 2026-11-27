@@ -1,6 +1,7 @@
 package com.g41us.movio
 
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -218,6 +219,61 @@ object Tmdb {
     }
 
     suspend fun search(q: String): List<Title> = list("search/multi", null, mapOf("query" to q, "include_adult" to "false"))
+
+    /** Search, or browse by category and year (q empty). Same categories as the web app. */
+    suspend fun find(q: String, cat: Cat?, year: String?): List<Title> = kotlinx.coroutines.coroutineScope {
+        val yr = yearRange(year)
+        fun ofYear(o: JSONObject): Boolean {
+            val y = (o.optString("release_date").ifBlank { o.optString("first_air_date") }).take(4).toIntOrNull()
+            return yr == null || (y != null && y in yr)
+        }
+        val raw: List<Pair<JSONObject, Kind?>> = if (q.length >= 2) {
+            listOf(1, 2).map { pg -> async { runCatching { get("search/multi", mapOf("query" to q, "include_adult" to "false", "page" to "$pg")) }.getOrNull() } }.awaitAll()
+                .flatMap { o -> o?.optJSONArray("results")?.let { a -> (0 until a.length()).map { a.getJSONObject(it) } } ?: emptyList() }
+                .filter { o -> val mt = o.optString("media_type"); (mt == "movie" || mt == "tv") &&
+                    (cat == null || (cat.kinds.any { it.api == mt } && cat.ok(o))) && ofYear(o) }
+                .map { it to null }
+        } else if (cat != null || yr != null) {
+            val kinds = cat?.kinds ?: listOf(Kind.MOVIE, Kind.TV)
+            kinds.flatMap { k -> listOf(1, 2).map { pg -> async {
+                val p = mutableMapOf("sort_by" to "popularity.desc", "page" to "$pg", "vote_count.gte" to if (cat?.few == true) "0" else "5")
+                cat?.q?.let { p.putAll(it) }
+                if (yr != null) {
+                    val (f, t) = if (k == Kind.MOVIE) "primary_release_date.gte" to "primary_release_date.lte" else "first_air_date.gte" to "first_air_date.lte"
+                    p[f] = "${yr.first}-01-01"; p[t] = "${yr.last}-12-31"
+                }
+                runCatching { get("discover/${k.api}", p) }.getOrNull()?.optJSONArray("results")?.let { a -> (0 until a.length()).map { a.getJSONObject(it) to k } } ?: emptyList()
+            } } }.awaitAll().flatten().sortedByDescending { it.first.optDouble("popularity") }
+        } else return@coroutineScope list("trending/all/week", null)
+        val seen = HashSet<String>()
+        raw.filter { !(kids && it.first.optBoolean("adult")) }.mapNotNull { (o, k) -> parse(o, k) }
+            .filter { it.poster != null && kidsOk(it) && seen.add(it.key) }
+    }
+
+    val GENRE_NAMES = mapOf(28 to "Action", 12 to "Adventure", 16 to "Animation", 35 to "Comedy", 80 to "Crime", 99 to "Documentary", 18 to "Drama",
+        10751 to "Family", 14 to "Fantasy", 36 to "History", 27 to "Horror", 10402 to "Music", 9648 to "Mystery", 10749 to "Romance", 878 to "Science Fiction",
+        53 to "Thriller", 10752 to "War", 37 to "Western", 10759 to "Action & Adventure", 10762 to "Kids", 10764 to "Reality", 10765 to "Sci-Fi & Fantasy", 10766 to "Soap", 10768 to "War & Politics")
+
+    class Cat(val id: String, val name: String, val kinds: List<Kind>, val q: Map<String, String>, val few: Boolean = false, val ok: (JSONObject) -> Boolean)
+    private fun lang(o: JSONObject) = o.optString("original_language")
+    val CATS = listOf(
+        Cat("hollywood", "Hollywood", listOf(Kind.MOVIE), mapOf("with_origin_country" to "US", "with_original_language" to "en")) { lang(it) == "en" },
+        Cat("nollywood", "Nollywood", listOf(Kind.MOVIE, Kind.TV), mapOf("with_origin_country" to "NG"), few = true) { o -> o.optJSONArray("origin_country")?.toString()?.contains("NG") == true },
+        Cat("kdrama", "K-drama", listOf(Kind.TV), mapOf("with_original_language" to "ko", "with_genres" to "18")) { lang(it) == "ko" },
+        Cat("anime", "Anime", listOf(Kind.TV, Kind.MOVIE), mapOf("with_original_language" to "ja", "with_genres" to "16")) { o -> lang(o) == "ja" && o.optJSONArray("genre_ids")?.toString()?.contains("16") == true },
+        Cat("chinese", "Chinese", listOf(Kind.TV, Kind.MOVIE), mapOf("with_original_language" to "zh")) { lang(it) == "zh" || lang(it) == "cn" },
+        Cat("bollywood", "Bollywood", listOf(Kind.MOVIE), mapOf("with_original_language" to "hi")) { lang(it) == "hi" },
+        Cat("korean", "Korean movies", listOf(Kind.MOVIE), mapOf("with_original_language" to "ko")) { lang(it) == "ko" },
+        Cat("turkish", "Turkish", listOf(Kind.TV), mapOf("with_original_language" to "tr")) { lang(it) == "tr" },
+        Cat("spanish", "Spanish", listOf(Kind.TV, Kind.MOVIE), mapOf("with_original_language" to "es")) { lang(it) == "es" },
+    )
+    val YEARS: List<String> get() { val y = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR); return (0 until 12).map { "${y - it}" } + listOf("2010s", "2000s", "1990s", "Older") }
+    private fun yearRange(y: String?): IntRange? = when {
+        y.isNullOrEmpty() -> null
+        y == "Older" -> 1900..1989
+        y.endsWith("s") -> y.take(4).toInt().let { it..it + 9 }
+        else -> y.toInt()..y.toInt()
+    }
 
     suspend fun details(t: Title): Details {
         val o = get("${t.kind.api}/${t.id}", mapOf("append_to_response" to "credits,similar,recommendations,images,videos", "include_image_language" to "${I18n.lang},en,null"))

@@ -386,6 +386,15 @@ class PlayerActivity : ComponentActivity() {
                         LoadingBar()
                         Spacer(Modifier.height(12.dp))
                         Text(status, color = Soft, fontSize = 13.sp, style = jakarta())
+                        // Never just spin: after 20 s, offer the source list.
+                        var slow by remember { mutableStateOf(false) }
+                        LaunchedEffect(Unit) { kotlinx.coroutines.delay(20_000); slow = true }
+                        if (slow) {
+                            Spacer(Modifier.height(22.dp))
+                            Text("This is taking longer than usual", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, style = jakarta())
+                            Spacer(Modifier.height(12.dp))
+                            PrimaryButton("Pick a source", R.drawable.ic_servers) { sourcesOpen = true }
+                        }
                     }
                 }
                 }
@@ -538,6 +547,7 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private var startedAt = 0L
+    private var counted = false
 
     // ---------- Skip intro for shows nobody has timed ----------
 
@@ -733,6 +743,11 @@ class PlayerActivity : ComponentActivity() {
         }
         phase = Phase.NATIVE
         score(sourceIndex, SystemClock.uptimeMillis() - startedAt)
+        if (!counted && offlineId == null) {
+            counted = true
+            val t = title ?: Title(id, kind, name, "", null, null, null, 0.0)
+            store.stat("play", t, t.genreIds.mapNotNull { Tmdb.GENRE_NAMES[it] })
+        }
         playerView.visibility = View.VISIBLE
         store.position(posKey())?.let { (p, dur) -> if (p > 30_000 && (dur <= 0 || p < dur - 60_000)) { exo.seekTo(p); resumedAt = p; main.postDelayed({ resumedAt = 0L }, 7000) } }
         // Subtitles in the language picked at setup (or none).

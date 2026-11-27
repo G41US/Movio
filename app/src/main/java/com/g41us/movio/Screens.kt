@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -48,6 +49,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -167,13 +169,21 @@ fun FeedScreen(kind: Kind?, store: Store, onOpen: (Title) -> Unit, onPlay: (Titl
 
 @Composable
 fun SearchScreen(onOpen: (Title) -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val store = remember { Store.get(context) }
     var query by remember { mutableStateOf("") }
     var submitted by remember { mutableStateOf("") }
+    var cat by rememberSaveable { mutableStateOf("") }
+    var year by rememberSaveable { mutableStateOf("") }
     val focus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
-    LaunchedEffect(Unit) { delay(250); focus.requestFocus() }
+    val tv = LocalTv.current
+    LaunchedEffect(Unit) { if (!tv) { delay(250); runCatching { focus.requestFocus() } } }
     LaunchedEffect(query) { delay(450); submitted = query.trim() }
-    val (state, retry) = load(submitted) { if (submitted.length < 2) emptyList() else Tmdb.search(submitted) }
+    val filtering = cat.isNotEmpty() || year.isNotEmpty()
+    val (state, retry) = load(Triple(submitted, cat, year)) {
+        if (submitted.length < 2 && !filtering) emptyList() else Tmdb.find(submitted, Tmdb.CATS.find { it.id == cat }, year.ifEmpty { null })
+    }
 
     val tv2 = rememberLazyGridState()
     val tvBar = LocalTopBar.current
@@ -198,24 +208,56 @@ fun SearchScreen(onOpen: (Title) -> Unit) {
                         textStyle = TextStyle(color = Color.White, fontSize = 16.sp, fontFamily = Jakarta),
                         cursorBrush = SolidColor(Violet),
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(onSearch = { submitted = query.trim(); keyboard?.hide() }),
+                        keyboardActions = KeyboardActions(onSearch = { submitted = query.trim(); store.rememberSearch(query); keyboard?.hide() }),
                         modifier = Modifier.fillMaxWidth().focusRequester(focus),
                     )
                 }
                 if (query.isNotEmpty()) GlassIcon(R.drawable.ic_close, size = 30.dp) { query = "" }
             }
         }
+        // Kind of film, then year.
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Column(Modifier.bleed(Gutter, GutterEnd), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                LazyRow(contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    item { Chip(t("All"), cat.isEmpty()) { cat = "" } }
+                    items(Tmdb.CATS, key = { it.id }) { c -> Chip(t(c.name), cat == c.id) { cat = c.id } }
+                }
+                LazyRow(contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    item { Chip(t("Any year"), year.isEmpty()) { year = "" } }
+                    items(Tmdb.YEARS, key = { it }) { y -> Chip(t(y), year == y) { year = y } }
+                }
+            }
+        }
+        if (query.isBlank() && store.searches.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Recent searches", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Color.White, style = jakarta(), modifier = Modifier.weight(1f))
+                    Text("Clear", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Violet, style = jakarta(),
+                        modifier = Modifier.clip(RoundedCornerShape(8.dp)).focusGlow(RoundedCornerShape(8.dp)).clickable { store.forgetSearch(null) }.padding(8.dp))
+                }
+                store.searches.toList().forEach { q ->
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).focusGlow(RoundedCornerShape(10.dp), grow = false)
+                        .clickable { query = q; submitted = q; store.rememberSearch(q) }.padding(vertical = 11.dp, horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Icon(painterResource(R.drawable.ic_clock), null, tint = Muted, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(12.dp))
+                        androidx.compose.material3.Text(q, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White, style = jakarta(), modifier = Modifier.weight(1f))
+                        if (!tv) Icon(painterResource(R.drawable.ic_close), null, tint = Muted, modifier = Modifier.size(16.dp).clickable { store.forgetSearch(q) })
+                    }
+                }
+            }
+        }
         when (val s = state) {
-            Load.Loading -> if (submitted.length >= 2) items(9) { Box(Modifier.aspectRatio(2f / 3f).shimmer()) }
+            Load.Loading -> if (submitted.length >= 2 || filtering) items(9) { Box(Modifier.aspectRatio(2f / 3f).shimmer()) }
             is Load.Failed -> item(span = { GridItemSpan(maxLineSpan) }) { Failed(retry) }
             is Load.Done -> when {
-                submitted.length < 2 -> item(span = { GridItemSpan(maxLineSpan) }) {
-                    Message("Find something to watch", "Movies, shows and people.")
+                submitted.length < 2 && !filtering -> item(span = { GridItemSpan(maxLineSpan) }) {
+                    if (store.searches.isEmpty()) Message("Find something to watch", "Movies, shows and people.")
                 }
                 s.value.isEmpty() -> item(span = { GridItemSpan(maxLineSpan) }) {
-                    Message("No results", "Try a different title.")
+                    Message("No results", if (filtering) "Try another year or category." else "Try a different title.")
                 }
-                else -> items(s.value, key = { it.key }) { t -> PosterCard(t, 108.dp) { onOpen(t) } }
+                else -> items(s.value, key = { it.key }) { t -> PosterCard(t, 108.dp) { if (submitted.length >= 2) store.rememberSearch(submitted); onOpen(t) } }
             }
         }
     }
@@ -226,6 +268,7 @@ fun SearchScreen(onOpen: (Title) -> Unit) {
 @Composable
 fun MyListScreen(store: Store, onOpen: (Title) -> Unit, onDownloads: () -> Unit) {
     val tv3 = rememberLazyGridState()
+    var likedTab by rememberSaveable { mutableStateOf(false) }
     val tvBar = LocalTopBar.current
     LazyVerticalGrid(
         GridCells.Adaptive(if (LocalWide.current) 200.dp else 108.dp), Modifier.fillMaxSize().dpadScroll(tv3), state = tv3,
@@ -234,15 +277,41 @@ fun MyListScreen(store: Store, onOpen: (Title) -> Unit, onDownloads: () -> Unit)
     ) {
         if (tvBar != null) item(span = { GridItemSpan(maxLineSpan) }) { Box(Modifier.bleed(Gutter, GutterEnd)) { tvBar() } }
         item(span = { GridItemSpan(maxLineSpan) }) {
-            Row { GhostButton("Downloads", R.drawable.ic_download, onClick = onDownloads) }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Chip("${t("Saved")} · ${store.myList.size}", !likedTab) { likedTab = false }
+                Chip("${t("Liked")} · ${store.liked.size}", likedTab) { likedTab = true }
+                Spacer(Modifier.weight(1f))
+                GhostButton("Downloads", R.drawable.ic_download, onClick = onDownloads)
+            }
         }
-        if (store.myList.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
-            Message("Your list is empty", "Add movies and shows to watch later.")
-        } else items(store.myList, key = { it.key }) { t -> PosterCard(t, 108.dp) { onOpen(t) } }
+        val shown = if (likedTab) store.liked else store.myList
+        if (shown.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
+            if (likedTab) Message("Nothing liked yet", "Tap ♥ Like on any title to keep it here.")
+            else Message("Your list is empty", "Add movies and shows to watch later.")
+        } else items(shown, key = { it.key }) { t -> PosterCard(t, 108.dp) { onOpen(t) } }
     }
 }
 
 // ---------- Details ----------
+
+@Composable
+private fun RowScope.ActionTile(icon: Int, label: String, on: Boolean, tint: Color, onClick: () -> Unit) {
+    Column(Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).clickable(onClick = onClick).padding(vertical = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally) {
+        Icon(painterResource(icon), null, tint = if (on) tint else Color.White, modifier = Modifier.size(24.dp))
+        Spacer(Modifier.height(6.dp))
+        Text(label, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if (on) Color.White else Soft, style = jakarta())
+    }
+}
+
+/** Share a link that opens the title in Movio's web app. */
+fun shareTitle(ctx: android.content.Context, t: Title) {
+    val url = "https://g41us.github.io/Movio/#/title/${t.kind.api}/${t.id}"
+    val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain")
+        .putExtra(android.content.Intent.EXTRA_SUBJECT, t.name)
+        .putExtra(android.content.Intent.EXTRA_TEXT, tf("Watch {1} on Movio", t.name) + "\n" + url)
+    ctx.startActivity(android.content.Intent.createChooser(send, t("Share")))
+}
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -296,18 +365,25 @@ fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPerson:
                             else -> "Play"
                         }
                         val saved = store.inList(t)
+                        val isLiked = store.isLiked(t)
+                        val ctx = androidx.compose.ui.platform.LocalContext.current
+                        val like = { val on = store.toggleLike(t, d.genres); android.widget.Toast.makeText(ctx, t(if (on) "Liked" else "Removed from Liked"), android.widget.Toast.LENGTH_SHORT).show() }
                         if (wide) Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             PrimaryButton(label, R.drawable.ic_play_fill, Modifier.widthIn(min = 220.dp).tvFirstFocus(t.key)) { onPlay(t, last?.season ?: 1, last?.episode ?: 1) }
                             GhostButton(if (saved) "In My List" else "My List", if (saved) R.drawable.ic_check else R.drawable.ic_plus) { store.toggle(t) }
+                            GhostButton(if (isLiked) "Liked" else "Like", if (isLiked) R.drawable.ic_heart_fill else R.drawable.ic_heart) { like() }
                             if (d.trailer != null) GhostButton("Trailer", R.drawable.ic_trailer) { onTrailer(d.trailer) }
                         } else {
                             PrimaryButton(label, R.drawable.ic_play_fill, Modifier.fillMaxWidth().tvFirstFocus(t.key)) {
                                 onPlay(t, last?.season ?: 1, last?.episode ?: 1)
                             }
-                            Spacer(Modifier.height(10.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                GhostButton(if (saved) "In My List" else "My List", if (saved) R.drawable.ic_check else R.drawable.ic_plus, Modifier.weight(1f)) { store.toggle(t) }
-                                if (d.trailer != null) GhostButton("Trailer", R.drawable.ic_trailer, Modifier.weight(1f)) { onTrailer(d.trailer) }
+                            Spacer(Modifier.height(12.dp))
+                            // Icon-over-label actions, like the iPhone app.
+                            Row(Modifier.fillMaxWidth()) {
+                                ActionTile(if (saved) R.drawable.ic_check else R.drawable.ic_plus, "My List", saved, Violet) { store.toggle(t) }
+                                ActionTile(if (isLiked) R.drawable.ic_heart_fill else R.drawable.ic_heart, if (isLiked) "Liked" else "Like", isLiked, Pink) { like() }
+                                ActionTile(R.drawable.ic_share, "Share", false, Color.White) { shareTitle(ctx, t) }
+                                if (d.trailer != null) ActionTile(R.drawable.ic_trailer, "Trailer", false, Color.White) { onTrailer(d.trailer) }
                             }
                         }
                         if (d.genres.isNotEmpty()) {

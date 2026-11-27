@@ -29,6 +29,41 @@ class Store private constructor(context: Context) {
 
     fun inList(t: Title) = myList.any { it.key == t.key }
 
+    // ---------- Likes, search history, and what people watch (counts only) ----------
+    val liked = mutableStateListOf<Title>().apply { addAll(load("liked").map { it.first }) }
+    fun isLiked(t: Title) = liked.any { it.key == t.key }
+    fun toggleLike(t: Title, genres: List<String>): Boolean {
+        val on = !isLiked(t)
+        if (on) liked.add(0, t) else liked.removeAll { it.key == t.key }
+        save("liked", liked.map { toJson(it) })
+        stat(if (on) "like" else "unlike", t, genres)
+        return on
+    }
+    fun stat(ev: String, t: Title, genres: List<String>) = Thread {
+        runCatching {
+            val c = java.net.URL("$HELPER/stat").openConnection() as java.net.HttpURLConnection
+            c.requestMethod = "POST"; c.doOutput = true; c.connectTimeout = 8_000; c.readTimeout = 8_000
+            val body = JSONObject().put("ev", ev).put("kind", t.kind.api).put("id", t.id).put("name", t.name)
+                .put("poster", t.poster ?: JSONObject.NULL).put("genres", JSONArray(genres))
+            c.outputStream.use { it.write(body.toString().toByteArray()) }
+            c.responseCode
+        }
+    }.start()
+
+    val searches = mutableStateListOf<String>().apply {
+        runCatching { JSONArray(prefs.getString("searches", "[]")).let { a -> (0 until a.length()).forEach { add(a.getString(it)) } } }
+    }
+    fun rememberSearch(q: String) {
+        val v = q.trim(); if (v.length < 2) return
+        searches.removeAll { it.equals(v, ignoreCase = true) }; searches.add(0, v)
+        while (searches.size > 12) searches.removeAt(searches.lastIndex)
+        prefs.edit().putString("searches", JSONArray(searches.toList()).toString()).apply()
+    }
+    fun forgetSearch(q: String?) {
+        if (q == null) searches.clear() else searches.remove(q)
+        prefs.edit().putString("searches", JSONArray(searches.toList()).toString()).apply()
+    }
+
     fun toggle(t: Title) {
         val had = inList(t)
         if (had) myList.removeAll { it.key == t.key } else myList.add(0, t)
