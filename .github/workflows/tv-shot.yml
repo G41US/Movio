@@ -52,10 +52,12 @@ jobs:
             adb shell am start -n com.g41us.movio/.MainActivity
             sleep 25
             adb exec-out screencap -p > shots/1_home.png
-            for i in 1 2 3; do adb shell input keyevent KEYCODE_DPAD_DOWN; sleep 2.5; adb exec-out screencap -p > shots/2_down$i.png; done
+            adb shell input keyevent KEYCODE_DPAD_DOWN
+            sleep 2.5
+            adb exec-out screencap -p > shots/2_platforms.png
             adb shell input keyevent KEYCODE_DPAD_RIGHT
             sleep 2
-            adb exec-out screencap -p > shots/3_right.png
+            adb exec-out screencap -p > shots/3_platform_right.png
             adb shell input keyevent KEYCODE_DPAD_CENTER
             sleep 6
             adb exec-out screencap -p > shots/4_open.png

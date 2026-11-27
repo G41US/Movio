@@ -54,6 +54,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
@@ -186,10 +187,11 @@ private fun PlatformRow(onPlatform: (Int) -> Unit) {
                 var focused by remember { mutableStateOf(false) }
                 Box(
                     Modifier.size(w, h).onFocusChanged { focused = it.isFocused || it.hasFocus }
-                        .shadow(if (focused) 22.dp else 14.dp, shape, ambientColor = Violet, spotColor = Violet)
+                        .graphicsLayer { val k = if (focused) 1.06f else 1f; scaleX = k; scaleY = k }
+                        .shadow(if (focused) 26.dp else 14.dp, shape, ambientColor = Violet, spotColor = Violet)
                         .tappableCard(shape) { onPlatform(p.id) }
                         .background(Brush.linearGradient(listOf(Color(0xFF1A1B25), Color(0xFF0F1017))), shape)
-                        .border(1.5.dp, Violet.copy(alpha = if (focused) .9f else .45f), shape),
+                        .border(if (focused) 2.5.dp else 1.5.dp, if (focused) Color.White else Violet.copy(alpha = .45f), shape),
                     contentAlignment = Alignment.Center,
                 ) {
                     NetImage(Tmdb.img(p.logo, "w154"), null, Modifier.size(logo).shadow(10.dp, RoundedCornerShape(12.dp)).clip(RoundedCornerShape(12.dp)), contentScale = ContentScale.Crop)

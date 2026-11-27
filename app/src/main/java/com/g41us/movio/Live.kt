@@ -148,7 +148,7 @@ fun LiveScreen() {
     val tvBar = LocalTopBar.current
     val grid = rememberLazyGridState()
     LazyVerticalGrid(
-        GridCells.Adaptive(if (wide) 200.dp else 108.dp), Modifier.fillMaxSize().dpadScroll(grid), state = grid,
+        GridCells.Adaptive(if (LocalTv.current) 150.dp else if (wide) 170.dp else 108.dp), Modifier.fillMaxSize().dpadScroll(grid), state = grid,
         contentPadding = PaddingValues(start = Gutter, end = GutterEnd, top = if (tvBar != null) 0.dp else barSpace(), bottom = dockSpace()),
         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
