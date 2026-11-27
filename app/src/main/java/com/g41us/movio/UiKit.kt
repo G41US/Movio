@@ -109,19 +109,12 @@ fun Modifier.tappableCard(shape: Shape?, onClick: () -> Unit): Modifier = compos
         .clickable(interactionSource = source, indication = null, onClick = onClick)
 }
 
-/** Premium TV focus: a smooth lift, plus a soft coloured glow when a [shape] is given. */
-fun Modifier.lift(on: Boolean, shape: Shape? = null, amount: Float = 1.07f): Modifier = composed {
+/** Premium TV focus: a smooth lift and, when a [shape] is given, a crisp white outline (no coloured shadow). */
+fun Modifier.lift(on: Boolean, shape: Shape? = null, amount: Float = 1.05f): Modifier = composed {
     val s by androidx.compose.animation.core.animateFloatAsState(if (on) amount else 1f, tween(220, easing = EnterEase), label = "lift")
-    val g by androidx.compose.animation.core.animateFloatAsState(if (on && shape != null) 1f else 0f, tween(220), label = "glow")
-    val glow = with(LocalDensity.current) { 12.dp.toPx() }
-    this.graphicsLayer {
-        scaleX = s; scaleY = s
-        if (shape != null) {
-            this.shape = shape; clip = false
-            shadowElevation = g * glow
-            ambientShadowColor = Violet; spotShadowColor = Violet.copy(alpha = .5f)
-        }
-    }
+    val g by androidx.compose.animation.core.animateFloatAsState(if (on && shape != null) 1f else 0f, tween(180), label = "ring")
+    this.graphicsLayer { scaleX = s; scaleY = s }
+        .then(if (shape != null && g > 0f) Modifier.border(2.5.dp, Color.White.copy(alpha = g), shape) else Modifier)
 }
 
 /** Card/button edge: a hairline on phones, nothing on TV. */

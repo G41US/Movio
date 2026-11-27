@@ -26,6 +26,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -148,9 +149,9 @@ fun LiveScreen() {
     val tvBar = LocalTopBar.current
     val grid = rememberLazyGridState()
     LazyVerticalGrid(
-        GridCells.Adaptive(if (LocalTv.current) 150.dp else if (wide) 170.dp else 108.dp), Modifier.fillMaxSize().dpadScroll(grid), state = grid,
+        if (LocalTv.current) GridCells.FixedSize(176.dp) else GridCells.Adaptive(if (wide) 170.dp else 108.dp), Modifier.fillMaxSize().dpadScroll(grid), state = grid,
         contentPadding = PaddingValues(start = Gutter, end = GutterEnd, top = if (tvBar != null) 0.dp else barSpace(), bottom = dockSpace()),
-        horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(18.dp),
+        horizontalArrangement = Arrangement.spacedBy(if (LocalTv.current) 16.dp else 12.dp, Alignment.Start), verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
         if (tvBar != null) item(span = { GridItemSpan(maxLineSpan) }) { Box(Modifier.bleed(Gutter, GutterEnd)) { tvBar() } }
         if (idx == null) {
@@ -198,7 +199,7 @@ fun LiveScreen() {
                     SectionTitle("Favourites")
                     Box(Modifier.bleed(Gutter, GutterEnd)) {
                         LazyRow(contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            items(favs, key = { "f" + it.id }) { ch -> Box(Modifier.width(if (wide) 200.dp else 116.dp)) { ChannelTile(ch, true, { Live.play(ctx, favs, favs.indexOf(ch)) }) { Live.toggleFav(ctx, ch); favs = Live.favs(ctx) } } }
+                            items(favs, key = { "f" + it.id }) { ch -> Box(Modifier.width(if (LocalTv.current) 176.dp else if (wide) 170.dp else 116.dp)) { ChannelTile(ch, true, { Live.play(ctx, favs, favs.indexOf(ch)) }) { Live.toggleFav(ctx, ch); favs = Live.favs(ctx) } } }
                         }
                     }
                 }
@@ -257,9 +258,10 @@ private fun rememberSaveableString(key: String, default: String): MutableState<S
 @Composable
 private fun ChannelTile(ch: Channel, fav: Boolean, onOpen: () -> Unit, onFav: () -> Unit) {
     val shape = RoundedCornerShape(12.dp)
+    var f by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Box(
-            Modifier.fillMaxWidth().aspectRatio(16f / 11f).focusGlow(shape).clip(shape)
+            Modifier.fillMaxWidth().aspectRatio(16f / 11f).onFocusChanged { f = it.hasFocus }.lift(f, shape).clip(shape)
                 .background(Brush.radialGradient(listOf(Color(0xFF2A2B3A), Color(0xFF15161F)), radius = 600f))
                 .border(1.dp, Color.White.copy(alpha = .07f), shape)
                 .combinedClickable(onLongClick = onFav, onClick = onOpen),

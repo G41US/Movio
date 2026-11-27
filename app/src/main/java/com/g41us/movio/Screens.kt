@@ -174,32 +174,47 @@ fun FeedScreen(kind: Kind?, store: Store, onOpen: (Title) -> Unit, onPlay: (Titl
 
 @Composable
 private fun PlatformRow(onPlatform: (Int) -> Unit) {
-    val wide = LocalWide.current
-    val w = if (wide) 200.dp else 150.dp
-    val h = if (wide) 112.dp else 84.dp
-    val logo = if (wide) 62.dp else 46.dp
+    val tv = LocalTv.current
     SectionTitle("Platforms")
-    // Wide dark tiles with the service's logo and one soft Sunset glow (the same for every service).
-    LazyRow(Modifier.tvEdgeFade(), contentPadding = PaddingValues(start = Gutter, end = GutterEnd, top = 6.dp, bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(if (wide) 18.dp else 12.dp)) {
-        items(Tmdb.PLATFORMS, key = { it.id }) { p ->
-            val shape = RoundedCornerShape(16.dp)
-            var focused by remember { mutableStateOf(false) }
-            // The whole tile (picture and name) is one button, so the remote's highlight lands on it.
-            Column(Modifier.width(w).onFocusChanged { focused = it.isFocused }.clickableNoRipple { onPlatform(p.id) }) {
-                Box(
-                    Modifier.size(w, h)
-                        .graphicsLayer { val k = if (focused) 1.06f else 1f; scaleX = k; scaleY = k }
-                        .shadow(if (focused) 26.dp else 14.dp, shape, ambientColor = Violet, spotColor = Violet)
-                        .background(Brush.linearGradient(listOf(Color(0xFF1A1B25), Color(0xFF0F1017))), shape)
-                        .border(if (focused) 2.5.dp else 1.5.dp, if (focused) Color.White else Violet.copy(alpha = .45f), shape),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    NetImage(Tmdb.img(p.logo, "w154"), null, Modifier.size(logo).shadow(10.dp, RoundedCornerShape(12.dp)).clip(RoundedCornerShape(12.dp)), contentScale = ContentScale.Crop)
-                }
-                Spacer(Modifier.height(8.dp))
-                androidx.compose.material3.Text(p.name, fontSize = if (wide) 14.sp else 13.sp, fontWeight = FontWeight.Bold, color = if (focused) Color.White else Soft, style = jakarta(), maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-        }
+    LazyRow(Modifier.tvEdgeFade(), contentPadding = PaddingValues(start = Gutter, end = GutterEnd, top = 4.dp, bottom = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(if (LocalWide.current) 16.dp else 12.dp)) {
+        items(Tmdb.PLATFORMS, key = { it.id }) { p -> if (tv) PlatformCard(p) { onPlatform(p.id) } else PlatformTile(p) { onPlatform(p.id) } }
+    }
+}
+
+/** TV: a slim card, logo and name inside, the same width as a poster; the highlighted one turns white. */
+@Composable
+private fun PlatformCard(p: Tmdb.Platform, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(14.dp)
+    var focused by remember { mutableStateOf(false) }
+    val k by androidx.compose.animation.core.animateFloatAsState(if (focused) 1.05f else 1f, label = "pc")
+    Row(
+        Modifier.width(176.dp).height(64.dp).graphicsLayer { scaleX = k; scaleY = k }
+            .onFocusChanged { focused = it.isFocused }.clickableNoRipple(onClick)
+            .clip(shape).background(if (focused) Color.White else Color(0xFF15161E))
+            .border(1.dp, if (focused) Color.White else Color.White.copy(alpha = .08f), shape)
+            .padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        NetImage(Tmdb.img(p.logo, "w92"), null, Modifier.size(36.dp).clip(RoundedCornerShape(9.dp)), contentScale = ContentScale.Crop)
+        Spacer(Modifier.width(12.dp))
+        androidx.compose.material3.Text(p.name, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = if (focused) Ink else Soft, style = jakarta(), maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/** Phone: a wide dark tile with the logo, name underneath. */
+@Composable
+private fun PlatformTile(p: Tmdb.Platform, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(16.dp)
+    Column(Modifier.width(150.dp).clickableNoRipple(onClick)) {
+        Box(
+            Modifier.size(150.dp, 84.dp).shadow(12.dp, shape, ambientColor = Violet, spotColor = Violet)
+                .background(Brush.linearGradient(listOf(Color(0xFF1A1B25), Color(0xFF0F1017))), shape)
+                .border(1.5.dp, Violet.copy(alpha = .45f), shape),
+            contentAlignment = Alignment.Center,
+        ) { NetImage(Tmdb.img(p.logo, "w154"), null, Modifier.size(46.dp).clip(RoundedCornerShape(12.dp)), contentScale = ContentScale.Crop) }
+        Spacer(Modifier.height(8.dp))
+        androidx.compose.material3.Text(p.name, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Soft, style = jakarta(), maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
