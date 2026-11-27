@@ -77,7 +77,12 @@ const out = (id, s) => {
   if (s.labels?.includes("Geo-blocked")) o.g = 1;
   return o;
 };
-const all = ok.map(([id, s]) => out(id, s)).sort((a, b) => a.n.localeCompare(b.n));
+const norm = (n) => n.toLowerCase().replace(/television/g, "tv").replace(/[^a-z0-9]/g, "");
+const found = ok.map(([id, s]) => out(id, s));
+// AVO TV's free Nigerian channels, played through Movio's helper (scripts/avo.json), unless the same channel already works.
+const have = new Set(found.map((x) => x.cc + norm(x.n)));
+const avo = JSON.parse(await import("node:fs/promises").then((f) => f.readFile("scripts/avo.json", "utf8")).catch(() => "[]"));
+const all = [...found, ...avo.filter((x) => !have.has(x.cc + norm(x.n)))].sort((a, b) => a.n.localeCompare(b.n));
 // A bad run (e.g. the checking machine's network was blocked) never replaces a much bigger list.
 const before = await import("node:fs/promises").then((f) => f.readFile("web/live/index.json", "utf8")).then((t) => JSON.parse(t).total).catch(() => 0);
 if (all.length < before * 0.7) { console.log(`only ${all.length} working (was ${before}): keeping the current lists`); process.exit(0); }

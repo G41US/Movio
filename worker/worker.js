@@ -121,6 +121,46 @@ function mergeState(a, b) {
   if (pr) out.prof = { at: pr.at, name: pr.name };
   return out;
 }
+// AVO TV (free Nigerian channels): signs in with Movio's AVO account and hands out a fresh stream link.
+const AVO_M = "9be57398-2860-4b42-b762-46eff7621c59" + "12.3" + "json" + "221399940658590650";
+const AVO_PF = [{ protocol: "HLS", audioFormats: ["AAC"], container: "TS", videoCodecs: ["H264"], numberOfSegmentsForLive: 3, segmentDuration: 10000, drmTypes: ["CLEAR_KEY"], subtitleFormats: ["WEBVTT"] }];
+async function avoCall(ep, body) {
+  const d = JSON.stringify({ locale: "en-GB", ...body }), a = "client/" + ep;
+  const h = [...new Uint8Array(await crypto.subtle.digest("MD5", new TextEncoder().encode(AVO_M + a + d)))].map((b) => b.toString(16).padStart(2, "0")).join("");
+  const r = await fetch(`https://player.avo.tv/Catherine/api/12.3/json/221399940658590650/${h}/${a}`, {
+    method: "POST", body: d, headers: { "Content-Type": "application/json", Origin: "https://player.avo.tv", Referer: "https://player.avo.tv/start", "User-Agent": UA },
+  });
+  return r.json();
+}
+// AVO_USER / AVO_PASS may hold several free accounts (one per line); each one streams to about two viewers at once.
+function avoAccounts(env) {
+  const u = String(env.AVO_USER || "").split(/\s*[\n,]\s*/).filter(Boolean), p = String(env.AVO_PASS || "").split(/\n/).filter(Boolean);
+  return u.map((x, i) => [x, p[i] ?? p[0]]);
+}
+async function avoSession(env, n, fresh) {
+  const [user, pass] = avoAccounts(env)[n];
+  if (!fresh) { const c = await env.MOVIO_SYNC.get("avo:s:" + user, "json"); if (c) return c; }
+  const l = await avoCall("login", { username: user, password: pass, persistent: true, deviceName: "Movio" });
+  if (!l.key) throw new Error("AVO sign-in failed");
+  const pr = await avoCall("profiles/list", { sessionId: l.key });
+  const s = { key: l.key, guid: pr.profiles?.[0]?.guid || "" };
+  await env.MOVIO_SYNC.put("avo:s:" + user, JSON.stringify(s), { expirationTtl: 86400 * 7 });
+  return s;
+}
+async function avoUrl(env, id) {
+  const n = avoAccounts(env).length, start = Math.floor(Math.random() * n);
+  for (let k = 0; k < n; k++) {
+    const a = (start + k) % n;
+    for (const fresh of [false, true]) {
+      const s = await avoSession(env, a, fresh);
+      const r = await avoCall("channels/linear/getUrl", { sessionId: s.key, profileGuid: s.guid, channelId: id, channelType: "TV", playbackType: "LIVE", delay: 0, secureHttp: true, playbackFormats: AVO_PF });
+      if (r.url) return r.url;
+      if (r.errorType === 7) break;  // this account is busy: try the next one
+      if (![26, 27, 37].includes(r.errorType)) throw new Error("AVO: " + JSON.stringify(r.errorDetails || r));
+    }
+  }
+  throw new Error("AVO: all accounts busy");
+}
 const json200 = (o) => new Response(JSON.stringify(o), { headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" } });
 
 export default {
@@ -129,6 +169,21 @@ export default {
     const url = new URL(req.url);
     const p = url.pathname;
     try {
+      // AVO TV channel: /avo/<channelId> → redirect to a fresh stream (no proxy needed, AVO allows any site).
+      if (p === "/avo/list") {
+        // What AVO offers to whoever's asking (the list can depend on the viewer's country).
+        const s = await avoSession(env, 0, false);
+        const r = await avoCall("channels/list", { sessionId: s.key, profileGuid: s.guid, type: "TV", playbackFormats: AVO_PF });
+        const where = req.cf?.country || "?";
+        return new Response(where + " · " + (r.channels || []).length + " channels\n\n" + (r.channels || []).map((c) => c.id + "  " + c.name).join("\n"), { headers: { ...CORS, "Content-Type": "text/plain; charset=utf-8" } });
+      }
+      if (p.startsWith("/avo/")) {
+        const id = Number(p.slice(5).replace(/\.m3u8$/, ""));
+        if (!id || !avoAccounts(env).length) return new Response("not found", { status: 404, headers: CORS });
+        const to = await avoUrl(env, id).catch(() => null);
+        if (!to) return new Response("busy", { status: 503, headers: CORS });
+        return new Response(null, { status: 302, headers: { ...CORS, Location: to, "Cache-Control": "no-store" } });
+      }
       // Catalogue (TMDB)
       if (p.startsWith("/tmdb/")) {
         const t = new URL("https://api.themoviedb.org/3/" + p.slice(6));
