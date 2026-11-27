@@ -20,16 +20,28 @@ enum Segments {
     static func find(_ kind: Kind, _ id: Int, _ s: Int, _ e: Int) async -> [Segment] {
         let q = kind == .tv ? "tmdb_id=\(id)&season=\(s)&episode=\(e)" : "tmdb_id=\(id)"
         var out: [Segment] = []
-        if let url = URL(string: "\(Store.helper)/intro?\(q)"),
-           let res = try? await URLSession.shared.data(from: url),
-           let o = try? JSONSerialization.jsonObject(with: res.0) as? [String: Any] {
-            for type in ["recap", "intro", "credits", "preview"] {
-                for s in (o[type] as? [[String: Any]]) ?? [] {
-                    let a = (s["start_ms"] as? Double).map { $0 / 1000 } ?? 0
-                    let b = (s["end_ms"] as? Double).map { $0 / 1000 }
-                    if b == nil || b! > a { out.append(Segment(type: type, start: a, end: b)) }
-                }
+        // Movio's helper (two databases matched) plus TheIntroDB asked directly, in case it was too busy for the helper.
+        func get(_ u: String) async -> [String: Any] {
+            guard let url = URL(string: u), let (d, _) = try? await URLSession.shared.data(from: url) else { return [:] }
+            return (try? JSONSerialization.jsonObject(with: d) as? [String: Any]) ?? [:]
+        }
+        async let wq = get("\(Store.helper)/intro?\(q)")
+        async let dq = get("https://api.theintrodb.org/v4/media?\(q)")
+        let w = await wq, d = await dq
+        func ms(_ x: [String: Any], _ k: String) -> Double? { (x[k] as? NSNumber)?.doubleValue }
+        for type in ["recap", "intro", "credits", "preview"] {
+            let a = (w[type] as? [[String: Any]])?.first, b = (d[type] as? [[String: Any]])?.first
+            var x: (Double, Double?)? = a.map { (ms($0, "start_ms") ?? 0, ms($0, "end_ms")) }
+            if let b, a == nil || (a?["src"] as? String) == "introdb" {
+                let bs = ms(b, "start_ms") ?? 0, be = ms(b, "end_ms")
+                if let a {
+                    let s0 = ms(a, "start_ms") ?? 0, e0 = ms(a, "end_ms")
+                    if abs(s0 - bs) < 4000 && abs((e0 ?? 1e12) - (be ?? 1e12)) < 4000 {
+                        x = ((s0 + bs) / 2, (e0 != nil && be != nil) ? (e0! + be!) / 2 : (e0 ?? be))
+                    } else if (ms(a, "sure") ?? 0) < 0.75 { x = (bs, be) }
+                } else { x = (bs, be) }
             }
+            if let (st, en) = x, en == nil || en! > st { out.append(Segment(type: type, start: st / 1000, end: en.map { $0 / 1000 })) }
         }
         // One skip alone isn't trusted (cold opens differ): only when two agree (start within 20 s, length within 8 s).
         if kind == .tv, !out.contains(where: { $0.type == "intro" }),

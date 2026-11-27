@@ -219,10 +219,11 @@ export default {
           const y = bk && b?.[bk] ? b[bk] : null;
           const sure = y ? (y.confidence ?? 0.5) * Math.min(1, 0.5 + 0.25 * (y.submission_count || 1)) : 0;
           const yb = y ? { start_ms: y.start_ms || 0, end_ms: y.end_ms ?? null } : null;
-          let v = xa;
-          if (yb && !xa.length) v = sure >= 0.4 ? [yb] : [];
-          else if (yb && near(xa[0], yb)) v = [{ start_ms: Math.round((xa[0].start_ms + yb.start_ms) / 2), end_ms: xa[0].end_ms == null || yb.end_ms == null ? xa[0].end_ms ?? yb.end_ms : Math.round((xa[0].end_ms + yb.end_ms) / 2) }, ...xa.slice(1)];
-          else if (yb && sure >= 0.75) v = [yb];
+          // "src" and "sure" let the apps finish the match themselves when TheIntroDB is too busy to answer the helper.
+          let v = xa.map((x) => ({ ...x, src: "tidb" }));
+          if (yb && !xa.length) v = sure >= 0.4 ? [{ ...yb, src: "introdb", sure }] : [];
+          else if (yb && near(xa[0], yb)) v = [{ start_ms: Math.round((xa[0].start_ms + yb.start_ms) / 2), end_ms: xa[0].end_ms == null || yb.end_ms == null ? xa[0].end_ms ?? yb.end_ms : Math.round((xa[0].end_ms + yb.end_ms) / 2), src: "both" }, ...xa.slice(1)];
+          else if (yb && sure >= 0.75) v = [{ ...yb, src: "introdb", sure }];
           if (v.length) out[type] = v;
         }
         const res = new Response(JSON.stringify(out), { headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=86400" } });

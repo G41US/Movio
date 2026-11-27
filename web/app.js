@@ -1059,10 +1059,24 @@ async function player(kind, id, s, e) {
   }
   tmdb(`${kind}/${id}`).then((o) => { me.genres = (o.genres || []).map((g) => g.name); me.seasons = o.number_of_seasons || 0; }).catch(() => {});
   if (kind === "tv") tmdb(`tv/${id}/season/${s}`).then((o) => { if (me === P) { me.episodes = o.episodes || []; footer(); } }).catch(() => {});
-  fetch(`${HELPER}/intro?${kind === "tv" ? `tmdb_id=${id}&season=${s}&episode=${e}` : `tmdb_id=${id}`}`).then((r) => r.json()).then((o) => {
+  // Intro times: Movio's helper (two databases matched) plus TheIntroDB asked directly, in case it was too busy for the helper.
+  const iq = kind === "tv" ? `tmdb_id=${id}&season=${s}&episode=${e}` : `tmdb_id=${id}`;
+  const j = (u) => fetch(u).then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
+  Promise.all([j(`${HELPER}/intro?${iq}`), j(`https://api.theintrodb.org/v4/media?${iq}`)]).then(([w, d]) => {
     if (me !== P) return;
-    for (const type of ["recap", "intro", "credits"]) for (const x of o[type] || []) me.segments.push({ type, a: (x.start_ms || 0) / 1000, b: x.end_ms == null ? null : x.end_ms / 1000 });
-  }).catch(() => {});
+    const near = (x, y) => Math.abs(x.start_ms - y.start_ms) < 4000 && Math.abs((x.end_ms ?? 1e12) - (y.end_ms ?? 1e12)) < 4000;
+    for (const type of ["recap", "intro", "credits"]) {
+      const a = (w[type] || [])[0], b = (d[type] || [])[0];
+      let x = a;
+      if (b && (!a || a.src === "introdb")) {
+        b.start_ms ||= 0;
+        if (!a) x = b;
+        else if (near(a, b)) x = { start_ms: (a.start_ms + b.start_ms) / 2, end_ms: a.end_ms == null || b.end_ms == null ? a.end_ms ?? b.end_ms : (a.end_ms + b.end_ms) / 2 };
+        else if (!(a.sure >= 0.75)) x = b;
+      }
+      if (x) me.segments.push({ type, a: (x.start_ms || 0) / 1000, b: x.end_ms == null ? null : x.end_ms / 1000 });
+    }
+  });
   // Ask every source at the same time (each gets 12 s), so a slow or dead one never makes you wait.
   // If this is the episode we got ready while the last one was playing, its answers are already here.
   const path = kind === "tv" ? `tv/${id}/${s}/${e}` : `movie/${id}`;
