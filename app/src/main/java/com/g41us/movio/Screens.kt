@@ -177,7 +177,7 @@ private fun PlatformRow(onPlatform: (Int) -> Unit) {
     SectionTitle("Platforms")
     LazyRow(Modifier.tvEdgeFade(), contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(if (tv) 18.dp else 14.dp)) {
         items(Tmdb.PLATFORMS, key = { it.id }) { p ->
-            Column(Modifier.width(size + 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(Modifier.width(size + 8.dp).clickableNoRipple { onPlatform(p.id) }, horizontalAlignment = Alignment.CenterHorizontally) {
                 val shape = RoundedCornerShape(size * .26f)
                 Box(Modifier.size(size).tappableCard(shape) { onPlatform(p.id) }) {
                     NetImage(Tmdb.img(p.logo, "w154"), null, Modifier.fillMaxSize().clip(shape).border(1.dp, Color.White.copy(alpha = .08f), shape), contentScale = ContentScale.Crop)
