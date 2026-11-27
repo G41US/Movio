@@ -312,11 +312,11 @@ class PlayerActivity : ComponentActivity() {
         val off = offlineId
         if (off != null) playOffline(off) else {
             val t = title
-            val perTitle = t?.let { store.sourceFor(it) }
-            // Per-title pick, then the one you chose, then whichever source has been fastest lately.
-            // Shows: your pick for this show, else Club first. Films: your pick, your default, else the fastest.
-            val default = if (kind == Kind.TV) null else prefs.getString("source2", null)
-            start(Sources.index(perTitle ?: default ?: order().firstOrNull()?.let { Sources.all[it].name }), automatic = true)
+            // Shows always start on Club (its subtitles line up best), then Azute, Nero, Flixify — even if another
+            // source was used last time. Films: your pick for the title, your default, else the fastest.
+            val first = if (kind == Kind.TV) "Club"
+                else t?.let { store.sourceFor(it) } ?: prefs.getString("source2", null) ?: order().firstOrNull()?.let { Sources.all[it].name }
+            start(Sources.index(first), automatic = true)
         }
         lifecycleScope.launch { while (true) { refreshDownloadLabel(); prepareNext(); kotlinx.coroutines.delay(2000) } }
 
@@ -660,10 +660,10 @@ class PlayerActivity : ComponentActivity() {
 
     private fun fastest(): List<Int> = Sources.fallbackOrder.sortedBy { prefs.getLong("speed:${Sources.all[it].name}", 12_000L) }
 
-    /** Shows go Club → Nero → Peach → Flixify, then the rest by speed. Films go fastest first. */
+    /** Shows go Club → Azute → Nero → Flixify, then the rest by speed. Films go fastest first. */
     private fun order(): List<Int> {
         if (kind != Kind.TV) return fastest()
-        val fixed = listOf("Club", "Nero", "Peach", "Flixify").map { Sources.index(it) }.distinct()
+        val fixed = listOf("Club", "Azute", "Nero", "Flixify").map { Sources.index(it) }.distinct()
         return fixed + fastest().filter { it !in fixed }
     }
 
@@ -840,7 +840,7 @@ class PlayerActivity : ComponentActivity() {
         title?.let { store.watched(it, season, episode) }
         failedSources.clear()
         autoTried = 0
-        start(sourceIndex, automatic = true, save = false)
+        start(Sources.index("Club"), automatic = true, save = false)  // every episode starts on Club
     }
 
     private fun savePosition() {
@@ -867,7 +867,7 @@ class PlayerActivity : ComponentActivity() {
         updateLabel()
         title?.let { store.watched(it, season, episode) }
         failedSources.clear(); autoTried = 0
-        start(sourceIndex, automatic = true, save = false)
+        start(Sources.index("Club"), automatic = true, save = false)
     }
 
     /** Plays a finished download straight from the phone. */
