@@ -310,6 +310,7 @@ class PlayerActivity : ComponentActivity() {
 
         setupWebView()
         val off = offlineId
+        if (intent.getBooleanExtra("demo", false)) { demo = true; phase = Phase.NATIVE; playerView.visibility = View.VISIBLE } else
         if (off != null) playOffline(off) else {
             val t = title
             // Shows always start on Club (its subtitles line up best), then Azute, Nero, Flixify — even if another
@@ -474,7 +475,7 @@ class PlayerActivity : ComponentActivity() {
         attempt++
         val segKey = "$season:$episode"
         if (segKey != segmentsFor) {
-            segmentsFor = segKey; segments = emptyList()
+            segmentsFor = segKey; segments = emptyList(); segShift = 0L
             lifecycleScope.launch { val found = Segments.find(kind, id, season, episode); if (segmentsFor == segKey) segments = withLearned(found) }
         }
         val token = attempt
@@ -511,6 +512,14 @@ class PlayerActivity : ComponentActivity() {
         if (source.name in Source.HELPED) {
             pageHost = ""
             webView.loadUrl("about:blank")
+            preloaded?.takeIf { it.first == "${source.name}:$season:$episode" && SystemClock.uptimeMillis() - it.third < 30 * 60_000 }?.let { (_, p, _) ->
+                preloaded = null
+                subtitleTracks = (p.subtitles + subtitleTracks).distinctBy { it.url }
+                trying = Stream(p.url, p.headers, hls = true)
+                status = "Next episode"
+                play(trying!!)
+                return
+            }
             resolveJob = lifecycleScope.launch {
                 val p = Source.viaHelper(source.name, kind, id, season, episode)
                 if (token != attempt) return@launch
@@ -579,12 +588,34 @@ class PlayerActivity : ComponentActivity() {
         if (segments.any { it.type == "intro" }) return
         val jump = to - from
         if (from > 6 * 60_000 || jump !in 20_000..150_000) return
-        prefs.edit().putString("intro:$id", "${(from - 3_000).coerceAtLeast(0)},$to").apply()
+        // Keep the last three skips; one alone isn't trusted (cold opens differ from episode to episode).
+        val seen = prefs.getString("intro2:$id", "").orEmpty().split("|").filter { it.isNotBlank() }
+        prefs.edit().putString("intro2:$id", (seen + "${(from - 3_000).coerceAtLeast(0)},$to").takeLast(3).joinToString("|")).apply()
+    }
+
+    /**
+     * Intro times are measured on the common web release, like subtitle files. When this stream turned out to
+     * run ahead or behind that release (found by matching the subtitles to what's said), move the times the same way.
+     */
+    private var segShift = 0L
+    private fun alignSegments(fit: SubAligner.Fit) {
+        if (kotlin.math.abs(fit.scale - 1.0) > .002) return
+        val shift = fit.offset.takeIf { kotlin.math.abs(it) in 1_500..90_000 } ?: 0L
+        if (shift == segShift) return
+        val d = shift - segShift; segShift = shift
+        segments = segments.map { if (it.type == "learned") it else Segment(it.type, (it.startMs + d).coerceAtLeast(0), it.endMs?.plus(d)) }
     }
 
     private fun withLearned(found: List<Segment>): List<Segment> {
         if (kind != Kind.TV || found.any { it.type == "intro" }) return found
-        val (a, b) = prefs.getString("intro:$id", null)?.split(",")?.mapNotNull { it.toLongOrNull() }?.takeIf { it.size == 2 } ?: return found
+        // Only when you skipped at about the same place at least twice (start within 20 s, same length within 8 s).
+        val seen = prefs.getString("intro2:$id", "").orEmpty().split("|").mapNotNull { e ->
+            e.split(",").mapNotNull { it.toLongOrNull() }.takeIf { it.size == 2 }?.let { it[0] to it[1] }
+        }
+        val last = seen.lastOrNull() ?: return found
+        val agree = seen.filter { kotlin.math.abs(it.first - last.first) < 20_000 && kotlin.math.abs((it.second - it.first) - (last.second - last.first)) < 8_000 }
+        if (agree.size < 2) return found
+        val a = agree.map { it.first }.sorted()[agree.size / 2]; val b = agree.map { it.second }.sorted()[agree.size / 2]
         return (found + Segment("learned", a, b)).sortedBy { it.startMs }
     }
 
@@ -830,19 +861,30 @@ class PlayerActivity : ComponentActivity() {
         if (preparedNext == "$s:$e") return
         preparedNext = "$s:$e"
         Prefetch.title(t, s, e)
+        // Like Netflix: the next episode's stream is found now, so it starts the moment this one ends.
+        lifecycleScope.launch {
+            val p = Source.viaHelper("Club", kind, id, s, e) ?: return@launch
+            preloaded = Triple("Club:$s:$e", p, SystemClock.uptimeMillis())
+        }
     }
+    /** The next episode's stream, found ahead of time: "source:season:episode", the stream, when it was found. */
+    private var preloaded: Triple<String, Playable, Long>? = null
 
     private fun nextEpisode() {
+        shrinkVideo(false)
         savePosition()
         if (episodeCount in 1..episode && season < seasonCount) { season += 1; episode = 1; lifecycleScope.launch { loadEpisodeInfo() } }
         else episode += 1
         updateLabel()
         title?.let { store.watched(it, season, episode) }
+        runSmart()
         failedSources.clear()
         autoTried = 0
         start(Sources.index("Club"), automatic = true, save = false)  // every episode starts on Club
     }
 
+    private var smartPending: (() -> Unit)? = null
+    private fun runSmart() { smartPending?.let { smartPending = null; it() } }
     private fun savePosition() {
         if (phase != Phase.NATIVE) return
         val dur = exo.duration.takeIf { it != C.TIME_UNSET } ?: 0
@@ -851,6 +893,13 @@ class PlayerActivity : ComponentActivity() {
         val pos = if (credits != null && exo.currentPosition >= credits) dur else exo.currentPosition
         store.savePosition(posKey(), pos, dur)
         if (dur > 0 && pos > dur - 90_000 && title?.kind == Kind.MOVIE) title?.let { store.finished(it) }
+        // Smart downloads: finished a downloaded episode → remove it and download the next one.
+        // (Done once you've moved on, never while it's still playing.)
+        if (dur > 0 && pos >= dur - 60_000 && kind == Kind.TV) title?.let { t ->
+            val nxt = if (episodeCount in 1..episode && season < seasonCount) season + 1 to 1 else if (episodeCount == 0 || episode < episodeCount) season to episode + 1 else null
+            val s0 = season; val e0 = episode
+            smartPending = { Downloads.finished(this, t, s0, e0, nxt) }
+        }
     }
 
     private suspend fun loadEpisodeInfo() {
@@ -866,6 +915,7 @@ class PlayerActivity : ComponentActivity() {
         episode = e
         updateLabel()
         title?.let { store.watched(it, season, episode) }
+        runSmart()
         failedSources.clear(); autoTried = 0
         start(Sources.index("Club"), automatic = true, save = false)
     }
@@ -978,7 +1028,7 @@ class PlayerActivity : ComponentActivity() {
         val c = current ?: run { syncStatus = "Checking… (needs a few minutes of talking)"; return }
         if (!c.sure) { syncStatus = if (ownFit == SubAligner.Fit(1.0, 0)) "Checking… (needs a few minutes of talking)" else describe(ownFit); return }
         val changed = c.fit.scale != ownFit.scale || kotlin.math.abs(c.fit.offset - ownFit.offset) >= 300
-        if (changed) { ownFit = c.fit; fitFor[key] = c.fit; shownCues = null }
+        if (changed) { ownFit = c.fit; fitFor[key] = c.fit; shownCues = null; alignSegments(c.fit) }
         syncStatus = describe(c.fit)
     }
 
@@ -1071,6 +1121,20 @@ class PlayerActivity : ComponentActivity() {
 
     private val audio by lazy { getSystemService(AUDIO_SERVICE) as AudioManager }
 
+    /** Credits: the video slides into the top-left corner (Netflix style) while Up next fills the screen. */
+    private var demo = false
+    private var shrunk = false
+    private fun shrinkVideo(on: Boolean) {
+        if (on == shrunk) return
+        shrunk = on
+        val d = resources.displayMetrics.density
+        playerView.pivotX = 0f; playerView.pivotY = 0f
+        playerView.animate().scaleX(if (on) .44f else 1f).scaleY(if (on) .44f else 1f)
+            .translationX(if (on) 40 * d else 0f).translationY(if (on) 40 * d else 0f)
+            .setDuration(420).setInterpolator(android.view.animation.DecelerateInterpolator(2f)).start()
+        playerView.subtitleView?.visibility = if (on) View.INVISIBLE else View.VISIBLE
+    }
+
     private val host = object : PlayerHost {
         override val label get() = this@PlayerActivity.label
         override val source get() = if (offlineId != null) "Downloaded" else this@PlayerActivity.source.name
@@ -1095,6 +1159,8 @@ class PlayerActivity : ComponentActivity() {
         override fun preview(posMs: Long?) = this@PlayerActivity.preview(posMs)
         override fun back() = finish()
         override fun next() = nextEpisode()
+        override fun shrink(on: Boolean) = shrinkVideo(on)
+        override val demo get() = this@PlayerActivity.demo
         override fun web() = showWeb(reload = true)
         override fun sources() { sourcesOpen = true }
         override fun download() = startDownload()
@@ -1303,6 +1369,7 @@ class PlayerActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        if (isFinishing) { savePosition(); runSmart() }
         try { night?.release() } catch (_: Exception) {}
         savePosition()
         main.removeCallbacksAndMessages(null)

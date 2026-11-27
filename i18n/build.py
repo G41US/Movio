@@ -448,6 +448,19 @@ W = [
 ("Downloading… {1}%", "Téléchargement… {1} %", "Descargando… {1} %", "Baixando… {1}%", "جارٍ التنزيل… {1}%"),
 ("Downloading…", "Téléchargement…", "Descargando…", "Baixando…", "جارٍ التنزيل…"),
 ("Get the update", "Obtenir la mise à jour", "Obtener la actualización", "Obter a atualização", "احصل على التحديث"),
+("Credits", "Générique", "Créditos", "Créditos", "شارة النهاية"),
+("Watch credits", "Voir le générique", "Ver créditos", "Ver créditos", "مشاهدة الشارة"),
+("Download season {1}", "Télécharger la saison {1}", "Descargar temporada {1}", "Baixar temporada {1}", "تنزيل الموسم {1}"),
+("Downloading season {1} — see Downloads", "Téléchargement de la saison {1} — voir Téléchargements", "Descargando la temporada {1}: mira Descargas", "Baixando a temporada {1} — veja Downloads", "جارٍ تنزيل الموسم {1} — راجع التنزيلات"),
+("Downloaded", "Téléchargé", "Descargado", "Baixado", "تم التنزيل"),
+("Downloading", "Téléchargement", "Descargando", "Baixando", "جارٍ التنزيل"),
+("Couldn't find this one to download. Try again later.", "Impossible de télécharger ce titre pour l'instant. Réessayez plus tard.", "No se encontró para descargar. Inténtalo más tarde.", "Não foi possível baixar este título. Tente mais tarde.", "تعذّر العثور عليه للتنزيل. حاول لاحقًا."),
+("Smart downloads", "Téléchargements intelligents", "Descargas inteligentes", "Downloads inteligentes", "التنزيلات الذكية"),
+("When you finish a downloaded episode, it's deleted and the next one downloads.", "Quand vous finissez un épisode téléchargé, il est supprimé et le suivant se télécharge.", "Al terminar un episodio descargado, se borra y se descarga el siguiente.", "Ao terminar um episódio baixado, ele é apagado e o próximo é baixado.", "عند إنهاء حلقة منزّلة، تُحذف وتُنزَّل الحلقة التالية."),
+("Download season", "Télécharger la saison", "Descargar temporada", "Baixar temporada", "تنزيل الموسم"),
+("Download failed. Tap to try again.", "Échec du téléchargement. Touchez pour réessayer.", "La descarga falló. Toca para reintentar.", "O download falhou. Toque para tentar de novo.", "فشل التنزيل. اضغط للمحاولة مجددًا."),
+("Delete", "Supprimer", "Eliminar", "Excluir", "حذف"),
+("Tap Download on a film or episode to watch it without internet.", "Touchez Télécharger sur un film ou un épisode pour le regarder sans internet.", "Toca Descargar en una película o episodio para verlo sin internet.", "Toque em Baixar num filme ou episódio para assistir sem internet.", "اضغط تنزيل على فيلم أو حلقة لمشاهدته دون إنترنت."),
 ]
 LANGS = ["fr", "es", "pt", "ar"]
 seen = {}

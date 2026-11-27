@@ -60,6 +60,124 @@ async function shareTitle(t) {
   } catch (e) { if (e?.name === "AbortError") return; }
   try { await navigator.clipboard.writeText(url); toast(I.t("Link copied")); } catch { prompt(I.t("Copy this link"), url); }
 }
+
+// ---------- Downloads in the browser: the stream's pieces are kept on this device (Cache Storage), served by sw.js ----------
+const DLC = "movio-dl";
+const dls = JSON.parse(localStorage.getItem("dls") || "{}");
+const dlSave = () => { try { localStorage.setItem("dls", JSON.stringify(dls)); } catch {} };
+const dlId = (t, s, e) => (t.kind === "tv" ? `tv-${t.id}-${s}-${e}` : `movie-${t.id}`);
+const dlBase = (id) => new URL(`dl/${id}/`, location.href.split("#")[0].replace(/[^/]*$/, "")).href;
+const dlOk = () => "caches" in window && "serviceWorker" in navigator && !!window.MediaSource;
+// A download that was running when the page closed starts again where it was.
+for (const [id, d] of Object.entries(dls)) if (d.state === "run") d.state = "wait";
+function dlTell() { dlSave(); document.dispatchEvent(new CustomEvent("dls")); }
+
+async function dlStart(t, s = 1, e = 1) {
+  if (!dlOk()) return downloadNote();
+  const id = dlId(t, s, e);
+  if (dls[id]?.state === "done" || dls[id]?.state === "run") return toast(I.t(dls[id].state === "done" ? "Already downloaded" : "Already downloading"));
+  try { await navigator.storage?.persist?.(); } catch {}
+  dls[id] = { t: { id: t.id, kind: t.kind, name: t.name, poster: t.poster, backdrop: t.backdrop, year: t.year }, s, e, state: "run", pct: 0, at: Date.now() };
+  dlTell();
+  toast(I.t("Downloading — see Downloads"));
+  dlRun(id).catch((x) => { dls[id].state = "err"; dls[id].why = String(x); dlTell(); });
+}
+
+async function dlRun(id) {
+  const d = dls[id], t = d.t, path = t.kind === "tv" ? `tv/${t.id}/${d.s}/${d.e}` : `movie/${t.id}`;
+  d.state = "run"; dlTell();
+  const text = (u) => fetch(u).then((r) => { if (!r.ok) throw new Error(r.status); return r.text(); });
+  // The first source whose stream actually opens (some answer but then refuse the stream itself).
+  let o = null, mediaUrl, m;
+  for (const name of ["Club", "Peach", "Mist", "Main"]) {
+    const x = await lookup(`${HELPER}/${name.toLowerCase()}/${path}`);
+    if (!x?.ok || !x.url) continue;
+    try {
+      mediaUrl = x.url; m = await text(x.url);
+      // Pick the 720p (or nearest below) picture from the stream's list.
+      if (m.includes("#EXT-X-STREAM-INF")) {
+        const L = m.split("\n"), v = [];
+        for (let i = 0; i < L.length; i++) if (L[i].startsWith("#EXT-X-STREAM-INF")) {
+          const h = +(/RESOLUTION=\d+x(\d+)/.exec(L[i])?.[1] || 0), bw = +(/BANDWIDTH=(\d+)/.exec(L[i])?.[1] || 0);
+          const u = L.slice(i + 1).find((y) => y.trim() && !y.startsWith("#"));
+          if (u) v.push({ h, bw, u: new URL(u.trim(), x.url).href });
+        }
+        const fit = v.filter((y) => !y.h || y.h <= 720).sort((a, b) => b.bw - a.bw)[0] || v.sort((a, b) => a.bw - b.bw)[0];
+        mediaUrl = fit.u; m = await text(mediaUrl);
+      }
+      // …and whose first piece really downloads.
+      const first = m.split("\n").find((y) => y.trim() && !y.startsWith("#"));
+      if (!first || !(await fetch(new URL(first.trim(), mediaUrl).href).then((r) => r.ok).catch(() => false))) continue;
+      o = x; break;
+    } catch {}
+  }
+  if (!o) throw new Error("none");
+  const cache = await caches.open(DLC), base = dlBase(id);
+  // Every piece (and its key / header, if any) is saved, and the list is rewritten to point at the saved copies.
+  const lines = m.replace(/\r/g, "").split("\n"), jobs = [];
+  let n = 0;
+  const local = (u) => { const name = `${n++}`; jobs.push([new URL(u, mediaUrl).href, base + name]); return base + name; };
+  const out = lines.map((l) => {
+    if (/^#EXT-X-(KEY|MAP)/.test(l)) return l.replace(/URI="([^"]+)"/, (_, u) => `URI="${local(u)}"`);
+    if (l.trim() && !l.startsWith("#")) return local(l.trim());
+    return l;
+  });
+  let done = 0;
+  const work = async () => {
+    while (jobs.length) {
+      const [from, to] = jobs.shift();
+      if (!(await cache.match(to))) {
+        let r;
+        for (let k = 0; k < 3; k++) { r = await fetch(from).catch(() => null); if (r?.ok) break; await sleep(1500); }
+        if (!r?.ok) throw new Error("piece");
+        await cache.put(to, new Response(await r.blob(), { headers: { "Content-Type": "video/mp2t" } }));
+      }
+      d.pct = Math.round((++done / n) * 100);
+      if (done % 5 === 0 || done === n) dlTell();
+      if (!dls[id]) throw new Error("removed");
+    }
+  };
+  await Promise.all([work(), work(), work(), work()]);
+  await cache.put(base + "index.m3u8", new Response(out.join("\n"), { headers: { "Content-Type": "application/vnd.apple.mpegurl" } }));
+  // A subtitle in your language (or English) comes too.
+  const tr = (o.tracks || []).find((x) => /eng|english/i.test(x.label || ""));
+  let sub = tr?.file;
+  if (!sub) {
+    const w = await fetch(`${HELPER}/wyzie?id=${t.id}${t.kind === "tv" ? `&season=${d.s}&episode=${d.e}` : ""}&language=${I.sub || "en"},en`).then((r) => r.json()).catch(() => []);
+    sub = (Array.isArray(w) ? w : []).find((x) => /^https:/.test(x.url || ""))?.url;
+  }
+  if (sub) { const st = await fetch(`${HELPER}/sub?u=${encodeURIComponent(sub)}`).then((r) => (r.ok ? r.text() : "")).catch(() => ""); if (st) { await cache.put(base + "sub.vtt", new Response(st)); d.sub = 1; } }
+  d.state = "done"; d.pct = 100; dlTell();
+}
+
+async function dlRemove(id) {
+  delete dls[id]; dlTell();
+  const c = await caches.open(DLC);
+  for (const k of await c.keys()) if (k.url.startsWith(dlBase(id))) await c.delete(k);
+}
+// Unfinished ones carry on (one at a time) after the page opens again.
+setTimeout(async () => { for (const [id, d] of Object.entries(dls)) if (d.state === "wait") await dlRun(id).catch(() => { d.state = "err"; dlTell(); }); }, 4000);
+
+function downloadsView() {
+  const list = Object.entries(dls).sort((a, b) => b[1].at - a[1].at);
+  const label = (d) => (d.t.kind === "tv" ? `${d.t.name} · S${d.s} E${d.e}` : d.t.name);
+  const st = (d) => d.state === "done" ? I.t("Ready to watch offline") : d.state === "err" ? I.t("Download failed. Tap to try again.") : I.f("Downloading… {1}%", d.pct || 0);
+  view.innerHTML = `<div class="pad-top"><h1 class="title">${I.t("Downloads")}</h1>
+    ${list.length ? `<div class="dlist">${list.map(([id, d]) => `<div class="dl" data-id="${id}"><img src="${img(d.t.backdrop || d.t.poster, "w300")}" alt="">
+      <div><b>${esc(label(d))}</b><small class="${d.state === "err" ? "bad" : ""}">${st(d)}</small>${d.state !== "done" && d.state !== "err" ? `<div class="bar"><i style="width:${d.pct || 0}%"></i></div>` : ""}</div>
+      <button class="icon dx" aria-label="${I.t("Delete")}">✕</button></div>`).join("")}</div>`
+    : `<div class="empty"><b>${I.t("No downloads yet")}</b><span class="muted">${I.t("Tap Download on a film or episode to watch it without internet.")}</span></div>`}</div>`;
+  view.querySelectorAll(".dl").forEach((el) => {
+    const id = el.dataset.id, d = dls[id];
+    el.onclick = (ev) => {
+      if (ev.target.closest(".dx")) { dlRemove(id).then(downloadsView); return; }
+      if (d.state === "done") location.hash = playHref(d.t, d.s, d.e).replace(/^#/, "");
+      else if (d.state === "err") { dlRun(id).catch(() => { d.state = "err"; dlTell(); }); }
+    };
+  });
+}
+document.addEventListener("dls", () => { if (location.hash.startsWith("#/downloads")) downloadsView(); });
+
 const APK = "https://github.com/G41US/Movio/releases/latest";
 function downloadNote() {
   const iphone = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
@@ -725,11 +843,11 @@ function myListView() {
   const lk = Object.values(likes).filter((x) => x?.t).sort((a, b) => b.at - a.at).map((x) => remember(x.t));
   const items = tab === "liked" ? lk : myList;
   view.innerHTML = `<div class="pad-top"><h1 class="title">My List</h1>
-    <div class="chips seg"><button class="chip ${tab === "list" ? "on" : ""}" data-tab="list">${I.t("Saved")} · ${myList.length}</button><button class="chip ${tab === "liked" ? "on" : ""}" data-tab="liked">${I.t("Liked")} · ${lk.length}</button></div>
+    <div class="chips seg"><button class="chip ${tab === "list" ? "on" : ""}" data-tab="list">${I.t("Saved")} · ${myList.length}</button><button class="chip ${tab === "liked" ? "on" : ""}" data-tab="liked">${I.t("Liked")} · ${lk.length}</button><a class="chip" href="#/downloads">${I.t("Downloads")} · ${Object.keys(dls).length}</a></div>
     ${items.length ? `<div class="grid">${items.map(poster).join("")}</div>`
     : tab === "liked" ? `<div class="empty"><b>${I.t("Nothing liked yet")}</b><span class="muted">${I.t("Tap ♥ Like on any title to keep it here.")}</span></div>`
     : `<div class="empty"><b>Nothing saved yet</b><span class="muted">Tap My List on any title to keep it here.</span></div>`}</div>`;
-  view.querySelectorAll(".seg .chip").forEach((b) => (b.onclick = () => { sessionStorage.setItem("listTab", b.dataset.tab); myListView(); }));
+  view.querySelectorAll(".seg button.chip").forEach((b) => (b.onclick = () => { sessionStorage.setItem("listTab", b.dataset.tab); myListView(); }));
 }
 
 async function details(kind, id) {
@@ -777,7 +895,10 @@ async function details(kind, id) {
   const lb = document.getElementById("alike");
   lb.onclick = () => { const on = toggleLike(t, genres); lb.classList.toggle("on", on); lb.querySelector("span").textContent = I.t(on ? "Liked" : "Like"); };
   document.getElementById("ashare").onclick = () => shareTitle(t);
-  document.getElementById("adown").onclick = downloadNote;
+  const adown = document.getElementById("adown");
+  if (kind === "movie") adown.onclick = () => dlStart(t);
+  else adown.onclick = () => { const n = +document.getElementById("season")?.dataset.n || season; tmdb(`tv/${id}/season/${n}`).then((so) => { (so.episodes || []).forEach((e) => dlStart(t, n, e.episode_number)); }); };
+  if (kind === "tv") adown.querySelector("span").textContent = I.t("Download season");
   if (kind === "tv" && seasons.length) {
     const sel = document.getElementById("season");
     const menu = document.getElementById("smenu");
@@ -809,8 +930,10 @@ async function details(kind, id) {
         const p = positions[posKey(t, n, e.episode_number)];
         return `<a class="ep" href="${playHref(t, n, e.episode_number)}"><div class="th"><img loading="lazy" src="${img(e.still_path, "w300")}" alt="">
           ${p ? `<div class="bar"><i style="width:${Math.min(100, (p[0] / p[1]) * 100)}%"></i></div>` : ""}</div>
-          <div><b>${e.episode_number}. ${esc(e.name)}</b>${e.runtime ? `<small style="-webkit-line-clamp:1">${e.runtime}m</small>` : ""}<small>${esc(e.overview || "")}</small></div></a>`;
+          <div><b>${e.episode_number}. ${esc(e.name)}</b>${e.runtime ? `<small style="-webkit-line-clamp:1">${e.runtime}m</small>` : ""}<small>${esc(e.overview || "")}</small></div>
+          <button class="epdl ${dls[dlId(t, n, e.episode_number)]?.state === "done" ? "on" : ""}" data-e="${e.episode_number}" aria-label="${I.t("Download")}">${dls[dlId(t, n, e.episode_number)]?.state === "done" ? "✓" : ICON.down}</button></a>`;
       }).join("");
+      eps.querySelectorAll(".epdl").forEach((b) => (b.onclick = (ev) => { ev.preventDefault(); ev.stopPropagation(); dlStart(t, n, +b.dataset.e); b.classList.add("run"); }));
     };
     load();
   }
@@ -934,7 +1057,7 @@ async function player(kind, id, s, e) {
     navigator.mediaSession.metadata = new MediaMetadata({ title: kind === "tv" ? `${t.name} · S${s} E${e}` : t.name, artist: "Movio",
       artwork: t.poster ? [{ src: img(t.poster, "w342"), sizes: "342x513", type: "image/jpeg" }] : [] });
   }
-  tmdb(`${kind}/${id}`).then((o) => { me.genres = (o.genres || []).map((g) => g.name); }).catch(() => {});
+  tmdb(`${kind}/${id}`).then((o) => { me.genres = (o.genres || []).map((g) => g.name); me.seasons = o.number_of_seasons || 0; }).catch(() => {});
   if (kind === "tv") tmdb(`tv/${id}/season/${s}`).then((o) => { if (me === P) { me.episodes = o.episodes || []; footer(); } }).catch(() => {});
   fetch(`${HELPER}/intro?${kind === "tv" ? `tmdb_id=${id}&season=${s}&episode=${e}` : `tmdb_id=${id}`}`).then((r) => r.json()).then((o) => {
     if (me !== P) return;
@@ -953,6 +1076,13 @@ async function player(kind, id, s, e) {
   P.began = Date.now();
   // Never just spin: after 25 s with nothing playing, show what each source is doing and let the viewer pick.
   setTimeout(() => { if (me === P && !me.playing) slowPanel(); }, 25000);
+  const own = dls[dlId(t, +s, +e)];
+  if (own?.state === "done") {
+    me.source = "Downloaded"; me.tried.add("Downloaded"); footer();
+    play(dlBase(dlId(t, +s, +e)) + "index.m3u8");
+    if (own.sub) loadSubtitles(null, [{ url: dlBase(dlId(t, +s, +e)) + "sub.vtt", lang: I.sub || "en", label: I.t("Downloaded"), pre: caches.open(DLC).then((c) => c.match(dlBase(dlId(t, +s, +e)) + "sub.vtt")).then((r) => (r ? r.text() : "")) }], true);
+    return;
+  }
   if (pick && P.order.includes(pick)) return start(pick, false);
   // Prefer the best-ranked source, but don't wait more than 3 s for it if another is already ready.
   start(await firstReady(me), true);
@@ -1055,7 +1185,8 @@ function play(url) {
   me.tracks.forEach((x) => { x.node = null; if (x.text) build(x); });
   const savedVol = parseFloat(localStorage.getItem("vol"));
   if (savedVol > 0 && savedVol <= 1) v.volume = savedVol;
-  if (nativeHls()) v.src = url;
+  // Downloads are served by Movio's offline helper (sw.js), which only hls.js goes through.
+  if (nativeHls() && !(url.includes("/dl/") && window.MediaSource)) v.src = url;
   else loadHls().then((Hls) => {
     if (me !== P || me.video !== v) return;
     const h = new Hls({ maxBufferLength: 60 });
@@ -1092,6 +1223,7 @@ function play(url) {
     // Near the end of an episode, get the next one ready (its streams and subtitles), so it starts at once.
     if (me.t.kind === "tv" && !me.aheadDone && v.duration > 300 && v.currentTime > v.duration * 0.75) { me.aheadDone = true; prepareNext(me); }
     footerSkip();
+    upNext(me);
   });
   v.addEventListener("pause", savePlayer);
   // iPhone's own full screen player can't see Movio's subtitle layer, so it shows the chosen track itself.
@@ -1147,6 +1279,8 @@ function prepareNext(me) {
 function nextEpisode() {
   if (!P) return;
   const [s, e] = nextOf(P);
+  // Smart downloads: a watched downloaded episode is removed and the next one downloads.
+  if (P.source === "Downloaded" && localStorage.getItem("smartdl") !== "0") { dlRemove(dlId(P.t, P.s, P.e)); dlStart(P.t, s, e); }
   location.replace(playHref(P.t, s, e));
 }
 
@@ -1414,6 +1548,37 @@ window.addEventListener("keydown", (ev) => {
   else if (/^[0-9]$/.test(k) && v.duration > 0) { v.currentTime = v.duration * (+k / 10); osd("jump", `${+k * 10}%`, `${clock(v.currentTime)} / ${clock(v.duration)}`); }
 }, true);
 
+// Up next, Netflix style: at the credits (or the last 20 s) the video shrinks into the corner and the next episode
+// fills the screen, with a button that fills up over 10 s and then plays it.
+function upNext(me) {
+  const v = me.video, st = document.getElementById("stage");
+  if (!v || !st || me.t.kind !== "tv" || me.noNext || !(v.duration > 0)) return;
+  const count = me.episodes?.length || 0;
+  if (count && me.e >= count && !(me.seasons > me.s)) return;
+  const cr = me.segments.find((x) => x.type === "credits" && x.a > v.duration / 2);
+  const t = v.currentTime, inCredits = cr ? t >= cr.a : v.duration - t <= 20;
+  let box = st.querySelector(".upnext");
+  if (!inCredits) { if (box) { box.remove(); st.classList.remove("shrunk"); } return; }
+  if (!box) {
+    const [, e] = nextOf(me);
+    const ep = (me.episodes || []).find((x) => x.episode_number === e);
+    box = document.createElement("div");
+    box.className = "upnext";
+    box.innerHTML = `<div class="uncredits">${I.t("Credits")}</div><div class="uncard">
+      <div class="unpic">${ep?.still_path ? `<img src="${img(ep.still_path, "w780")}" alt="">` : ""}<b>${I.t("Next episode")}</b></div>
+      <h3>${ep ? `E${e} · ${esc(ep.name || "")}` : I.t("Next episode")}</h3>${ep?.overview ? `<p>${esc(ep.overview)}</p>` : ""}
+      <div class="unbtns"><button class="ungo"><span class="unfill"></span><span class="unlbl">▶ ${I.t("Next episode")}</span></button><button class="unback">${I.t("Watch credits")}</button></div></div>`;
+    box.querySelector(".ungo").onclick = () => nextEpisode();
+    box.querySelector(".unback").onclick = () => { me.noNext = true; box.remove(); st.classList.remove("shrunk"); };
+    st.append(box);
+    me.unAt = Date.now();
+    requestAnimationFrame(() => st.classList.add("shrunk"));
+  }
+  const left = 10 - (Date.now() - me.unAt) / 1000;
+  box.querySelector(".unfill").style.width = `${Math.min(100, (1 - Math.max(0, left) / 10) * 100)}%`;
+  if (left <= 0 && !v.paused) nextEpisode();
+}
+
 function footerSkip() {
   const b = document.getElementById("fskip");
   const v = P?.video;
@@ -1467,6 +1632,7 @@ async function route() {
     else if (parts[0] === "title") await details(parts[1], parts[2]);
     else if (parts[0] === "person") await person(parts[1]);
     else if (parts[0] === "stats") await statsView();
+    else if (parts[0] === "downloads") downloadsView();
     else if (parts[0] === "platform") await platform(parts[1]);
     else if (parts[0] === "live") await liveView();
     else if (parts[0] === "play") await player(parts[1], parts[2], parts[3] || 1, parts[4] || 1);

@@ -201,8 +201,33 @@ export default {
         return cached(t.toString(), {}, 6 * 3600, ctx);
       }
       // Intro / credits times (TheIntroDB)
+      // Two community databases matched up (TheIntroDB + IntroDB): agree → average; disagree → the better-confirmed one.
       if (p === "/intro") {
-        return cached("https://api.theintrodb.org/v4/media" + url.search, {}, 24 * 3600, ctx);
+        const q = url.searchParams, id = q.get("tmdb_id"), s = q.get("season"), e = q.get("episode"), tv = !!s;
+        const ck = new Request("https://cache.movio/intro2?" + q.toString());
+        const hit = await caches.default.match(ck);
+        if (hit) return withCors(hit);
+        const get = (u) => fetch(u, { headers: { "User-Agent": UA } }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+        const [a, ext] = await Promise.all([get("https://api.theintrodb.org/v4/media" + url.search),
+          get(`https://api.themoviedb.org/3/${tv ? "tv" : "movie"}/${id}/external_ids?api_key=${env.TMDB_KEY}`)]);
+        const imdb = ext?.imdb_id;
+        const b = imdb ? await get(`https://api.introdb.app/segments?imdb_id=${imdb}` + (tv ? `&season=${s}&episode=${e}` : "")) : null;
+        const out = {};
+        const near = (x, y) => Math.abs(x.start_ms - y.start_ms) < 4000 && Math.abs((x.end_ms ?? 1e12) - (y.end_ms ?? 1e12)) < 4000;
+        for (const [type, bk] of [["recap", "recap"], ["intro", "intro"], ["credits", "outro"], ["preview", null]]) {
+          const xa = (a?.[type] || []).map((x) => ({ start_ms: x.start_ms || 0, end_ms: x.end_ms ?? null }));
+          const y = bk && b?.[bk] ? b[bk] : null;
+          const sure = y ? (y.confidence ?? 0.5) * Math.min(1, 0.5 + 0.25 * (y.submission_count || 1)) : 0;
+          const yb = y ? { start_ms: y.start_ms || 0, end_ms: y.end_ms ?? null } : null;
+          let v = xa;
+          if (yb && !xa.length) v = sure >= 0.4 ? [yb] : [];
+          else if (yb && near(xa[0], yb)) v = [{ start_ms: Math.round((xa[0].start_ms + yb.start_ms) / 2), end_ms: xa[0].end_ms == null || yb.end_ms == null ? xa[0].end_ms ?? yb.end_ms : Math.round((xa[0].end_ms + yb.end_ms) / 2) }, ...xa.slice(1)];
+          else if (yb && sure >= 0.75) v = [yb];
+          if (v.length) out[type] = v;
+        }
+        const res = new Response(JSON.stringify(out), { headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=86400" } });
+        ctx.waitUntil(caches.default.put(ck, res.clone()));
+        return withCors(res);
       }
       // Direct stream service: only its JSON API (the video itself plays straight from it)
       if (p.startsWith("/party/api/")) {
