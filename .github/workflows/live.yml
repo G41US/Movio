@@ -1,0 +1,32 @@
+name: Live TV lists
+on:
+  schedule:
+    - cron: "17 */12 * * *"
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: node scripts/live.mjs
+      - name: Save
+        run: |
+          git config user.name "G41US"
+          git config user.email "G41US@users.noreply.github.com"
+          git add web/live
+          git diff --cached --quiet && exit 0
+          git commit -m "Live TV lists"
+          git pull --rebase -q
+          git push
+      # A push made by this job doesn't start the web app's deploy by itself, so start it.
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run web.yml --ref main
