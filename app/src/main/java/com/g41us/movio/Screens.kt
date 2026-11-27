@@ -840,7 +840,7 @@ private object ListShim {
 }
 
 /** Lets a full-width row ignore the grid's side padding. */
-private fun Modifier.bleed(start: Dp, end: Dp) = layout { m, c ->
+internal fun Modifier.bleed(start: Dp, end: Dp) = layout { m, c ->
     val s = start.roundToPx(); val extra = s + end.roundToPx()
     val p = m.measure(c.copy(minWidth = c.minWidth + extra, maxWidth = c.maxWidth + extra))
     layout(c.maxWidth, p.height) { p.place(-s, 0) }
