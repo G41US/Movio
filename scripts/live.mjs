@@ -34,11 +34,11 @@ async function head(r) {
 }
 // Each check gives up after 10 s, whatever it's waiting on.
 const within = (p, ms) => Promise.race([p, new Promise((ok) => setTimeout(() => ok(false), ms))]);
-const works = (s) => within(check(s), 10000);
+const works = (s) => within(check(s), 12000);
 async function check(s) {
   const h = { "User-Agent": s.user_agent || UA, ...(s.referrer ? { Referer: s.referrer } : {}) };
   try {
-    const r = await fetch(s.url, { headers: h, signal: AbortSignal.timeout(8000), redirect: "follow" });
+    const r = await fetch(s.url, { headers: h, signal: AbortSignal.timeout(9000), redirect: "follow" });
     if (!r.ok) return false;
     const t = await head(r);
     if (!t.includes("#EXTM3U")) return false;
@@ -46,7 +46,7 @@ async function check(s) {
     if (t.includes("#EXT-X-STREAM-INF")) {
       const v = t.split("\n").map((x) => x.trim()).find((x) => x && !x.startsWith("#"));
       if (!v) return false;
-      const r2 = await fetch(new URL(v, r.url), { headers: h, signal: AbortSignal.timeout(8000) });
+      const r2 = await fetch(new URL(v, r.url), { headers: h, signal: AbortSignal.timeout(9000) });
       return r2.ok && (await head(r2)).includes("#EXT");
     }
     return t.includes("#EXTINF") || t.includes("#EXT-X-");
@@ -65,7 +65,7 @@ async function worker() {
     if (++done % 1000 === 0) console.log(`${done}/${ids.length} checked, ${ok.length} working`);
   }
 }
-await Promise.all(Array.from({ length: 250 }, worker));
+await Promise.all(Array.from({ length: +(process.env.PAR || 60) }, worker));
 console.log(`working channels: ${ok.length} of ${ids.length}`);
 
 const out = (id, s) => {
@@ -78,6 +78,9 @@ const out = (id, s) => {
   return o;
 };
 const all = ok.map(([id, s]) => out(id, s)).sort((a, b) => a.n.localeCompare(b.n));
+// A bad run (e.g. the checking machine's network was blocked) never replaces a much bigger list.
+const before = await import("node:fs/promises").then((f) => f.readFile("web/live/index.json", "utf8")).then((t) => JSON.parse(t).total).catch(() => 0);
+if (all.length < before * 0.7) { console.log(`only ${all.length} working (was ${before}): keeping the current lists`); process.exit(0); }
 await rm("web/live", { recursive: true, force: true });
 await mkdir("web/live/c", { recursive: true });
 await mkdir("web/live/cat", { recursive: true });

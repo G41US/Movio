@@ -458,6 +458,7 @@ function livePlay(list, i) {
   const me = LP;
   const tune = async () => {
     const x = me.list[me.i];
+    me.off = false;
     me.hls?.destroy(); me.hls = null;
     el.innerHTML = `<video playsinline autoplay></video>
       <div class="lbar top"><button class="icon" id="lpx">${ICON.back || ICON.close}</button>
@@ -475,7 +476,7 @@ function livePlay(list, i) {
     el.querySelector("#lfs").onclick = () => (document.fullscreenElement ? document.exitFullscreen() : (el.requestFullscreen?.() || v.webkitEnterFullscreen?.()));
     v.onplaying = () => { msg.style.display = "none"; el.querySelector("#lpp").innerHTML = ICON.pause || "❚❚"; };
     v.onpause = () => { el.querySelector("#lpp").innerHTML = ICON.play; };
-    const offline = () => { if (me !== LP || me.list[me.i] !== x) return; msg.style.display = ""; msg.innerHTML = `<b>${I.t("This channel is off air right now")}</b><button class="btn white" id="lskip">${I.t("Next channel")}</button>`; msg.querySelector("#lskip").onclick = () => el.querySelector("#lnext").click(); };
+    const offline = () => { if (me !== LP || me.list[me.i] !== x) return; me.off = true; el.classList.remove("idle"); msg.style.display = ""; msg.innerHTML = `<b>${I.t("This channel is off air right now")}</b><button class="btn white" id="lskip">${I.t("Next channel")}</button>`; msg.querySelector("#lskip").onclick = () => el.querySelector("#lnext").click(); };
     // Straight from the channel when the browser allows it; otherwise through Movio's helper.
     const viaHelper = async () => {
       const o = await fetch(`${HELPER}/live?u=${encodeURIComponent(x.u)}&r=${encodeURIComponent(x.r || "")}&a=${encodeURIComponent(x.a || "")}`).then((r) => r.json()).catch(() => null);
@@ -508,7 +509,7 @@ function livePlay(list, i) {
   document.addEventListener("keydown", me.keys, true);
   // Controls fade after a few seconds without a touch.
   let idle;
-  const wake = () => { el.classList.remove("idle"); clearTimeout(idle); idle = setTimeout(() => el.classList.add("idle"), 3500); };
+  const wake = () => { el.classList.remove("idle"); clearTimeout(idle); idle = setTimeout(() => { if (!me.off && !el.querySelector("video")?.paused) el.classList.add("idle"); }, 3500); };
   el.addEventListener("pointermove", wake); el.addEventListener("pointerdown", wake); wake();
   tune();
 }
