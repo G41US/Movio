@@ -137,11 +137,12 @@ fun LiveScreen() {
     var picking by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { index = Live.index(); failed = index == null }
     val idx = index
-    LaunchedEffect(idx, cc, cat) {
+    var limit by remember(cc, cat, query) { mutableIntStateOf(120) }
+    LaunchedEffect(idx, cc) {
         if (idx == null) return@LaunchedEffect
         if (cc != "ALL" && idx.countries.none { it.first == cc }) cc = "US"
         list = null
-        list = Live.channels(if (cc == "ALL") "cat/${cat.ifEmpty { "news" }}.json" else "c/${cc.lowercase()}.json")
+        list = Live.channels(if (cc == "ALL") "all.json" else "c/${cc.lowercase()}.json")
     }
     val wide = LocalWide.current
     val tvBar = LocalTopBar.current
@@ -177,19 +178,19 @@ fun LiveScreen() {
                             cursorBrush = SolidColor(Violet), modifier = Modifier.fillMaxWidth())
                     }
                 }
-                val top = (listOf(cc, Live.myCountry(), "NG", "GH", "KE", "ZA", "US", "UK", "FR")).distinct().filter { c -> idx.countries.any { it.first == c } }
+                // All, then quick picks in alphabetical order (the full list is under "All countries").
+                val top = (listOf(cc, Live.myCountry(), "NG", "GH", "KE", "ZA", "US", "UK", "FR")).distinct()
+                    .mapNotNull { c -> idx.countries.firstOrNull { it.first == c } }.sortedBy { it.second }
                 Box(Modifier.bleed(Gutter, GutterEnd)) {
                     LazyRow(contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(top, key = { it }) { c ->
-                            Chip(idx.countries.first { it.first == c }.second, cc == c) { cc = c }
-                        }
-                        item { Chip("🌍 " + t("Worldwide"), cc == "ALL") { cc = "ALL"; if (cat.isEmpty()) cat = "news" } }
+                        item { Chip(t("All"), cc == "ALL") { cc = "ALL" } }
+                        items(top, key = { it.first }) { c -> Chip(c.second, cc == c.first) { cc = c.first } }
                         item { Chip(t("All countries") + " ›", false) { picking = true } }
                     }
                 }
                 Box(Modifier.bleed(Gutter, GutterEnd)) {
                     LazyRow(contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        item { Chip(t("All"), cat.isEmpty()) { cat = if (cc == "ALL") "news" else "" } }
+                        item { Chip(t("All"), cat.isEmpty()) { cat = "" } }
                         items(LIVE_CATS.filter { it in idx.cats }, key = { it }) { c -> Chip(t(c.replaceFirstChar { it.uppercase() }), cat == c) { cat = c } }
                     }
                 }
@@ -209,10 +210,16 @@ fun LiveScreen() {
             val q = query.trim().lowercase()
             val shown = l.filter { (cat.isEmpty() || it.cats.contains(cat) || (cat == "general" && it.cats.isEmpty())) && (q.isEmpty() || it.name.lowercase().contains(q)) }
             if (shown.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) { Message("No channels here", "Try another country or category.") }
-            else items(shown, key = { it.id }) { ch ->
+            else items(shown.take(limit), key = { it.id }) { ch ->
                 ChannelTile(ch, favs.any { it.id == ch.id }, { Live.play(ctx, shown, shown.indexOf(ch)) }) {
                     val on = Live.toggleFav(ctx, ch); favs = Live.favs(ctx)
                     android.widget.Toast.makeText(ctx, t(if (on) "Added to Favourites" else "Removed from Favourites"), android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+            // Big lists (All has thousands) come in steps.
+            if (shown.size > limit) item(span = { GridItemSpan(maxLineSpan) }) {
+                Box(Modifier.fillMaxWidth().padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
+                    GhostButton(tf("Show more ({1} left)", shown.size - limit), null) { limit += 120 }
                 }
             }
         }
@@ -222,7 +229,7 @@ fun LiveScreen() {
             Column(Modifier.fillMaxWidth().heightIn(max = 560.dp).clip(RoundedCornerShape(22.dp)).background(Panel).padding(vertical = 14.dp)) {
                 Text("Country", fontSize = 19.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, style = jakarta(), modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp))
                 androidx.compose.foundation.lazy.LazyColumn {
-                    items(idx.countries, key = { it.first }) { (code, name, n) ->
+                    items(idx.countries.sortedBy { it.second }, key = { it.first }) { (code, name, n) ->
                         Row(Modifier.fillMaxWidth().focusGlow(RoundedCornerShape(12.dp), grow = false).combinedClickable { cc = code; picking = false }.padding(horizontal = 20.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically) {
                             NetImage(Live.flag(code), null, Modifier.size(24.dp, 17.dp).clip(RoundedCornerShape(3.dp)), contentScale = androidx.compose.ui.layout.ContentScale.Crop)

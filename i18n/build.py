@@ -134,6 +134,7 @@ W = [
 ("Kids", "Enfants", "Niños", "Infantil", "أطفال"),
 ("Religious", "Religion", "Religión", "Religião", "ديني"),
 ("General", "Généraliste", "General", "Geral", "عامة"),
+("Show more ({1} left)", "Voir plus ({1} restantes)", "Ver más ({1} más)", "Ver mais ({1} restantes)", "عرض المزيد ({1} متبقية)"),
 ("Type the code", "Saisissez le code", "Escribe el código", "Digite o código", "اكتب الرمز"),
 ("Family movies", "Films familiaux", "Películas familiares", "Filmes de família", "أفلام عائلية"),
 ("Animated movies", "Films d'animation", "Películas animadas", "Filmes de animação", "أفلام رسوم متحركة"),

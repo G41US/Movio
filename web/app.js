@@ -391,10 +391,13 @@ const LIVE_CATS = ["news", "sports", "movies", "entertainment", "music", "kids",
 async function liveView() {
   liveIndex ||= await liveGet("index.json");
   if (!liveIndex) { view.innerHTML = `<div class="empty pad-top"><b>${I.t("Live TV is getting ready")}</b><span class="muted">${I.t("Try again in a few minutes.")}</span></div>`; return; }
-  const st = { cc: sessionStorage.getItem("liveCc") || myCountry(), cat: sessionStorage.getItem("liveCat") || "", q: "" };
+  const st = { cc: sessionStorage.getItem("liveCc") || myCountry(), cat: sessionStorage.getItem("liveCat") || "", q: "", limit: 120 };
   if (!liveIndex.countries.some((c) => c.code === st.cc) && st.cc !== "ALL") st.cc = "US";
   const cName = (cc) => cc === "ALL" ? I.t("Worldwide") : liveIndex.countries.find((c) => c.code === cc)?.name || cc;
-  const top = [...new Set([st.cc, myCountry(), "NG", "GH", "KE", "ZA", "US", "UK", "FR"])].filter((c) => liveIndex.countries.some((x) => x.code === c));
+  // Quick picks in alphabetical order (the full list is under "All countries").
+  const quick = () => [...new Set([st.cc, myCountry(), "NG", "GH", "KE", "ZA", "US", "UK", "FR"])].filter((c) => c !== "ALL" && liveIndex.countries.some((x) => x.code === c))
+    .sort((a, b) => cName(a).localeCompare(cName(b)));
+  let top = quick();
   view.innerHTML = `<div class="pad-top live">
     <div class="lhead"><h1 class="title">${I.t("Live TV")}</h1><span class="lcount">${I.f("{1} channels", liveIndex.total)}</span></div>
     <label class="searchbox"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg><input id="lq" type="search" placeholder="${I.t("Find a channel")}" autocomplete="off"></label>
@@ -402,14 +405,16 @@ async function liveView() {
     <div id="lfav"></div><div class="lgrid" id="lgrid"></div></div>`;
   let list = [];
   const chips = () => {
-    view.querySelector("#lcc").innerHTML = top.map((c) => `<button class="chip cc ${st.cc === c ? "on" : ""}" data-cc="${c}"><img src="${flag(c)}" alt="">${esc(cName(c))}</button>`).join("")
-      + `<button class="chip ${st.cc === "ALL" ? "on" : ""}" data-cc="ALL">🌍 ${I.t("Worldwide")}</button><button class="chip" id="lmore">${I.t("All countries")} ›</button>`;
+    view.querySelector("#lcc").innerHTML = `<button class="chip ${st.cc === "ALL" ? "on" : ""}" data-cc="ALL">${I.t("All")}</button>`
+      + top.map((c) => `<button class="chip cc ${st.cc === c ? "on" : ""}" data-cc="${c}"><img src="${flag(c)}" alt="">${esc(cName(c))}</button>`).join("")
+      + `<button class="chip" id="lmore">${I.t("All countries")} ›</button>`;
     view.querySelector("#lcat").innerHTML = [["", "All"], ...LIVE_CATS.map((c) => [c, c[0].toUpperCase() + c.slice(1)])]
       .filter(([c]) => !c || liveIndex.categories.some((x) => x.id === c)).map(([c, n]) => `<button class="chip ${st.cat === c ? "on" : ""}" data-cat="${c}">${I.t(n)}</button>`).join("");
-    view.querySelectorAll("[data-cc]").forEach((b) => (b.onclick = () => { st.cc = b.dataset.cc; if (st.cc === "ALL" && !st.cat) st.cat = "news"; sessionStorage.setItem("liveCc", st.cc); sessionStorage.setItem("liveCat", st.cat); chips(); load(); }));
-    view.querySelectorAll("[data-cat]").forEach((b) => (b.onclick = () => { st.cat = b.dataset.cat; if (st.cc === "ALL" && !st.cat) st.cat = "news"; sessionStorage.setItem("liveCat", st.cat); chips(); load(); }));
-    view.querySelector("#lmore").onclick = () => sheet(I.t("Country"), liveIndex.countries.map((c) => ({ label: `${c.name} · ${c.n}`, on: c.code === st.cc, fn: () => {
-      st.cc = c.code; if (!top.includes(c.code)) top.unshift(c.code); sessionStorage.setItem("liveCc", st.cc); chips(); load(); } })));
+    view.querySelectorAll("[data-cc]").forEach((b) => (b.onclick = () => { st.cc = b.dataset.cc; sessionStorage.setItem("liveCc", st.cc); chips(); load(); }));
+    view.querySelectorAll("[data-cat]").forEach((b) => (b.onclick = () => { st.cat = b.dataset.cat; sessionStorage.setItem("liveCat", st.cat); st.limit = 120; chips(); draw(); }));
+    const sorted = [...liveIndex.countries].sort((a, b) => a.name.localeCompare(b.name));
+    view.querySelector("#lmore").onclick = () => sheet(I.t("Country"), sorted.map((c) => ({ label: `${c.name} · ${c.n}`, on: c.code === st.cc, fn: () => {
+      st.cc = c.code; sessionStorage.setItem("liveCc", st.cc); top = quick(); chips(); load(); } })));
   };
   const tile = (x, i) => `<button class="ltile" data-i="${i}"><div class="lpic">${x.l ? `<img src="${esc(x.l)}" alt="" loading="lazy">` : `<b>${esc(x.n.slice(0, 2))}</b>`}<span class="lbadge"><i></i>LIVE</span>${liveFav[x.id] ? `<span class="lstar">★</span>` : ""}</div><span class="lname" data-raw>${esc(x.n)}</span><small>${I.t(cap(x.c[0] || "general"))}</small></button>`;
   const cap = (s) => s[0].toUpperCase() + s.slice(1);
@@ -421,7 +426,10 @@ async function liveView() {
     fv.innerHTML = favs.length && !q ? `<section class="row"><h2>${I.t("Favourites")}</h2><div class="scroll lfavs">${favs.map((x, i) => `<button class="ltile" data-f="${i}"><div class="lpic">${x.l ? `<img src="${esc(x.l)}" alt="">` : `<b>${esc(x.n.slice(0, 2))}</b>`}</div><span class="lname" data-raw>${esc(x.n)}</span></button>`).join("")}</div></section>` : "";
     fv.querySelectorAll("[data-f]").forEach((b) => (b.onclick = () => livePlay(favs, +b.dataset.f)));
     const g = view.querySelector("#lgrid");
-    g.innerHTML = shown.length ? shown.map(tile).join("") : `<div class="empty" style="grid-column:1/-1"><b>${I.t("No channels here")}</b><span class="muted">${I.t("Try another country or category.")}</span></div>`;
+    // Big lists (All has thousands) come in steps.
+    g.innerHTML = shown.length ? shown.slice(0, st.limit).map(tile).join("") + (shown.length > st.limit ? `<div class="more" style="grid-column:1/-1"><button class="btn glass" id="lmorech">${I.f("Show more ({1} left)", shown.length - st.limit)}</button></div>` : "")
+      : `<div class="empty" style="grid-column:1/-1"><b>${I.t("No channels here")}</b><span class="muted">${I.t("Try another country or category.")}</span></div>`;
+    g.querySelector("#lmorech")?.addEventListener("click", () => { st.limit += 120; draw(); });
     g.querySelectorAll("[data-i]").forEach((b) => {
       b.onclick = () => livePlay(shown, +b.dataset.i);
       b.oncontextmenu = (e) => { e.preventDefault(); toggleFav(shown[+b.dataset.i]); draw(); };
@@ -429,11 +437,12 @@ async function liveView() {
   };
   const load = async () => {
     view.querySelector("#lgrid").innerHTML = loading();
-    const f = st.cc === "ALL" ? `cat/${st.cat || "news"}.json` : `c/${st.cc.toLowerCase()}.json`;
+    st.limit = 120;
+    const f = st.cc === "ALL" ? "all.json" : `c/${st.cc.toLowerCase()}.json`;
     list = (await liveGet(f)) || [];
     draw();
   };
-  view.querySelector("#lq").addEventListener("input", (e) => { st.q = e.target.value.trim(); draw(); });
+  view.querySelector("#lq").addEventListener("input", (e) => { st.q = e.target.value.trim(); st.limit = 120; draw(); });
   chips(); load();
 }
 function toggleFav(x) {

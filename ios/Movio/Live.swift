@@ -83,6 +83,7 @@ struct LiveView: View {
     @State private var favs = Live.favs
     @State private var picking = false
     @State private var playing: LiveRequest?
+    @State private var limit = 120
     private let grid = [GridItem(.adaptive(minimum: 150), spacing: 12)]
 
     var body: some View {
@@ -115,7 +116,7 @@ struct LiveView: View {
                             }.frame(maxWidth: .infinity).padding(.top, 50)
                         }
                         LazyVGrid(columns: grid, spacing: 16) {
-                            ForEach(Array(shown.enumerated()), id: \.element.id) { i, ch in
+                            ForEach(Array(shown.prefix(limit).enumerated()), id: \.element.id) { i, ch in
                                 tile(ch, fav: favs.contains { $0.id == ch.id }) { playing = LiveRequest(list: shown, i: i) }
                                     .contextMenu {
                                         Button { Live.toggleFav(ch); favs = Live.favs } label: {
@@ -125,6 +126,14 @@ struct LiveView: View {
                             }
                         }
                         .padding(.horizontal, 16)
+                        // Big lists (All has thousands) come in steps.
+                        if shown.count > limit {
+                            Button { limit += 120 } label: {
+                                Text(verbatim: I18n.f("Show more ({1} left)", shown.count - limit)).font(jakarta(15, .bold)).foregroundStyle(.white)
+                                    .padding(.horizontal, 22).frame(height: 46).background(Color.white.opacity(0.12), in: Capsule())
+                            }
+                            .frame(maxWidth: .infinity).padding(.vertical, 10)
+                        }
                     } else { ProgressView().tint(.violet).frame(maxWidth: .infinity).padding(.top, 40) }
                 } else if failed {
                     VStack(spacing: 8) {
@@ -139,33 +148,36 @@ struct LiveView: View {
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $query, prompt: L("Find a channel"))
         .task { if index == nil { index = await Live.get("index.json"); failed = index == nil } }
-        .task(id: "\(cc)|\(cat)|\(index != nil)") {
+        .task(id: "\(cc)|\(index != nil)") {
             guard let idx = index else { return }
             if cc != "ALL" && !idx.countries.contains(where: { $0.code == cc }) { cc = "US" }
             list = nil
-            list = await Live.get(cc == "ALL" ? "cat/\(cat.isEmpty ? "news" : cat).json" : "c/\(cc.lowercased()).json") ?? []
+            list = await Live.get(cc == "ALL" ? "all.json" : "c/\(cc.lowercased()).json") ?? []
         }
+        .onChange(of: cc) { _ in limit = 120 }
+        .onChange(of: cat) { _ in limit = 120 }
         .sheet(isPresented: $picking) { countryPicker }
         .fullScreenCover(item: $playing) { LivePlayerView(request: $0) { favs = Live.favs } }
     }
 
     private func chips(_ idx: Live.Index) -> some View {
+        // All, then quick picks in alphabetical order (the full list is under "All countries").
         let top = [cc, Live.myCountry(), "NG", "GH", "KE", "ZA", "US", "UK", "FR"].reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
-            .filter { c in idx.countries.contains { $0.code == c } }
+            .compactMap { c in idx.countries.first { $0.code == c } }.sorted { $0.name < $1.name }.map(\.code)
         return VStack(alignment: .leading, spacing: 10) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
+                    chip(L("All"), on: cc == "ALL") { cc = "ALL" }
                     ForEach(top, id: \.self) { c in
                         chip(idx.countries.first { $0.code == c }?.name ?? c, on: cc == c, flag: c) { cc = c }
                     }
-                    chip("🌍 " + L("Worldwide"), on: cc == "ALL") { cc = "ALL"; if cat.isEmpty { cat = "news" } }
                     chip(L("All countries") + " ›", on: false) { picking = true }
                 }
                 .padding(.horizontal, 16)
             }
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    chip(L("All"), on: cat.isEmpty) { cat = cc == "ALL" ? "news" : "" }
+                    chip(L("All"), on: cat.isEmpty) { cat = "" }
                     ForEach(liveCats.filter { c in idx.categories.contains { $0.id == c } }, id: \.self) { c in
                         chip(L(c.prefix(1).uppercased() + c.dropFirst()), on: cat == c) { cat = c }
                     }
@@ -213,7 +225,7 @@ struct LiveView: View {
 
     private var countryPicker: some View {
         NavigationStack {
-            List(index?.countries ?? [], id: \.code) { c in
+            List((index?.countries ?? []).sorted { $0.name < $1.name }, id: \.code) { c in
                 Button { cc = c.code; picking = false } label: {
                     HStack(spacing: 12) {
                         AsyncImage(url: Live.flag(c.code)) { $0.resizable().scaledToFill() } placeholder: { Color.clear }.frame(width: 24, height: 17).clipShape(RoundedRectangle(cornerRadius: 3))

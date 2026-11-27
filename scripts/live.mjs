@@ -89,13 +89,14 @@ for (const x of all) {
   (byC[x.cc] ||= []).push(x);
   for (const k of x.c.length ? x.c : ["general"]) (byCat[k] ||= []).push(x);
 }
+await writeFile("web/live/all.json", JSON.stringify(all));
 for (const [k, l] of Object.entries(byC)) await writeFile(`web/live/c/${k.toLowerCase()}.json`, JSON.stringify(l));
 for (const [k, l] of Object.entries(byCat)) await writeFile(`web/live/cat/${k}.json`, JSON.stringify(l));
 const cn = new Map(countries.map((c) => [c.code, c]));
 await writeFile("web/live/index.json", JSON.stringify({
   at: Date.now(),
   total: all.length,
-  countries: Object.entries(byC).map(([k, l]) => ({ code: k, name: cn.get(k)?.name || k, n: l.length })).sort((a, b) => b.n - a.n),
+  countries: Object.entries(byC).map(([k, l]) => ({ code: k, name: cn.get(k)?.name || k, n: l.length })).sort((a, b) => a.name.localeCompare(b.name)),
   categories: categories.filter((c) => byCat[c.id] && c.id !== "xxx").map((c) => ({ id: c.id, name: c.name, n: byCat[c.id].length })).sort((a, b) => b.n - a.n),
 }));
 console.log("lists written"); process.exit(0);
