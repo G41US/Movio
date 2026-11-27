@@ -70,6 +70,7 @@ const Sync = (() => {
       if (sec === "l" && !st.list[rest]) st.list[rest] = { at: -v, del: true };
       if (sec === "c" && !st.cont[rest]) st.cont[rest] = { at: -v, del: true };
     }
+    if (I.name) st.prof = { at: +localStorage.getItem("p.nameAt") || 1, name: I.name };
     return st;
   }
   function apply(st) {
@@ -95,6 +96,9 @@ const Sync = (() => {
       positions[k] = [v.p < 0 ? v.d : v.p, v.d];
       ledger["p:" + k] = v.at;
     }
+    if (st.prof?.name && st.prof.at > (+localStorage.getItem("p.nameAt") || 0)) {
+      I.name = st.prof.name; I.save(); localStorage.setItem("p.nameAt", st.prof.at);
+    }
     db.set("myList", myList); db.set("recent", recent); db.set("positions", positions); db.set("syncAt", ledger);
   }
   async function push() {
@@ -104,7 +108,7 @@ const Sync = (() => {
     try {
       const r = await fetch(`${HELPER}/sync/${c}`, { method: "PUT", body: JSON.stringify(state()) });
       const o = await r.json();
-      if (o.ok && o.state) { apply(o.state); if (!P && (location.hash === "" || /^#\/(list)?$/.test(location.hash))) route(); return true; }
+      if (o.ok && o.state) { apply(o.state); db.set("syncedAt", Date.now()); if (!P && (location.hash === "" || /^#\/(list)?$/.test(location.hash))) route(); return true; }
       if (r.status === 404) db.set("syncCode", "");
     } catch {} finally { busy = false; }
     return false;
@@ -121,7 +125,8 @@ const Sync = (() => {
     db.set("syncCode", c); await push(); return true;
   }
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") push(); else if (timer) { clearTimeout(timer); push(); } });
-  return { mark, push, create, join, code, off: () => db.set("syncCode", "") };
+  const last = () => db.get("syncedAt", 0);
+  return { mark, push, create, join, code, last, off: () => db.set("syncCode", "") };
 })();
 
 /** The round profile button: language, linking devices, kids mode. */
@@ -134,31 +139,91 @@ function profileMenu() {
   ]);
 }
 
-/** Link devices: show this device's code, or type one from another device. */
-function linkPanel() {
+/** Link devices: show this device's code, or type one from another device.
+ *  opts.setup: opened from first-time setup (only "enter a code"; onLinked gets the welcome-back details). */
+const LINK_ICON = '<svg viewBox="0 0 24 24"><rect x="2.5" y="4" width="13" height="9.5" rx="2.2"/><path d="M6 17h6"/><rect x="15" y="8" width="6.5" height="12" rx="1.8"/><path d="M17.6 17.4h1.3"/></svg>';
+function linkPanel(opts = {}) {
   const box = document.createElement("div");
-  box.className = "setup";
+  box.className = "setup link";
   document.body.append(box);
-  const close = () => { box.classList.add("bye"); setTimeout(() => box.remove(), 300); };
-  const draw = (msg = "") => {
+  requestAnimationFrame(() => box.classList.add("in"));
+  const close = () => { box.classList.add("bye"); setTimeout(() => box.remove(), 300); opts.onClose?.(); };
+  let typed = "", busy = "", err = "", done = null;
+  const ago = (t) => {
+    if (!t) return I.t("Not synced yet");
+    const m = Math.round((Date.now() - t) / 60000);
+    return I.f("Last synced {1}", m < 1 ? I.t("just now") : m < 60 ? I.f("{1} min ago", m) : new Date(t).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
+  };
+  const tiles = (v, live) => `<div class="otp ${live ? "live" : ""}" data-raw>${[0, 1, 2, 3, 4, 5].map((i) =>
+    `<span class="${live && i === Math.min(v.length, 5) ? "cur" : ""} ${v[i] ? "has" : ""}">${esc(v[i] || "")}</span>`).join("")}
+    ${live ? `<input id="lcode" maxlength="6" inputmode="text" autocapitalize="characters" autocomplete="one-time-code" spellcheck="false" aria-label="${I.t("Type the code")}" value="${esc(v)}">` : ""}</div>`;
+  const btn = (id, cls, label, wait) => `<button class="btn ${cls}" id="${id}" ${busy ? "disabled" : ""}>${busy === id ? `<i class="bspin"></i>${I.t(wait)}` : I.t(label)}</button>`;
+  const draw = () => {
     const c = Sync.code();
-    box.innerHTML = `<div class="sin"><div class="shead"><b class="sbrand">Movio</b><button class="icon" id="lx">${ICON.close}</button></div>
+    let body;
+    if (done) body = `<div class="lorb ok"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+      <h1 data-raw>${done.name ? esc(I.f("Welcome back, {1}", done.name)) : I.t("You're linked")}</h1>
+      <p>${I.t("Your list and progress are here.")}</p>
+      <div class="lstats"><div><b>${done.list}</b><span>${I.t("My List")}</span></div><div><b>${done.cont}</b><span>${I.t("Continue watching")}</span></div></div>
+      <div class="sbtns"><button class="btn white wide" id="ldone">${I.t("Continue")}</button></div>`;
+    else if (c && !opts.setup) body = `<div class="lorb">${LINK_ICON}</div>
       <h1>${I.t("Link devices")}</h1><p>${I.t("My List, Continue watching and where you stopped follow you on every device with the same code.")}</p>
-      ${c ? `<label>${I.t("This device's code")}</label><div class="code" data-raw>${esc(c)}</div>
-        <p>${I.t("On your other device, open Link devices and type this code.")}</p>
-        <div class="sbtns"><button class="btn glass" id="lun">${I.t("Unlink")}</button><button class="btn white wide" id="lnow">${I.t("Sync now")}</button></div>`
-      : `<div class="sbtns" style="margin-top:6px"><button class="btn white wide" id="lnew">${I.t("Get a code")}</button></div>
-        <label style="margin-top:26px">${I.t("Have a code from another device?")}</label>
-        <input id="lcode" maxlength="7" autocapitalize="characters" autocomplete="off" placeholder="ABC123" style="text-transform:uppercase;letter-spacing:4px">
-        <div class="sbtns"><button class="btn glass wide" id="ljoin">${I.t("Link")}</button></div>`}
-      ${msg ? `<p style="color:var(--pink);margin-top:16px">${esc(msg)}</p>` : ""}</div>`;
-    box.querySelector("#lx").onclick = close;
-    box.querySelector("#lnew") && (box.querySelector("#lnew").onclick = async () => { (await Sync.create()) ? draw() : draw(I.t("Couldn't reach the server. Try again.")); });
-    box.querySelector("#ljoin") && (box.querySelector("#ljoin").onclick = async () => {
-      (await Sync.join(box.querySelector("#lcode").value)) ? (toast(I.t("Linked")), close(), route()) : draw(I.t("That code wasn't found. Check it and try again."));
+      <div class="lpanel">
+        <div class="lrow"><span class="lstat"><i></i>${I.t("Linked")}</span><span class="lago">${esc(ago(Sync.last()))}</span></div>
+        <div class="lcap with">${I.t("This device's code")}<button class="lcopy" id="lcopy">${I.t("Copy")}</button></div>
+        ${tiles(c)}
+        <div class="lhint">${I.t("On your other device, open Link devices and type this code.")}</div>
+      </div>
+      <div class="sbtns">${btn("lun", "glass", "Unlink")}${btn("lnow", "white wide", "Sync now", "Syncing…")}</div>`;
+    else body = `<div class="lorb">${LINK_ICON}</div>
+      <h1>${I.t(opts.setup ? "Link with a code" : "Link devices")}</h1>
+      <p>${I.t(opts.setup ? "Enter the code shown on your other device." : "My List, Continue watching and where you stopped follow you on every device with the same code.")}</p>
+      <div class="lpanel">
+        <div class="lcap">${I.t("Type the code")}</div>
+        ${tiles(typed, true)}
+        ${err ? `<div class="lerr">${esc(err)}</div>` : ""}
+        <div class="sbtns">${btn("ljoin", "white wide", "Link", "Linking…")}</div>
+      </div>
+      ${opts.setup ? "" : `<div class="lor"><span>${I.t("or")}</span></div>
+      <div class="lpanel lnew"><div><b>${I.t("No code yet?")}</b><small>${I.t("Start a new link from this device.")}</small></div>${btn("lnew", "glass", "Get a code", "Checking…")}</div>`}`;
+    box.innerHTML = `<div class="sin"><div class="shead"><b class="sbrand">Movio</b><button class="icon lx" id="lx" aria-label="Close">${opts.setup && !done ? ICON.back || ICON.close : ICON.close}</button></div>${body}</div>`;
+    const $ = (id) => box.querySelector("#" + id);
+    $("lx").onclick = done ? () => $("ldone").click() : close;
+    const inp = $("lcode");
+    if (inp) {
+      inp.oninput = () => {
+        typed = inp.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+        err = "";
+        const spans = box.querySelectorAll(".otp span");
+        spans.forEach((sp, i) => { sp.textContent = typed[i] || ""; sp.classList.toggle("has", !!typed[i]); sp.classList.toggle("cur", i === Math.min(typed.length, 5)); });
+        box.querySelector(".lerr")?.remove();
+        if (typed.length === 6) join();
+      };
+      inp.onkeydown = (e) => { if (e.key === "Enter") join(); };
+      if (!matchMedia("(pointer: coarse)").matches) inp.focus();
+    }
+    const join = async () => {
+      if (busy) return;
+      if (typed.length < 6) { err = I.t("Type the code"); return draw(); }
+      busy = "ljoin"; draw();
+      const ok = await Sync.join(typed);
+      busy = "";
+      if (!ok) { err = I.t("That code wasn't found. Check it and try again."); draw(); box.querySelector(".otp")?.classList.add("shake"); return; }
+      route();
+      if (opts.setup) { done = { name: I.name, list: myList.length, cont: Object.keys(recent).length }; draw(); }
+      else { toast(I.t("Linked")); draw(); }
+    };
+    $("ljoin") && ($("ljoin").onclick = join);
+    $("ldone") && ($("ldone").onclick = () => { box.classList.add("bye"); setTimeout(() => box.remove(), 300); opts.onLinked?.(); });
+    $("lnew") && ($("lnew").onclick = async () => {
+      busy = "lnew"; err = ""; draw();
+      const c2 = await Sync.create(); busy = "";
+      if (!c2) err = I.t("Couldn't reach the server. Try again.");
+      draw();
     });
-    box.querySelector("#lun") && (box.querySelector("#lun").onclick = () => { Sync.off(); draw(); });
-    box.querySelector("#lnow") && (box.querySelector("#lnow").onclick = async () => { toast(I.t((await Sync.push()) ? "Synced" : "Couldn't sync")); });
+    $("lcopy") && ($("lcopy").onclick = () => { navigator.clipboard?.writeText(c).then(() => toast(I.t("Copied"))); });
+    $("lun") && ($("lun").onclick = () => { Sync.off(); typed = ""; draw(); });
+    $("lnow") && ($("lnow").onclick = async () => { busy = "lnow"; draw(); const ok = await Sync.push(); busy = ""; draw(); toast(I.t(ok ? "Synced" : "Couldn't sync")); });
   };
   draw();
 }

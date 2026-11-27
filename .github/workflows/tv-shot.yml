@@ -43,19 +43,40 @@ jobs:
           script: |
             adb install -r app/build/outputs/apk/debug/app-debug.apk
             mkdir -p shots
+            H=https://movio-helper.g41us-jarvis.workers.dev
+            CODE=$(curl -s -X POST $H/sync/new | sed 's/.*"code":"\([A-Z0-9]*\)".*/\1/')
+            NOW=$(date +%s000)
+            curl -s -X PUT $H/sync/$CODE -d "{\"list\":{\"movie:550\":{\"at\":$NOW,\"t\":{\"id\":550,\"kind\":\"movie\",\"name\":\"Fight Club\"}}},\"cont\":{},\"pos\":{},\"prof\":{\"at\":$NOW,\"name\":\"Marvelous\"}}" > /dev/null
+            echo "code $CODE"
             adb shell am start -n com.g41us.movio/.MainActivity
-            sleep 12
-            adb exec-out screencap -p > shots/0a_setup.png
-            adb shell input text Marvelous
-            adb shell input keyevent KEYCODE_ENTER
             sleep 3
-            adb exec-out screencap -p > shots/0b_setup_lang.png
+            adb exec-out screencap -p > shots/0_splash.png
+            sleep 9
+            adb exec-out screencap -p > shots/0a_setup.png
             adb shell input keyevent KEYCODE_DPAD_DOWN
-            adb shell input keyevent KEYCODE_DPAD_DOWN
-            adb shell input keyevent KEYCODE_DPAD_DOWN
-            adb shell input keyevent KEYCODE_DPAD_DOWN
+            sleep 1
+            adb exec-out screencap -p > shots/0a2_name_focus.png
+            for i in 1 2 3 4; do adb shell input keyevent KEYCODE_DPAD_DOWN; sleep 0.4; done
+            sleep 1
+            adb exec-out screencap -p > shots/0a3_link_row.png
+            adb shell input keyevent KEYCODE_DPAD_CENTER
             sleep 2
-            adb exec-out screencap -p > shots/0c_setup_lang_down.png
+            adb exec-out screencap -p > shots/0d_link.png
+            adb shell input keyevent KEYCODE_DPAD_DOWN
+            sleep 1
+            adb exec-out screencap -p > shots/0e_link_focus.png
+            adb shell input keyevent KEYCODE_DPAD_CENTER
+            sleep 2
+            adb exec-out screencap -p > shots/0f_link_keyboard.png
+            adb shell input text $CODE
+            sleep 6
+            adb exec-out screencap -p > shots/0g_welcome.png
+            adb shell input keyevent KEYCODE_BACK
+            sleep 1
+            for i in 1 2 3 4; do adb shell input keyevent KEYCODE_DPAD_DOWN; sleep 0.4; done
+            adb shell input keyevent KEYCODE_DPAD_CENTER
+            sleep 2
+            adb exec-out screencap -p > shots/0h_after.png
             adb shell am force-stop com.g41us.movio
             adb shell run-as com.g41us.movio mkdir -p shared_prefs
             adb shell "run-as com.g41us.movio sh -c 'echo \"<?xml version=\\\"1.0\\\" encoding=\\\"utf-8\\\" standalone=\\\"yes\\\" ?><map><boolean name=\\\"setup_done\\\" value=\\\"true\\\" /><string name=\\\"lang\\\">en</string><string name=\\\"sub_lang\\\">en</string><string name=\\\"name\\\">Marvelous</string></map>\" > shared_prefs/movio_profile.xml'"
@@ -96,4 +117,47 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: tv-shots
+          path: shots
+
+  phone:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.13"
+      - name: Build
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+        run: gradle --no-daemon assembleDebug
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+      - name: Run on a phone emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: false
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: |
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            mkdir -p shots
+            adb shell am start -n com.g41us.movio/.MainActivity
+            sleep 1.5
+            adb exec-out screencap -p > shots/p0_splash1.png
+            sleep 1.5
+            adb exec-out screencap -p > shots/p1_splash2.png
+            sleep 6
+            adb exec-out screencap -p > shots/p2_setup.png
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phone-shots
           path: shots

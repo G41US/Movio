@@ -35,8 +35,10 @@ import androidx.compose.ui.unit.sp
 
 /** First launch: your name, the app's language and the subtitle language. Asked once; changeable in Settings. */
 @Composable
-fun SetupScreen(onDone: () -> Unit) {
+fun SetupScreen(store: Store, ready: Boolean, onDone: () -> Unit) {
     var step by remember { mutableIntStateOf(0) }
+    var linked by remember { mutableStateOf(Triple("", 0, 0)) }
+    androidx.activity.compose.BackHandler(enabled = step != 0) { step = when (step) { 3, 4 -> 0; else -> step - 1 } }
     var name by remember { mutableStateOf(I18n.name) }
     val wide = LocalWide.current
     val tv = LocalTv.current
@@ -50,8 +52,9 @@ fun SetupScreen(onDone: () -> Unit) {
                 Spacer(Modifier.weight(1f))
                 // Progress: three dots, the current one long.
                 repeat(3) { i ->
-                    Box(Modifier.padding(start = 6.dp).height(6.dp).width(if (i == step) 22.dp else 6.dp).clip(RoundedCornerShape(50))
-                        .background(if (i <= step) Color.White else Color.White.copy(alpha = .25f)))
+                        val at = if (step > 2) 0 else step
+                    Box(Modifier.padding(start = 6.dp).height(6.dp).width(if (i == at) 22.dp else 6.dp).clip(RoundedCornerShape(50))
+                        .background(if (i <= at) Color.White else Color.White.copy(alpha = .25f)))
                 }
             }
             Spacer(Modifier.height(if (tv) 18.dp else 30.dp))
@@ -63,21 +66,56 @@ fun SetupScreen(onDone: () -> Unit) {
                             Spacer(Modifier.height(26.dp))
                             Text("What should we call you?", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Soft, style = jakarta())
                             Spacer(Modifier.height(10.dp))
-                            val focus = remember { FocusRequester() }
-                            Box(Modifier.fillMaxWidth().height(56.dp).clip(RoundedCornerShape(16.dp)).background(Glass)
-                                .border(1.dp, Color.White.copy(alpha = .14f), RoundedCornerShape(16.dp)).padding(horizontal = 16.dp),
-                                contentAlignment = Alignment.CenterStart) {
-                                if (name.isEmpty()) Text("Your name", color = Muted, fontSize = 17.sp, style = jakarta())
-                                BasicTextField(name, { if (it.length <= 24) name = it }, singleLine = true,
-                                    textStyle = TextStyle(color = Color.White, fontSize = 17.sp, fontFamily = Jakarta, fontWeight = FontWeight.SemiBold),
-                                    cursorBrush = SolidColor(Violet),
-                                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next),
-                                    keyboardActions = KeyboardActions(onNext = { I18n.name = name; step = 1 }),
-                                    modifier = Modifier.fillMaxWidth().focusRequester(focus))
+                            val shape = RoundedCornerShape(16.dp)
+                            // The keyboard only comes up once the intro animation has finished (TV: only when you press OK).
+                            TapToType(autoFocus = ready && !wide, field = { mod ->
+                                Box(Modifier.fillMaxWidth().height(56.dp).clip(shape).background(Glass)
+                                    .border(1.dp, Color.White.copy(alpha = .14f), shape).padding(horizontal = 16.dp),
+                                    contentAlignment = Alignment.CenterStart) {
+                                    if (name.isEmpty()) Text("Your name", color = Muted, fontSize = 17.sp, style = jakarta())
+                                    BasicTextField(name, { if (it.length <= 24) name = it }, singleLine = true,
+                                        textStyle = TextStyle(color = Color.White, fontSize = 17.sp, fontFamily = Jakarta, fontWeight = FontWeight.SemiBold),
+                                        cursorBrush = SolidColor(Violet),
+                                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next),
+                                        keyboardActions = KeyboardActions(onNext = { I18n.name = name; step = 1 }),
+                                        modifier = mod.fillMaxWidth())
+                                }
+                            }) { f ->
+                                Box(Modifier.fillMaxWidth().height(56.dp).clip(shape).background(Glass)
+                                    .border(1.dp, if (f) Violet else Color.White.copy(alpha = .14f), shape).padding(horizontal = 16.dp),
+                                    contentAlignment = Alignment.CenterStart) {
+                                    Text(name.ifEmpty { t("Your name") }, color = if (name.isEmpty()) Muted else Color.White, fontSize = 17.sp,
+                                        fontWeight = if (name.isEmpty()) FontWeight.Normal else FontWeight.SemiBold, style = jakarta())
+                                }
                             }
-                            if (!wide) LaunchedEffect(Unit) { try { focus.requestFocus() } catch (_: Exception) { } }
                             Spacer(Modifier.height(26.dp))
                             PrimaryButton("Continue", R.drawable.ic_next, Modifier.fillMaxWidth()) { I18n.name = name; step = 1 }
+                            if (store.syncCode.isEmpty()) {
+                                Spacer(Modifier.height(26.dp))
+                                // Already using Movio elsewhere: bring your list across from the start.
+                                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color.White.copy(alpha = .05f))
+                                    .border(1.dp, Color.White.copy(alpha = .09f), RoundedCornerShape(18.dp))
+                                    .focusGlow(RoundedCornerShape(18.dp), grow = false).clickableNoRipple { step = 3 }
+                                    .padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    LinkOrb(size = 42.dp)
+                                    Spacer(Modifier.width(14.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text("Already use Movio on another device?", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White, style = jakarta())
+                                        Text("Link with a code", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Violet, style = jakarta())
+                                    }
+                                    Icon(painterResource(R.drawable.ic_next), null, tint = Muted, modifier = Modifier.size(20.dp))
+                                }
+                            }
+                        }
+                        3 -> {
+                            SetupLink(store, ready) { n, l, c -> linked = Triple(n, l, c); step = 4 }
+                            Spacer(Modifier.height(14.dp))
+                            GhostButton("Back", null, Modifier.fillMaxWidth()) { step = 0 }
+                        }
+                        4 -> {
+                            WelcomeBack(linked.first, linked.second, linked.third)
+                            Spacer(Modifier.height(24.dp))
+                            PrimaryButton("Continue", R.drawable.ic_next, Modifier.fillMaxWidth()) { name = I18n.name; step = 1 }
                         }
                         1 -> {
                             Heading("App language", "Menus, buttons and film descriptions will use this language.")
@@ -207,53 +245,3 @@ fun ProfileCard(onLanguage: () -> Unit) {
 }
 
 
-/** Settings: link devices with a short code, so My List and Continue watching follow you. */
-@Composable
-fun LinkCard(store: Store) {
-    var code by remember { mutableStateOf(store.syncCode) }
-    var typed by remember { mutableStateOf("") }
-    var msg by remember { mutableStateOf<String?>(null) }
-    var working by remember { mutableStateOf(false) }
-    Card {
-        Label("Link devices")
-        Spacer(Modifier.height(8.dp))
-        Text("My List, Continue watching and where you stopped follow you on every device with the same code.", fontSize = 13.sp, lineHeight = 18.sp, color = Muted, style = jakarta())
-        Spacer(Modifier.height(14.dp))
-        if (code.isNotEmpty()) {
-            Text("This device's code", fontSize = 13.sp, color = Muted, style = jakarta())
-            Text(code, fontSize = 38.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 8.sp, color = Violet, style = jakarta())
-            Text("On your other device, open Link devices and type this code.", fontSize = 13.sp, color = Muted, style = jakarta())
-            Spacer(Modifier.height(14.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                PrimaryButton("Sync now", R.drawable.ic_next, Modifier.weight(1f)) {
-                    working = true; store.pushNow { ok -> working = false; msg = t(if (ok) "Synced" else "Couldn't sync"); code = store.syncCode }
-                }
-                GhostButton("Unlink", null, Modifier.weight(1f)) { store.syncCode = ""; code = ""; msg = null }
-            }
-        } else {
-            PrimaryButton("Get a code", R.drawable.ic_next, Modifier.fillMaxWidth()) {
-                working = true; msg = null
-                store.createCode { c -> working = false; if (c != null) code = c else msg = t("Couldn't reach the server. Try again.") }
-            }
-            Spacer(Modifier.height(16.dp))
-            Text("Have a code from another device?", fontSize = 13.sp, color = Muted, style = jakarta())
-            Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Box(Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(12.dp)).background(Glass).padding(horizontal = 14.dp), contentAlignment = Alignment.CenterStart) {
-                    if (typed.isEmpty()) Text("Type the code", color = Muted, fontSize = 16.sp, style = jakarta())
-                    BasicTextField(typed, { v -> typed = v.uppercase().filter { it.isLetterOrDigit() }.take(6) }, singleLine = true,
-                        textStyle = TextStyle(color = Color.White, fontSize = 18.sp, fontFamily = Jakarta, fontWeight = FontWeight.Bold, letterSpacing = 4.sp),
-                        cursorBrush = SolidColor(Violet),
-                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters, imeAction = ImeAction.Done),
-                        modifier = Modifier.fillMaxWidth())
-                }
-                GhostButton("Link", null) {
-                    working = true; msg = null
-                    store.joinCode(typed) { ok -> working = false; if (ok) { code = store.syncCode; msg = t("Linked") } else msg = t("That code wasn't found. Check it and try again.") }
-                }
-            }
-        }
-        if (working) { Spacer(Modifier.height(10.dp)); Text("Checking…", fontSize = 13.sp, color = Muted, style = jakarta()) }
-        msg?.let { Spacer(Modifier.height(10.dp)); Text(it, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Soft, style = jakarta()) }
-    }
-}

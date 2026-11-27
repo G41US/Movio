@@ -112,6 +112,11 @@ function mergeState(a, b) {
     out[sec] = Object.fromEntries(Object.entries(m).filter(([, v]) => !(v.del && v.at < cutoff))
       .sort((x, y) => y[1].at - x[1].at).slice(0, LIMIT[sec]));
   }
+  // Profile: the name, newest wins (so a new device can greet you right after linking).
+  const ok = (v) => v && typeof v.at === "number" && typeof v.name === "string" && v.name.length <= 24;
+  const pa = ok(a?.prof) ? a.prof : null, pb = ok(b?.prof) ? b.prof : null;
+  const pr = pb && (!pa || pb.at > pa.at) ? pb : pa;
+  if (pr) out.prof = { at: pr.at, name: pr.name };
   return out;
 }
 const json200 = (o) => new Response(JSON.stringify(o), { headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" } });

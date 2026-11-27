@@ -104,7 +104,9 @@ const I = (() => {
       if (step === 0) body = `<h1>${me.t("Welcome to Movio")}</h1><p>${me.t("Let's set things up. It only takes a moment.")}</p>
         <label>${me.t("What should we call you?")}</label>
         <input id="pname" maxlength="24" autocomplete="given-name" autocapitalize="words" placeholder="Your name" value="${esc(me.name)}">
-        <div class="sbtns"><button class="btn white wide" id="snext">${me.t("Continue")}</button></div>`;
+        <div class="sbtns"><button class="btn white wide" id="snext">${me.t("Continue")}</button></div>
+        ${editing || typeof linkPanel === "undefined" || Sync.code() ? "" : `<button class="slink" id="slink"><span class="slico">${LINK_ICON}</span>
+          <span><b>${me.t("Already use Movio on another device?")}</b><small>${me.t("Link with a code")}</small></span><i>›</i></button>`}`;
       else if (step === 1) body = `<h1>${me.t("App language")}</h1><p>${me.t("Menus, buttons and film descriptions will use this language.")}</p>
         <div class="choices">${LANGS.map((l) => choice(l.native, l.code === "en" || me.t(l.english) === l.native ? "" : me.t(l.english), me.lang === l.code, l.code)).join("")}</div>
         <div class="sbtns"><button class="btn glass" id="sback">${me.t("Back")}</button><button class="btn white wide" id="snext">${me.t("Continue")}</button></div>`;
@@ -119,12 +121,13 @@ const I = (() => {
         if (step === 1) { me.lang = b.dataset.v; me.sub = b.dataset.v; } else me.sub = b.dataset.v;
         draw();
       });
+      box.querySelector("#slink") && (box.querySelector("#slink").onclick = () => linkPanel({ setup: true, onLinked: () => { step = 1; draw(); } }));
       box.querySelector("#sback") && (box.querySelector("#sback").onclick = () => { step--; draw(); });
       box.querySelector("#snext").onclick = go;
     };
     const go = () => {
       const name = box.querySelector("#pname");
-      if (name) me.name = name.value.trim();
+      if (name && name.value.trim() !== me.name) { me.name = name.value.trim(); put("p.nameAt", Date.now()); }
       if (step < 2) { step++; return draw(); }
       me.done = true; me.save();
       box.classList.add("bye");

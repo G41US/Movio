@@ -152,8 +152,18 @@ class Store private constructor(context: Context) {
             if (k.startsWith("l:") && !list.has(rest)) list.put(rest, JSONObject().put("at", -v).put("del", true))
             if (k.startsWith("c:") && !cont.has(rest)) cont.put(rest, JSONObject().put("at", -v).put("del", true))
         }
-        return JSONObject().put("list", list).put("cont", cont).put("pos", pos)
+        val out = JSONObject().put("list", list).put("cont", cont).put("pos", pos)
+        // Your name travels too, so a newly linked device can greet you. A changed name counts as newer.
+        val name = I18n.name.trim()
+        if (name.isNotEmpty()) {
+            if (name != syncPrefs.getString("name_last", null)) syncPrefs.edit().putString("name_last", name).putLong("name_at", System.currentTimeMillis()).apply()
+            out.put("prof", JSONObject().put("at", syncPrefs.getLong("name_at", 1L)).put("name", name))
+        }
+        return out
     }
+
+    /** When this device last synced (0 = never). */
+    val lastSync get() = syncPrefs.getLong("last", 0L)
 
     private fun apply(st: JSONObject) {
         st.optJSONObject("list")?.let { o ->
@@ -191,6 +201,14 @@ class Store private constructor(context: Context) {
             continueWatching.clear(); continueWatching.addAll(sorted)
             save("continue", continueWatching.map { p -> toJson(p.title).put("s", p.season).put("e", p.episode) })
         }
+        st.optJSONObject("prof")?.let { o ->
+            val a = o.optLong("at"); val n = o.optString("name").trim()
+            if (n.isNotEmpty() && a > syncPrefs.getLong("name_at", 0L)) {
+                I18n.name = n; I18n.save()
+                syncPrefs.edit().putString("name_last", n).putLong("name_at", a).apply()
+            }
+        }
+        syncPrefs.edit().putLong("last", System.currentTimeMillis()).apply()
         saveLedger()
     }
 

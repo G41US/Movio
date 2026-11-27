@@ -187,7 +187,7 @@ fun App(openRequest: androidx.compose.runtime.MutableState<Title?>) {
     // First launch: name, language and subtitles before anything loads, so it all comes in the right language.
     if (!I18n.setupDone) {
         Box(Modifier.fillMaxSize().background(Ink)) {
-            SetupScreen { }
+            SetupScreen(store, ready = !splash) { }
             if (splash) Splash { splash = false }
         }
         return@CompositionLocalProvider
