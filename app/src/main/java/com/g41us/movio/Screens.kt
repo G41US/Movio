@@ -54,6 +54,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.clip
@@ -207,11 +208,16 @@ private fun PlatformCard(p: Tmdb.Platform, onClick: () -> Unit) {
 @Composable
 private fun PlatformTile(p: Tmdb.Platform, onClick: () -> Unit) {
     val shape = RoundedCornerShape(16.dp)
-    Column(Modifier.width(150.dp).clickableNoRipple(onClick)) {
+    // The Sunset glow only shows while the tile is pressed (or highlighted with a keyboard/remote).
+    val src = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val pressed by src.collectIsPressedAsState()
+    var focused by remember { mutableStateOf(false) }
+    val on = pressed || focused
+    Column(Modifier.width(150.dp).onFocusChanged { focused = it.hasFocus }.clickable(interactionSource = src, indication = null, onClick = onClick)) {
         Box(
-            Modifier.size(150.dp, 84.dp).shadow(12.dp, shape, ambientColor = Violet, spotColor = Violet)
+            Modifier.size(150.dp, 84.dp).then(if (on) Modifier.shadow(12.dp, shape, ambientColor = Violet, spotColor = Violet) else Modifier)
                 .background(Brush.linearGradient(listOf(Color(0xFF1A1B25), Color(0xFF0F1017))), shape)
-                .border(1.5.dp, Violet.copy(alpha = .45f), shape),
+                .border(1.dp, if (on) Violet.copy(alpha = .8f) else Color.White.copy(alpha = .08f), shape),
             contentAlignment = Alignment.Center,
         ) { NetImage(Tmdb.img(p.logo, "w154"), null, Modifier.size(46.dp).clip(RoundedCornerShape(12.dp)), contentScale = ContentScale.Crop) }
         Spacer(Modifier.height(8.dp))

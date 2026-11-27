@@ -52,6 +52,22 @@ struct HomeView: View {
 }
 
 /// Netflix, Prime Video…: tap one to see what's on it.
+/// Platform tiles: a quiet edge at rest; the Sunset glow only while pressed.
+struct GlowPress: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        let on = configuration.isPressed
+        return configuration.label
+            .overlay(alignment: .top) {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(on ? Color.violet.opacity(0.8) : Color.white.opacity(0.08), lineWidth: 1)
+                    .frame(width: 150, height: 84)
+                    .shadow(color: on ? Color.violet.opacity(0.6) : .clear, radius: 10)
+            }
+            .scaleEffect(on ? 0.96 : 1)
+            .animation(.easeOut(duration: 0.15), value: on)
+    }
+}
+
 struct PlatformsRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -69,13 +85,11 @@ struct PlatformsRow: View {
                                         AsyncImage(url: TMDB.img(p.logo, "w154")) { $0.resizable().scaledToFill() } placeholder: { Color.white.opacity(0.08) }
                                             .frame(width: 46, height: 46).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                                             .shadow(color: .black.opacity(0.45), radius: 8, y: 5))
-                                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.violet.opacity(0.45), lineWidth: 1.5))
-                                    .shadow(color: Color.violet.opacity(0.45), radius: 9)
                                 Text(verbatim: p.name).font(jakarta(13, .bold)).foregroundStyle(Color.soft).lineLimit(1)
                             }
                             .frame(width: 150, alignment: .leading)
                         }
-                        .buttonStyle(PressStyle())
+                        .buttonStyle(GlowPress())
                     }
                 }
                 .padding(.horizontal, 18).padding(.vertical, 8)
