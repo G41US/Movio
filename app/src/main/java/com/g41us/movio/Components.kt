@@ -308,7 +308,7 @@ fun RankedCard(rank: Int, t: Title, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     Row(Modifier.onFocusChanged { focused = it.hasFocus }.clickable(interactionSource = null, indication = null, onClick = onClick), verticalAlignment = Alignment.Bottom) {
         val size = if (wide) 176.sp else 120.sp
-        val chrome = Brush.verticalGradient(0f to Color.White, .55f to Color(0xFFE4DEFF), 1f to Color(0xFF8F86C2))
+        val chrome = Brush.verticalGradient(0f to Color.White, .55f to Color(0xFFFFE6DC), 1f to Color(0xFFC2876E))
         Box(Modifier.offset(x = 14.dp, y = 16.dp)) {
             // A stroke of the same chrome under the fill makes the digits heavier than the font allows.
             Text(rank.toString(), fontSize = size, lineHeight = size, fontWeight = FontWeight.Black, letterSpacing = (-8).sp,

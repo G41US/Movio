@@ -45,8 +45,8 @@ import androidx.compose.ui.graphics.Shape
 
 val Ink = Color(0xFF07080D)
 val Panel = Color(0xFF151722)
-val Violet = Color(0xFF9B6DFF)
-val Pink = Color(0xFFFF5FA2)
+val Violet = Color(0xFFFF4D2E)  // Sunset red (the name stays from the old theme)
+val Pink = Color(0xFFFF9F1C)  // Sunset orange
 val Muted = Color(0xFF9EA1B3)
 val Soft = Color(0xFFDADBE5)
 val Gold = Color(0xFFFFC94D)

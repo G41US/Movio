@@ -54,6 +54,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.clipToBounds
@@ -172,18 +173,29 @@ fun FeedScreen(kind: Kind?, store: Store, onOpen: (Title) -> Unit, onPlay: (Titl
 
 @Composable
 private fun PlatformRow(onPlatform: (Int) -> Unit) {
-    val tv = LocalWide.current
-    val size = if (tv) 96.dp else 68.dp
+    val wide = LocalWide.current
+    val w = if (wide) 200.dp else 150.dp
+    val h = if (wide) 112.dp else 84.dp
+    val logo = if (wide) 62.dp else 46.dp
     SectionTitle("Platforms")
-    LazyRow(Modifier.tvEdgeFade(), contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(if (tv) 18.dp else 14.dp)) {
+    // Wide dark tiles with the service's logo and one soft Sunset glow (the same for every service).
+    LazyRow(Modifier.tvEdgeFade(), contentPadding = PaddingValues(start = Gutter, end = GutterEnd, top = 6.dp, bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(if (wide) 18.dp else 12.dp)) {
         items(Tmdb.PLATFORMS, key = { it.id }) { p ->
-            Column(Modifier.width(size + 8.dp).clickableNoRipple { onPlatform(p.id) }, horizontalAlignment = Alignment.CenterHorizontally) {
-                val shape = RoundedCornerShape(size * .26f)
-                Box(Modifier.size(size).tappableCard(shape) { onPlatform(p.id) }) {
-                    NetImage(Tmdb.img(p.logo, "w154"), null, Modifier.fillMaxSize().clip(shape).border(1.dp, Color.White.copy(alpha = .08f), shape), contentScale = ContentScale.Crop)
+            Column(Modifier.width(w).clickableNoRipple { onPlatform(p.id) }) {
+                val shape = RoundedCornerShape(16.dp)
+                var focused by remember { mutableStateOf(false) }
+                Box(
+                    Modifier.size(w, h).onFocusChanged { focused = it.isFocused || it.hasFocus }
+                        .shadow(if (focused) 22.dp else 14.dp, shape, ambientColor = Violet, spotColor = Violet)
+                        .tappableCard(shape) { onPlatform(p.id) }
+                        .background(Brush.linearGradient(listOf(Color(0xFF1A1B25), Color(0xFF0F1017))), shape)
+                        .border(1.5.dp, Violet.copy(alpha = if (focused) .9f else .45f), shape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    NetImage(Tmdb.img(p.logo, "w154"), null, Modifier.size(logo).shadow(10.dp, RoundedCornerShape(12.dp)).clip(RoundedCornerShape(12.dp)), contentScale = ContentScale.Crop)
                 }
-                Spacer(Modifier.height(7.dp))
-                androidx.compose.material3.Text(p.name, fontSize = if (tv) 14.sp else 12.sp, fontWeight = FontWeight.Bold, color = Soft, style = jakarta(), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(8.dp))
+                androidx.compose.material3.Text(p.name, fontSize = if (wide) 14.sp else 13.sp, fontWeight = FontWeight.Bold, color = Soft, style = jakarta(), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }

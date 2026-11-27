@@ -391,7 +391,7 @@ const LIVE_CATS = ["news", "sports", "movies", "entertainment", "music", "kids",
 async function liveView() {
   liveIndex ||= await liveGet("index.json");
   if (!liveIndex) { view.innerHTML = `<div class="empty pad-top"><b>${I.t("Live TV is getting ready")}</b><span class="muted">${I.t("Try again in a few minutes.")}</span></div>`; return; }
-  const st = { cc: sessionStorage.getItem("liveCc") || myCountry(), cat: sessionStorage.getItem("liveCat") || "", q: "", limit: 120 };
+  const st = { cc: sessionStorage.getItem("liveCc2") || "ALL", cat: sessionStorage.getItem("liveCat") || "", q: "", limit: 120 };
   if (!liveIndex.countries.some((c) => c.code === st.cc) && st.cc !== "ALL") st.cc = "US";
   const cName = (cc) => cc === "ALL" ? I.t("Worldwide") : liveIndex.countries.find((c) => c.code === cc)?.name || cc;
   // Quick picks in alphabetical order (the full list is under "All countries").
@@ -410,11 +410,11 @@ async function liveView() {
       + `<button class="chip" id="lmore">${I.t("All countries")} ›</button>`;
     view.querySelector("#lcat").innerHTML = [["", "All"], ...LIVE_CATS.map((c) => [c, c[0].toUpperCase() + c.slice(1)])]
       .filter(([c]) => !c || liveIndex.categories.some((x) => x.id === c)).map(([c, n]) => `<button class="chip ${st.cat === c ? "on" : ""}" data-cat="${c}">${I.t(n)}</button>`).join("");
-    view.querySelectorAll("[data-cc]").forEach((b) => (b.onclick = () => { st.cc = b.dataset.cc; sessionStorage.setItem("liveCc", st.cc); chips(); load(); }));
+    view.querySelectorAll("[data-cc]").forEach((b) => (b.onclick = () => { st.cc = b.dataset.cc; sessionStorage.setItem("liveCc2", st.cc); chips(); load(); }));
     view.querySelectorAll("[data-cat]").forEach((b) => (b.onclick = () => { st.cat = b.dataset.cat; sessionStorage.setItem("liveCat", st.cat); st.limit = 120; chips(); draw(); }));
     const sorted = [...liveIndex.countries].sort((a, b) => a.name.localeCompare(b.name));
     view.querySelector("#lmore").onclick = () => sheet(I.t("Country"), sorted.map((c) => ({ label: `${c.name} · ${c.n}`, on: c.code === st.cc, fn: () => {
-      st.cc = c.code; sessionStorage.setItem("liveCc", st.cc); top = quick(); chips(); load(); } })));
+      st.cc = c.code; sessionStorage.setItem("liveCc2", st.cc); top = quick(); chips(); load(); } })));
   };
   const tile = (x, i) => `<button class="ltile" data-i="${i}"><div class="lpic">${x.l ? `<img src="${esc(x.l)}" alt="" loading="lazy">` : `<b>${esc(x.n.slice(0, 2))}</b>`}<span class="lbadge"><i></i>LIVE</span>${liveFav[x.id] ? `<span class="lstar">★</span>` : ""}</div><span class="lname" data-raw>${esc(x.n)}</span><small>${I.t(cap(x.c[0] || "general"))}</small></button>`;
   const cap = (s) => s[0].toUpperCase() + s.slice(1);
@@ -525,17 +525,17 @@ function livePlay(list, i) {
 
 // ---------- Platforms: what's on Netflix, Prime Video… (TMDB's US lists), all played in Movio ----------
 const PLATFORMS = [
-  { id: 8, name: "Netflix", logo: "/rK1KljqmbvO9HQa1PBFLILWah72.png" },
-  { id: 9, name: "Prime Video", logo: "/gMZdpavHmxFNnLpMHwVxfqeux2g.png" },
-  { id: 337, name: "Disney+", logo: "/5eZ872CghnHFLB1j8grszbrx0dx.png" },
-  { id: 1899, name: "HBO Max", logo: "/skypuy7SXuugIQeYg0IglmzoKaS.png" },
-  { id: 350, name: "Apple TV", logo: "/v9SnyvYt0U3KGgBH3Sbh3z4yODe.png" },
-  { id: 15, name: "Hulu", logo: "/44uAnmSqvA4yBOdbPWN8YgQHjWm.png" },
-  { id: 386, name: "Peacock", logo: "/a1UIdq5BrkcAxnxcUhFsNbXnxeu.png" },
-  { id: 283, name: "Crunchyroll", logo: "/uFL3c4Cq8M6WoLymlC5Y8bmGytV.png" },
+  { id: 8, name: "Netflix", logo: "/rK1KljqmbvO9HQa1PBFLILWah72.png", glow: "#E50914" },
+  { id: 9, name: "Prime Video", logo: "/gMZdpavHmxFNnLpMHwVxfqeux2g.png", glow: "#1FA2FF" },
+  { id: 337, name: "Disney+", logo: "/5eZ872CghnHFLB1j8grszbrx0dx.png", glow: "#3D7BFF" },
+  { id: 1899, name: "HBO Max", logo: "/skypuy7SXuugIQeYg0IglmzoKaS.png", glow: "#8A3FFC" },
+  { id: 350, name: "Apple TV", logo: "/v9SnyvYt0U3KGgBH3Sbh3z4yODe.png", glow: "#D9D9E3" },
+  { id: 15, name: "Hulu", logo: "/44uAnmSqvA4yBOdbPWN8YgQHjWm.png", glow: "#1CE783" },
+  { id: 386, name: "Peacock", logo: "/a1UIdq5BrkcAxnxcUhFsNbXnxeu.png", glow: "#FFC72C" },
+  { id: 283, name: "Crunchyroll", logo: "/uFL3c4Cq8M6WoLymlC5Y8bmGytV.png", glow: "#F47521" },
 ];
 const platRow = () => `<section class="row"><h2>${I.t("Platforms")}</h2><div class="scroll plats">${PLATFORMS.map((x) =>
-  `<a class="plat" href="#/platform/${x.id}"><img src="${img(x.logo, "w154")}" alt="" loading="lazy"><span data-raw>${esc(x.name)}</span></a>`).join("")}</div></section>`;
+   `<a class="plat" href="#/platform/${x.id}"><div class="ptile"><img class="fg" src="${img(x.logo, "w154")}" alt="" loading="lazy"></div><span data-raw>${esc(x.name)}</span></a>`).join("")}</div></section>`;
 const PLAT_SORT = { popular: "popularity.desc", new: null, top: "vote_average.desc" };
 async function platform(id) {
   const x = PLATFORMS.find((p) => p.id === +id) || PLATFORMS[0];

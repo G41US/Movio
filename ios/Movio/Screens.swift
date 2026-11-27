@@ -60,20 +60,25 @@ struct PlatformsRow: View {
                 HStack(spacing: 14) {
                     ForEach(TMDB.platforms) { p in
                         NavigationLink { PlatformView(platform: p) } label: {
-                            VStack(spacing: 7) {
-                                AsyncImage(url: TMDB.img(p.logo, "w154")) { $0.resizable().scaledToFill() } placeholder: { Color.white.opacity(0.08) }
-                                    .frame(width: 68, height: 68)
-                                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                                    .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.white.opacity(0.08)))
-                                    .shadow(color: .black.opacity(0.35), radius: 9, y: 6)
-                                Text(verbatim: p.name).font(jakarta(12, .bold)).foregroundStyle(Color.soft).lineLimit(1)
+                            // Wide dark tiles with the logo and one soft Sunset glow (the same for every service).
+                            VStack(alignment: .leading, spacing: 8) {
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .fill(LinearGradient(colors: [Color(red: 0.10, green: 0.106, blue: 0.145), Color(red: 0.06, green: 0.063, blue: 0.09)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                                    .frame(width: 150, height: 84)
+                                    .overlay(
+                                        AsyncImage(url: TMDB.img(p.logo, "w154")) { $0.resizable().scaledToFill() } placeholder: { Color.white.opacity(0.08) }
+                                            .frame(width: 46, height: 46).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                            .shadow(color: .black.opacity(0.45), radius: 8, y: 5))
+                                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.violet.opacity(0.45), lineWidth: 1.5))
+                                    .shadow(color: Color.violet.opacity(0.45), radius: 9)
+                                Text(verbatim: p.name).font(jakarta(13, .bold)).foregroundStyle(Color.soft).lineLimit(1)
                             }
-                            .frame(width: 76)
+                            .frame(width: 150, alignment: .leading)
                         }
                         .buttonStyle(PressStyle())
                     }
                 }
-                .padding(.horizontal, 18)
+                .padding(.horizontal, 18).padding(.vertical, 8)
             }
         }
     }

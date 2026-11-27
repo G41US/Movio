@@ -129,7 +129,7 @@ fun LiveScreen() {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var index by remember { mutableStateOf<Live.Index?>(null) }
     var failed by remember { mutableStateOf(false) }
-    var cc by rememberSaveableString("liveCc", Live.myCountry())
+    var cc by rememberSaveableString("liveCc2", "ALL")
     var cat by rememberSaveableString("liveCat", "")
     var query by remember { mutableStateOf("") }
     var list by remember { mutableStateOf<List<Channel>?>(null) }
@@ -148,9 +148,9 @@ fun LiveScreen() {
     val tvBar = LocalTopBar.current
     val grid = rememberLazyGridState()
     LazyVerticalGrid(
-        GridCells.Adaptive(if (wide) 220.dp else 150.dp), Modifier.fillMaxSize().dpadScroll(grid), state = grid,
+        GridCells.Adaptive(if (wide) 200.dp else 108.dp), Modifier.fillMaxSize().dpadScroll(grid), state = grid,
         contentPadding = PaddingValues(start = Gutter, end = GutterEnd, top = if (tvBar != null) 0.dp else barSpace(), bottom = dockSpace()),
-        horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
         if (tvBar != null) item(span = { GridItemSpan(maxLineSpan) }) { Box(Modifier.bleed(Gutter, GutterEnd)) { tvBar() } }
         if (idx == null) {
@@ -198,7 +198,7 @@ fun LiveScreen() {
                     SectionTitle("Favourites")
                     Box(Modifier.bleed(Gutter, GutterEnd)) {
                         LazyRow(contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            items(favs, key = { "f" + it.id }) { ch -> Box(Modifier.width(if (wide) 220.dp else 150.dp)) { ChannelTile(ch, true, { Live.play(ctx, favs, favs.indexOf(ch)) }) { Live.toggleFav(ctx, ch); favs = Live.favs(ctx) } } }
+                            items(favs, key = { "f" + it.id }) { ch -> Box(Modifier.width(if (wide) 200.dp else 116.dp)) { ChannelTile(ch, true, { Live.play(ctx, favs, favs.indexOf(ch)) }) { Live.toggleFav(ctx, ch); favs = Live.favs(ctx) } } }
                         }
                     }
                 }
@@ -256,31 +256,31 @@ private fun rememberSaveableString(key: String, default: String): MutableState<S
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ChannelTile(ch: Channel, fav: Boolean, onOpen: () -> Unit, onFav: () -> Unit) {
-    val shape = RoundedCornerShape(16.dp)
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    val shape = RoundedCornerShape(12.dp)
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Box(
-            Modifier.fillMaxWidth().aspectRatio(16f / 10f).focusGlow(shape).clip(shape)
+            Modifier.fillMaxWidth().aspectRatio(16f / 11f).focusGlow(shape).clip(shape)
                 .background(Brush.radialGradient(listOf(Color(0xFF2A2B3A), Color(0xFF15161F)), radius = 600f))
                 .border(1.dp, Color.White.copy(alpha = .07f), shape)
                 .combinedClickable(onLongClick = onFav, onClick = onOpen),
             contentAlignment = Alignment.Center,
         ) {
-            if (ch.logo != null) NetImage(ch.logo, null, Modifier.fillMaxWidth(.62f).fillMaxHeight(.58f))
+            if (ch.logo != null) NetImage(ch.logo, null, Modifier.fillMaxWidth(.7f).fillMaxHeight(.62f))
             else androidx.compose.material3.Text(ch.name.take(2).uppercase(), fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = Soft, style = jakarta())
-            LiveBadge(Modifier.align(Alignment.TopStart).padding(8.dp))
+            LiveBadge(Modifier.align(Alignment.TopStart).padding(6.dp), small = true)
             if (fav) androidx.compose.material3.Text("★", color = Color(0xFFFFD25E), fontSize = 15.sp, modifier = Modifier.align(Alignment.TopEnd).padding(horizontal = 9.dp, vertical = 5.dp))
         }
-        androidx.compose.material3.Text(ch.name, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White, style = jakarta(), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text((ch.cats.firstOrNull() ?: "general").replaceFirstChar { it.uppercase() }, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Muted, style = jakarta())
+        androidx.compose.material3.Text(ch.name, fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = Color.White, style = jakarta(), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text((ch.cats.firstOrNull() ?: "general").replaceFirstChar { it.uppercase() }, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Muted, style = jakarta())
     }
 }
 
 @Composable
-fun LiveBadge(modifier: Modifier = Modifier) {
-    Row(modifier.clip(RoundedCornerShape(6.dp)).background(Color(0xE6FF3B5C)).padding(horizontal = 7.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(5.dp).clip(RoundedCornerShape(50)).background(Color.White))
-        Spacer(Modifier.width(5.dp))
-        androidx.compose.material3.Text("LIVE", fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, letterSpacing = .6.sp)
+fun LiveBadge(modifier: Modifier = Modifier, small: Boolean = false) {
+    Row(modifier.clip(RoundedCornerShape(5.dp)).background(Color(0xE6FF3B5C)).padding(horizontal = if (small) 5.dp else 7.dp, vertical = if (small) 2.dp else 3.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(if (small) 4.dp else 5.dp).clip(RoundedCornerShape(50)).background(Color.White))
+        Spacer(Modifier.width(if (small) 4.dp else 5.dp))
+        androidx.compose.material3.Text("LIVE", fontSize = if (small) 8.5.sp else 10.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, letterSpacing = .6.sp)
     }
 }
 
