@@ -83,6 +83,16 @@ jobs:
             adb shell input keyevent KEYCODE_DPAD_DOWN
             sleep 3
             adb exec-out screencap -p > shots/6_lower.png
+            adb shell input keyevent KEYCODE_DPAD_LEFT
+            sleep 1
+            for i in 1 2 3 4 5 6; do adb shell input keyevent KEYCODE_DPAD_DOWN; done
+            adb shell input keyevent KEYCODE_DPAD_CENTER
+            sleep 4
+            adb exec-out screencap -p > shots/7_settings.png
+            adb shell input keyevent KEYCODE_DPAD_RIGHT
+            for i in 1 2 3 4 5 6 7; do adb shell input keyevent KEYCODE_DPAD_DOWN; sleep 0.3; done
+            sleep 2
+            adb exec-out screencap -p > shots/8_settings_link.png
       - uses: actions/upload-artifact@v4
         with:
           name: tv-shots
