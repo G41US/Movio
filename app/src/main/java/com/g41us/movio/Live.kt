@@ -149,7 +149,7 @@ fun LiveScreen() {
     val tvBar = LocalTopBar.current
     val grid = rememberLazyGridState()
     LazyVerticalGrid(
-        if (LocalTv.current) GridCells.FixedSize(176.dp) else GridCells.Adaptive(if (wide) 170.dp else 108.dp), Modifier.fillMaxSize().dpadScroll(grid), state = grid,
+        if (LocalTv.current) GridCells.FixedSize(TvCard) else GridCells.Adaptive(if (wide) 170.dp else 108.dp), Modifier.fillMaxSize().dpadScroll(grid), state = grid,
         contentPadding = PaddingValues(start = Gutter, end = GutterEnd, top = if (tvBar != null) 0.dp else barSpace(), bottom = dockSpace()),
         horizontalArrangement = Arrangement.spacedBy(if (LocalTv.current) 16.dp else 12.dp, Alignment.Start), verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
@@ -199,7 +199,7 @@ fun LiveScreen() {
                     SectionTitle("Favourites")
                     Box(Modifier.bleed(Gutter, GutterEnd)) {
                         LazyRow(contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            items(favs, key = { "f" + it.id }) { ch -> Box(Modifier.width(if (LocalTv.current) 176.dp else if (wide) 170.dp else 116.dp)) { ChannelTile(ch, true, { Live.play(ctx, favs, favs.indexOf(ch)) }) { Live.toggleFav(ctx, ch); favs = Live.favs(ctx) } } }
+                            items(favs, key = { "f" + it.id }) { ch -> Box(Modifier.width(if (LocalTv.current) TvCard else if (wide) 170.dp else 116.dp)) { ChannelTile(ch, true, { Live.play(ctx, favs, favs.indexOf(ch)) }) { Live.toggleFav(ctx, ch); favs = Live.favs(ctx) } } }
                         }
                     }
                 }

@@ -176,7 +176,7 @@ fun FeedScreen(kind: Kind?, store: Store, onOpen: (Title) -> Unit, onPlay: (Titl
 private fun PlatformRow(onPlatform: (Int) -> Unit) {
     val tv = LocalTv.current
     SectionTitle("Platforms")
-    LazyRow(Modifier.tvEdgeFade(), contentPadding = PaddingValues(start = Gutter, end = GutterEnd, top = 4.dp, bottom = 10.dp),
+    LazyRow(Modifier.tvEdgeFade(), contentPadding = PaddingValues(start = Gutter, end = GutterEnd, top = if (tv) 12.dp else 4.dp, bottom = if (tv) 12.dp else 10.dp),
         horizontalArrangement = Arrangement.spacedBy(if (LocalWide.current) 16.dp else 12.dp)) {
         items(Tmdb.PLATFORMS, key = { it.id }) { p -> if (tv) PlatformCard(p) { onPlatform(p.id) } else PlatformTile(p) { onPlatform(p.id) } }
     }
@@ -187,18 +187,19 @@ private fun PlatformRow(onPlatform: (Int) -> Unit) {
 private fun PlatformCard(p: Tmdb.Platform, onClick: () -> Unit) {
     val shape = RoundedCornerShape(14.dp)
     var focused by remember { mutableStateOf(false) }
-    val k by androidx.compose.animation.core.animateFloatAsState(if (focused) 1.05f else 1f, label = "pc")
+    val k by androidx.compose.animation.core.animateFloatAsState(if (focused) 1.04f else 1f, label = "pc")
     Row(
-        Modifier.width(176.dp).height(64.dp).graphicsLayer { scaleX = k; scaleY = k }
+        Modifier.width(TvCard).height(58.dp).graphicsLayer { scaleX = k; scaleY = k }
             .onFocusChanged { focused = it.isFocused }.clickableNoRipple(onClick)
+            .softRing(if (focused) .7f else 0f, shape)
             .clip(shape).background(if (focused) Color.White else Color(0xFF15161E))
             .border(1.dp, if (focused) Color.White else Color.White.copy(alpha = .08f), shape)
             .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        NetImage(Tmdb.img(p.logo, "w92"), null, Modifier.size(36.dp).clip(RoundedCornerShape(9.dp)), contentScale = ContentScale.Crop)
-        Spacer(Modifier.width(12.dp))
-        androidx.compose.material3.Text(p.name, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = if (focused) Ink else Soft, style = jakarta(), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        NetImage(Tmdb.img(p.logo, "w92"), null, Modifier.size(32.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop)
+        Spacer(Modifier.width(10.dp))
+        androidx.compose.material3.Text(p.name, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (focused) Ink else Soft, style = jakarta(), maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
