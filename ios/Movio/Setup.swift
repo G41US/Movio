@@ -137,8 +137,12 @@ struct SetupView: View {
 /// The round button on Home: name, app language and subtitle language.
 struct ProfileSheet: View {
     @EnvironmentObject var profile: Profile
+    @ObservedObject private var store = Store.shared
     @Environment(\.dismiss) private var dismiss
     @State private var name = Profile.shared.name
+    @State private var typed = ""
+    @State private var msg: String?
+    @State private var working = false
 
     var body: some View {
         NavigationStack {
@@ -157,6 +161,35 @@ struct ProfileSheet: View {
                     ForEach(I18n.langs, id: \.code) { l in row(L(l.english), profile.subLang == l.code) { profile.subLang = l.code } }
                     row(L("No subtitles"), profile.subLang == "off") { profile.subLang = "off" }
                 }
+                Section {
+                    if store.syncCode.isEmpty {
+                        Button(L("Get a code")) { run { if await store.createCode() == nil { msg = L("Couldn't reach the server. Try again.") } } }
+                        HStack {
+                            TextField("", text: $typed, prompt: Text(verbatim: L("Type the code")))
+                                .textInputAutocapitalization(.characters).autocorrectionDisabled()
+                                .font(.system(size: 18, weight: .bold, design: .rounded))
+                                .onChange(of: typed) { v in typed = String(v.uppercased().filter { $0.isLetter || $0.isNumber }.prefix(6)) }
+                            Button(L("Link")) { run { msg = L(await store.joinCode(typed) ? "Linked" : "That code wasn't found. Check it and try again.") } }
+                                .disabled(typed.count != 6)
+                        }
+                    } else {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("This device's code").font(.footnote).foregroundStyle(Color.muted)
+                            Text(verbatim: store.syncCode).font(.system(size: 34, weight: .heavy, design: .rounded)).kerning(6).foregroundStyle(brand)
+                            Text("On your other device, open Link devices and type this code.").font(.footnote).foregroundStyle(Color.muted)
+                        }
+                        .padding(.vertical, 4)
+                        Button(L("Sync now")) { run { msg = L(await store.sync() ? "Synced" : "Couldn't sync") } }
+                        Button(L("Unlink"), role: .destructive) { store.syncCode = ""; msg = nil }
+                    }
+                    if working { ProgressView() }
+                    if let msg { Text(verbatim: msg).font(.footnote).foregroundStyle(Color.soft) }
+                } header: { Text("Link devices") } footer: {
+                    Text("My List, Continue watching and where you stopped follow you on every device with the same code.")
+                }
+                Section {
+                    Toggle(isOn: $store.kids) { Text("Kids mode") }.tint(.violet)
+                } footer: { Text("Only family and animated titles.") }
             }
             .scrollContentBackground(.hidden)
             .background(Color.ink)
@@ -165,6 +198,11 @@ struct ProfileSheet: View {
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Close") { dismiss() } } }
         }
         .presentationDetents([.large])
+    }
+
+    private func run(_ work: @escaping () async -> Void) {
+        working = true; msg = nil
+        Task { await work(); working = false }
     }
 
     private func row(_ label: String, _ on: Bool, _ tap: @escaping () -> Void) -> some View {

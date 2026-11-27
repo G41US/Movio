@@ -41,6 +41,8 @@ struct MovioApp: App {
         UIScrollView.appearance().showsHorizontalScrollIndicator = false
     }
 
+    @Environment(\.scenePhase) private var phase
+
     var body: some Scene {
         WindowGroup {
             RootView()
@@ -49,6 +51,8 @@ struct MovioApp: App {
                 .environment(\.layoutDirection, profile.rtl ? .rightToLeft : .leftToRight)
                 .preferredColorScheme(.dark)
                 .tint(.violet)
+                // Linked devices: bring in changes when Movio opens, send ours when it goes to the background.
+                .onChange(of: phase) { p in if p != .inactive { Task { await store.sync() } } }
         }
     }
 }
@@ -70,7 +74,7 @@ struct RootView: View {
             tab(SearchView(), "Search", "magnifyingglass")
             tab(MyListView(), "My List", "bookmark.fill")
         }
-        .id(profile.lang)  // a new language reloads every screen in it
+        .id("\(profile.lang)\(store.kids)")  // a new language or kids mode reloads every screen
         .overlay(alignment: .top) { GreetingPill(text: profile.greeting).padding(.top, 6) }
         .fullScreenCover(item: $store.playing) { req in
             PlayerScreen(request: req).environmentObject(store).environmentObject(profile)

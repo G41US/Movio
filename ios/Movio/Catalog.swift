@@ -85,9 +85,35 @@ enum TMDB {
                      year: date.count >= 4 ? String(date.prefix(4)) : nil, rating: (o["vote_average"] as? Double) ?? 0)
     }
 
+    /// Kids mode: only family, animated and kids titles anywhere in the catalog.
+    static var kids: Bool { UserDefaults.standard.bool(forKey: "kids") }
+    private static let kidsGenres: Set<Int> = [16, 10751, 10762]
+    private static func kidsOK(_ o: [String: Any]) -> Bool {
+        guard kids else { return true }
+        if (o["adult"] as? Bool) == true { return false }
+        return ((o["genre_ids"] as? [Int]) ?? []).contains { kidsGenres.contains($0) }
+    }
+
     static func list(_ path: String, _ kind: Kind?, _ params: [String: String] = [:]) async throws -> [Title] {
         let o = try await get(path, params)
-        return ((o["results"] as? [[String: Any]]) ?? []).compactMap { parse($0, kind) }.filter { $0.poster != nil }
+        return ((o["results"] as? [[String: Any]]) ?? []).filter(kidsOK).compactMap { parse($0, kind) }.filter { $0.poster != nil }
+    }
+
+    static func kidsRows(_ only: Kind? = nil) async -> [Row] {
+        let pg = ["certification_country": "US", "certification.lte": "PG"]
+        var specs: [(String, () async throws -> [Title])] = []
+        if only != .tv {
+            specs.append(("Family movies", { try await list("discover/movie", .movie, ["with_genres": "10751", "sort_by": "popularity.desc"].merging(pg) { a, _ in a }) }))
+            specs.append(("Animated movies", { try await list("discover/movie", .movie, ["with_genres": "16", "sort_by": "popularity.desc"].merging(pg) { a, _ in a }) }))
+        }
+        if only != .movie {
+            specs.append(("Kids shows", { try await list("discover/tv", .tv, ["with_genres": "10762", "sort_by": "popularity.desc"]) }))
+            specs.append(("Animated shows", { try await list("discover/tv", .tv, ["with_genres": "16,10751", "sort_by": "popularity.desc"]) }))
+        }
+        if only != .tv {
+            specs.append(("Top rated family movies", { try await list("discover/movie", .movie, ["with_genres": "10751", "sort_by": "vote_average.desc", "vote_count.gte": "500"].merging(pg) { a, _ in a }) }))
+        }
+        return await rows(specs)
     }
 
     /// Loads all rows at once; rows that fail are dropped.
@@ -106,7 +132,8 @@ enum TMDB {
     }
 
     static func home() async -> [Row] {
-        await rows([
+        if kids { return await kidsRows() }
+        return await rows([
             ("Top 10 today", { Array(try await list("trending/all/day", nil).prefix(10)) }),
             ("New in cinemas", { try await list("movie/now_playing", .movie) }),
             ("Trending this week", { try await list("trending/all/week", nil) }),
@@ -118,6 +145,7 @@ enum TMDB {
     }
 
     static func browse(_ kind: Kind) async -> [Row] {
+        if kids { return await kidsRows(kind) }
         if kind == .movie {
             return await rows([
                 ("Top 10 movies", { Array(try await list("trending/movie/day", .movie).prefix(10)) }),
