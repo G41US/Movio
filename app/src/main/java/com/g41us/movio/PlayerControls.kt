@@ -1,5 +1,7 @@
 package com.g41us.movio
 
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -443,15 +445,18 @@ fun PlayerControls(player: Player, host: PlayerHost, visible: Boolean, onVisible
                         var goOn by remember { mutableStateOf(false) }
                         Box(
                             Modifier.focusRequester(goFocus).onFocusChanged { goOn = it.isFocused }.clip(RoundedCornerShape(12.dp))
-                                .background(Color.White.copy(alpha = .22f)).softRing(if (goOn) 1f else 0f, RoundedCornerShape(12.dp))
+                                .background(Color(0xFF3A3B44)).softRing(if (goOn) 1f else 0f, RoundedCornerShape(12.dp))
                                 .clickable { countdownDismissed = true; host.next() },
                         ) {
                             Box(Modifier.matchParentSize()) { Box(Modifier.fillMaxHeight().fillMaxWidth(fill).background(Color.White)) }
-                            Row(Modifier.padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(painterResource(R.drawable.ic_play_fill), null, tint = Ink, modifier = Modifier.size(18.dp))
+                            // White words on the grey part, dark words where the white fill has reached.
+                            @Composable fun label(c: Color, m: Modifier) = Row(m.padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(painterResource(R.drawable.ic_play_fill), null, tint = c, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(8.dp))
-                                Text(t("Next episode"), color = Ink, fontSize = 15.sp, fontWeight = FontWeight.Bold, style = jakarta())
+                                Text(t("Next episode"), color = c, fontSize = 15.sp, fontWeight = FontWeight.Bold, style = jakarta())
                             }
+                            label(Color.White, Modifier)
+                            label(Ink, Modifier.drawWithContent { clipRect(right = size.width * fill) { this@drawWithContent.drawContent() } })
                         }
                         var backOn by remember { mutableStateOf(false) }
                         Text(t("Watch credits"), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, style = jakarta(),

@@ -1,5 +1,6 @@
 package com.g41us.movio
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -487,8 +488,8 @@ fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPerson:
                         val isLiked = store.isLiked(t)
                         val ctx = androidx.compose.ui.platform.LocalContext.current
                         val like = { val on = store.toggleLike(t, d.genres); android.widget.Toast.makeText(ctx, t(if (on) "Liked" else "Removed from Liked"), android.widget.Toast.LENGTH_SHORT).show() }
-                        if (wide) Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            PrimaryButton(label, R.drawable.ic_play_fill, Modifier.widthIn(min = 220.dp).tvFirstFocus(t.key)) { onPlay(t, last?.season ?: 1, last?.episode ?: 1) }
+                        if (wide) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            PrimaryButton(label, R.drawable.ic_play_fill, Modifier.widthIn(min = 170.dp).tvFirstFocus(t.key)) { onPlay(t, last?.season ?: 1, last?.episode ?: 1) }
                             GhostButton(if (saved) "In My List" else "My List", if (saved) R.drawable.ic_check else R.drawable.ic_plus) { store.toggle(t) }
                             GhostButton(if (isLiked) "Liked" else "Like", if (isLiked) R.drawable.ic_heart_fill else R.drawable.ic_heart) { like() }
                             if (d.trailer != null) GhostButton("Trailer", R.drawable.ic_trailer) { onTrailer(d.trailer) }
@@ -534,7 +535,7 @@ fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPerson:
                         LazyRow(contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             items(d.seasons) { se -> Chip("Season ${se.number}", se.number == season) { season = se.number } }
                             item {
-                                Chip(tf("Download season {1}", season), false) {
+                                DownloadPill(tf("Download season {1}", season)) {
                                     val eps = d.seasons.firstOrNull { it.number == season }?.episodeCount ?: 0
                                     scope.launch {
                                         val list = runCatching { Tmdb.episodes(t.id, season).map { it.number } }.getOrNull() ?: (1..eps).toList()
@@ -567,7 +568,8 @@ private fun EpisodeList(show: Title, season: Int, last: Progress?, onPlay: (Int)
                 val current = last?.season == season && last.episode == e.number
                 var focused by remember { mutableStateOf(false) }
                 Row(Modifier.fillMaxWidth().padding(vertical = 4.dp).onFocusChanged { focused = it.hasFocus }.clip(RoundedCornerShape(16.dp))
-                    .background(if (focused) Color.White.copy(alpha = .1f) else Color.Transparent).tappableRow { onPlay(e.number) }.padding(vertical = 6.dp, horizontal = if (wide) 8.dp else 0.dp),
+                    .background(if (focused) Color.White.copy(alpha = .1f) else Color.Transparent), verticalAlignment = Alignment.Top) {
+                Row(Modifier.weight(1f).clickable(interactionSource = null, indication = null) { onPlay(e.number) }.padding(vertical = 6.dp, horizontal = if (wide) 8.dp else 0.dp),
                     verticalAlignment = Alignment.Top) {
                     Box(Modifier.width(if (wide) 220.dp else 132.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)).background(Panel).border(if (current) 1.5.dp else 1.dp, if (current) Violet else Edge, RoundedCornerShape(12.dp))) {
                         NetImage(Tmdb.img(e.still ?: show.backdrop, "w300"), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
@@ -588,11 +590,12 @@ private fun EpisodeList(show: Title, season: Int, last: Progress?, onPlay: (Int)
                                 maxLines = if (wide) 3 else 3, overflow = TextOverflow.Ellipsis)
                         }
                     }
+                }
                     // Download this episode (tick when it's on the device, faded while it downloads).
                     val ctx = androidx.compose.ui.platform.LocalContext.current
                     val dl = dlState(show, season, e.number)
                     var dlFocus by remember { mutableStateOf(false) }
-                    Box(Modifier.padding(start = 8.dp).size(40.dp).onFocusChanged { dlFocus = it.isFocused }.clip(RoundedCornerShape(50))
+                    Box(Modifier.align(Alignment.CenterVertically).padding(horizontal = 8.dp).size(44.dp).onFocusChanged { dlFocus = it.isFocused }.clip(RoundedCornerShape(50))
                         .background(if (dlFocus) Color.White else Color.Transparent).clickable { download(ctx, show, season, e.number) },
                         contentAlignment = Alignment.Center) {
                         Icon(painterResource(if (dl == DL.DONE) R.drawable.ic_check else R.drawable.ic_download), t("Download"),
@@ -607,6 +610,16 @@ private fun EpisodeList(show: Title, season: Int, last: Progress?, onPlay: (Int)
 // ---------- Downloads from a title's page ----------
 
 enum class DL { NONE, RUNNING, DONE }
+
+@Composable
+fun DownloadPill(label: String, onClick: () -> Unit) {
+    Row(Modifier.clip(RoundedCornerShape(50)).background(Glass).border(1.dp, Edge, RoundedCornerShape(50)).focusGlow(RoundedCornerShape(50))
+        .clickable(onClick = onClick).padding(start = 12.dp, end = 16.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(painterResource(R.drawable.ic_download), null, tint = Color.White, modifier = Modifier.size(17.dp))
+        Spacer(Modifier.width(7.dp))
+        Text(label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.White, style = jakarta())
+    }
+}
 
 /** Where a download stands, refreshed every couple of seconds while the page is open. */
 @Composable

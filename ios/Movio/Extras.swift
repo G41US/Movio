@@ -16,11 +16,11 @@ struct Segment: Hashable {
 }
 
 enum Segments {
-    /// Exact times from TheIntroDB (community-made), plus intros Movio learned from your own skips.
+    /// Times from two community databases matched up by Movio's helper, plus intros you skipped at the same place twice.
     static func find(_ kind: Kind, _ id: Int, _ s: Int, _ e: Int) async -> [Segment] {
         let q = kind == .tv ? "tmdb_id=\(id)&season=\(s)&episode=\(e)" : "tmdb_id=\(id)"
         var out: [Segment] = []
-        if let url = URL(string: "https://api.theintrodb.org/v4/media?\(q)"),
+        if let url = URL(string: "\(Store.helper)/intro?\(q)"),
            let res = try? await URLSession.shared.data(from: url),
            let o = try? JSONSerialization.jsonObject(with: res.0) as? [String: Any] {
             for type in ["recap", "intro", "credits", "preview"] {
@@ -31,9 +31,11 @@ enum Segments {
                 }
             }
         }
+        // One skip alone isn't trusted (cold opens differ): only when two agree (start within 20 s, length within 8 s).
         if kind == .tv, !out.contains(where: { $0.type == "intro" }),
-           let l = UserDefaults.standard.array(forKey: "intro:\(id)") as? [Double], l.count == 2 {
-            out.append(Segment(type: "learned", start: l[0], end: l[1]))
+           let seen = UserDefaults.standard.array(forKey: "intro2:\(id)") as? [[Double]], let last = seen.last {
+            let agree = seen.filter { abs($0[0] - last[0]) < 20 && abs(($0[1] - $0[0]) - (last[1] - last[0])) < 8 }
+            if agree.count >= 2 { out.append(Segment(type: "learned", start: agree.map { $0[0] }.sorted()[agree.count / 2], end: agree.map { $0[1] }.sorted()[agree.count / 2])) }
         }
         return out.sorted { $0.start < $1.start }
     }
@@ -42,7 +44,9 @@ enum Segments {
     static func learn(_ id: Int, from: Double, to: Double) {
         let jump = to - from
         guard from < 360, jump >= 20, jump <= 150 else { return }
-        UserDefaults.standard.set([max(0, from - 3), to], forKey: "intro:\(id)")
+        var seen = (UserDefaults.standard.array(forKey: "intro2:\(id)") as? [[Double]]) ?? []
+        seen.append([max(0, from - 3), to])
+        UserDefaults.standard.set(Array(seen.suffix(3)), forKey: "intro2:\(id)")
     }
 }
 

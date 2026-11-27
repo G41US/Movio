@@ -457,6 +457,10 @@ W = [
 ("Couldn't find this one to download. Try again later.", "Impossible de télécharger ce titre pour l'instant. Réessayez plus tard.", "No se encontró para descargar. Inténtalo más tarde.", "Não foi possível baixar este título. Tente mais tarde.", "تعذّر العثور عليه للتنزيل. حاول لاحقًا."),
 ("Smart downloads", "Téléchargements intelligents", "Descargas inteligentes", "Downloads inteligentes", "التنزيلات الذكية"),
 ("When you finish a downloaded episode, it's deleted and the next one downloads.", "Quand vous finissez un épisode téléchargé, il est supprimé et le suivant se télécharge.", "Al terminar un episodio descargado, se borra y se descarga el siguiente.", "Ao terminar um episódio baixado, ele é apagado e o próximo é baixado.", "عند إنهاء حلقة منزّلة، تُحذف وتُنزَّل الحلقة التالية."),
+("Download season", "Télécharger la saison", "Descargar temporada", "Baixar temporada", "تنزيل الموسم"),
+("Download failed. Tap to try again.", "Échec du téléchargement. Touchez pour réessayer.", "La descarga falló. Toca para reintentar.", "O download falhou. Toque para tentar de novo.", "فشل التنزيل. اضغط للمحاولة مجددًا."),
+("Delete", "Supprimer", "Eliminar", "Excluir", "حذف"),
+("Tap Download on a film or episode to watch it without internet.", "Touchez Télécharger sur un film ou un épisode pour le regarder sans internet.", "Toca Descargar en una película o episodio para verlo sin internet.", "Toque em Baixar num filme ou episódio para assistir sem internet.", "اضغط تنزيل على فيلم أو حلقة لمشاهدته دون إنترنت."),
 ]
 LANGS = ["fr", "es", "pt", "ar"]
 seen = {}
