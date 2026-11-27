@@ -127,8 +127,8 @@ fun App(openRequest: androidx.compose.runtime.MutableState<Title?>) {
     var apk by remember { mutableStateOf<File?>(null) }
     var splash by remember { mutableStateOf(true) }
     val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
-    LaunchedEffect(splash) {
-        if (splash) return@LaunchedEffect
+    LaunchedEffect(splash, I18n.setupDone) {
+        if (splash || !I18n.setupDone) return@LaunchedEffect  // not over the first-time setup
         if (Build.VERSION.SDK_INT >= 33 && store.alerts &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
         ) askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
