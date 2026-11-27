@@ -8,7 +8,10 @@ import org.json.JSONObject
 /** What the viewer is watching: a title, plus season/episode for shows. */
 data class Progress(val title: Title, val season: Int, val episode: Int)
 
-/** My List and Continue Watching, kept on the device. */
+/** Movio's helper (also used by the web app). */
+const val HELPER = "https://movio-helper.g41us-jarvis.workers.dev"
+
+/** My List and Continue Watching, kept on the device and synced to linked devices. */
 class Store private constructor(context: Context) {
     companion object {
         @Volatile private var instance: Store? = null
@@ -27,8 +30,10 @@ class Store private constructor(context: Context) {
     fun inList(t: Title) = myList.any { it.key == t.key }
 
     fun toggle(t: Title) {
-        if (inList(t)) myList.removeAll { it.key == t.key } else myList.add(0, t)
+        val had = inList(t)
+        if (had) myList.removeAll { it.key == t.key } else myList.add(0, t)
         save("my_list", myList.map { toJson(it) })
+        mark("l:${t.key}", had)
     }
 
     fun watched(t: Title, season: Int = 1, episode: Int = 1) {
@@ -36,6 +41,7 @@ class Store private constructor(context: Context) {
         continueWatching.add(0, Progress(t, season, episode))
         while (continueWatching.size > 20) continueWatching.removeAt(continueWatching.lastIndex)
         save("continue", continueWatching.map { p -> toJson(p.title).put("s", p.season).put("e", p.episode) })
+        mark("c:${t.key}", false)
     }
 
     private val positions = context.getSharedPreferences("movio_positions", Context.MODE_PRIVATE)
@@ -47,12 +53,14 @@ class Store private constructor(context: Context) {
         if (durationMs <= 0) return
         val done = positionMs > durationMs - 90_000
         positions.edit().putString(key, if (done) "-1:$durationMs" else "$positionMs:$durationMs").apply()
+        mark("p:$key", false, quiet = true)
     }
 
     /** Finished films drop off Continue watching. */
     fun finished(t: Title) {
         continueWatching.removeAll { it.title.key == t.key }
         save("continue", continueWatching.map { p -> toJson(p.title).put("s", p.season).put("e", p.episode) })
+        mark("c:${t.key}", true)
     }
 
     fun position(key: String): Pair<Long, Long>? = positions.getString(key, null)?.split(":")?.let {
@@ -91,6 +99,142 @@ class Store private constructor(context: Context) {
     fun setLastSeen(showKey: String, v: String) = misc.edit().putString("aired:$showKey", v).apply()
 
     fun lastEpisode(t: Title): Progress? = continueWatching.firstOrNull { it.title.key == t.key }
+
+    // ---------- Sync between devices (a short link code, kept by Movio's helper) ----------
+    private val syncPrefs = context.getSharedPreferences("movio_sync", Context.MODE_PRIVATE)
+    private val ledger: HashMap<String, Long> = try {
+        JSONObject(syncPrefs.getString("ledger", "{}")!!).let { o -> HashMap(o.keys().asSequence().associateWith { o.getLong(it) }) }
+    } catch (_: Exception) { HashMap() }
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+    private val pushLater = Runnable { pushNow() }
+    @Volatile private var busy = false
+
+    var syncCode: String
+        get() = syncPrefs.getString("code", "") ?: ""
+        set(v) = syncPrefs.edit().putString("code", v).apply()
+    var kids: Boolean
+        get() = misc.getBoolean("kids", false)
+        set(v) = misc.edit().putBoolean("kids", v).apply()
+
+    private fun at(k: String) = kotlin.math.abs(ledger[k] ?: 0L)
+    private fun saveLedger() = syncPrefs.edit().putString("ledger", JSONObject(ledger as Map<*, *>).toString()).apply()
+
+    private fun mark(k: String, removed: Boolean, quiet: Boolean = false) {
+        ledger[k] = (if (removed) -1 else 1) * System.currentTimeMillis()
+        saveLedger()
+        if (syncCode.isEmpty()) return
+        main.removeCallbacks(pushLater)
+        main.postDelayed(pushLater, if (quiet) 15_000 else 1_500)
+    }
+
+    private fun wire(t: Title) = JSONObject().put("id", t.id).put("kind", t.kind.api).put("name", t.name).put("overview", t.overview.take(400))
+        .put("poster", t.poster ?: JSONObject.NULL).put("backdrop", t.backdrop ?: JSONObject.NULL).put("year", t.year ?: JSONObject.NULL).put("rating", t.rating)
+
+    private fun fromWire(o: JSONObject?): Title? = try {
+        o ?: return null
+        Title(o.getInt("id"), if (o.optString("kind") == "tv") Kind.TV else Kind.MOVIE, o.getString("name"), o.optString("overview"),
+            o.optString("poster").takeIf { it.startsWith("/") }, o.optString("backdrop").takeIf { it.startsWith("/") },
+            o.optString("year").takeIf { it.isNotBlank() && it != "null" }, o.optDouble("rating", 0.0))
+    } catch (_: Exception) { null }
+
+    private fun state(): JSONObject {
+        val list = JSONObject(); val cont = JSONObject(); val pos = JSONObject()
+        myList.forEachIndexed { i, t -> list.put(t.key, JSONObject().put("at", at("l:${t.key}").takeIf { it > 0 } ?: (1000L - i)).put("t", wire(t))) }
+        continueWatching.forEachIndexed { i, p -> cont.put(p.title.key, JSONObject().put("at", at("c:${p.title.key}").takeIf { it > 0 } ?: (1000L - i)).put("t", wire(p.title)).put("s", p.season).put("e", p.episode)) }
+        for ((k, v) in positions.all) {
+            val parts = (v as? String)?.split(":") ?: continue
+            val p = parts.getOrNull(0)?.toLongOrNull() ?: continue
+            val d = parts.getOrNull(1)?.toLongOrNull() ?: continue
+            pos.put(k, JSONObject().put("at", at("p:$k").takeIf { it > 0 } ?: 1L).put("p", if (p < 0) -1.0 else p / 1000.0).put("d", d / 1000.0))
+        }
+        for ((k, v) in ledger) {
+            if (v >= 0) continue
+            val rest = k.substring(2)
+            if (k.startsWith("l:") && !list.has(rest)) list.put(rest, JSONObject().put("at", -v).put("del", true))
+            if (k.startsWith("c:") && !cont.has(rest)) cont.put(rest, JSONObject().put("at", -v).put("del", true))
+        }
+        return JSONObject().put("list", list).put("cont", cont).put("pos", pos)
+    }
+
+    private fun apply(st: JSONObject) {
+        st.optJSONObject("list")?.let { o ->
+            for (k in o.keys()) {
+                val v = o.getJSONObject(k); val a = v.getLong("at")
+                if (a <= at("l:$k")) continue
+                myList.removeAll { it.key == k }
+                if (!v.optBoolean("del")) fromWire(v.optJSONObject("t"))?.let { myList.add(it) }
+                ledger["l:$k"] = if (v.optBoolean("del")) -a else a
+            }
+            val sorted = myList.sortedByDescending { at("l:${it.key}") }
+            myList.clear(); myList.addAll(sorted)
+            save("my_list", myList.map { toJson(it) })
+        }
+        st.optJSONObject("pos")?.let { o ->
+            val e = positions.edit()
+            for (k in o.keys()) {
+                val v = o.getJSONObject(k); val a = v.getLong("at")
+                if (a <= at("p:$k")) continue
+                val d = (v.optDouble("d") * 1000).toLong(); val p = v.optDouble("p")
+                e.putString(k, if (p < 0) "-1:$d" else "${(p * 1000).toLong()}:$d")
+                ledger["p:$k"] = a
+            }
+            e.apply()
+        }
+        st.optJSONObject("cont")?.let { o ->
+            for (k in o.keys()) {
+                val v = o.getJSONObject(k); val a = v.getLong("at")
+                if (a <= at("c:$k")) continue
+                continueWatching.removeAll { it.title.key == k }
+                if (!v.optBoolean("del")) fromWire(v.optJSONObject("t"))?.let { continueWatching.add(Progress(it, v.optInt("s", 1), v.optInt("e", 1))) }
+                ledger["c:$k"] = if (v.optBoolean("del")) -a else a
+            }
+            val sorted = continueWatching.sortedByDescending { at("c:${it.title.key}") }.take(20)
+            continueWatching.clear(); continueWatching.addAll(sorted)
+            save("continue", continueWatching.map { p -> toJson(p.title).put("s", p.season).put("e", p.episode) })
+        }
+        saveLedger()
+    }
+
+    /** Sends this device's lists, gets everyone's back, merged. */
+    fun pushNow(done: ((Boolean) -> Unit)? = null) {
+        val code = syncCode
+        if (code.isEmpty() || busy) { done?.invoke(false); return }
+        busy = true
+        val body = state().toString()
+        Thread {
+            val res = runCatching {
+                val c = java.net.URL("$HELPER/sync/$code").openConnection() as java.net.HttpURLConnection
+                c.requestMethod = "PUT"; c.doOutput = true; c.connectTimeout = 10_000; c.readTimeout = 15_000
+                c.setRequestProperty("Content-Type", "application/json")
+                c.outputStream.use { it.write(body.toByteArray()) }
+                val status = c.responseCode
+                if (status == 404) { main.post { syncCode = "" }; null } else JSONObject(c.inputStream.bufferedReader().use { it.readText() })
+            }.getOrNull()
+            main.post {
+                busy = false
+                val st = res?.optJSONObject("state")
+                if (res?.optBoolean("ok") == true && st != null) runCatching { apply(st) }
+                done?.invoke(st != null)
+            }
+        }.start()
+    }
+
+    fun createCode(done: (String?) -> Unit) = Thread {
+        val code = runCatching {
+            val c = java.net.URL("$HELPER/sync/new").openConnection() as java.net.HttpURLConnection
+            c.requestMethod = "POST"; c.connectTimeout = 10_000; c.readTimeout = 15_000
+            JSONObject(c.inputStream.bufferedReader().use { it.readText() }).optString("code").takeIf { it.length == 6 }
+        }.getOrNull()
+        main.post { if (code != null) { syncCode = code; pushNow() }; done(code) }
+    }.start()
+
+    fun joinCode(raw: String, done: (Boolean) -> Unit) = Thread {
+        val code = raw.uppercase().filter { it.isLetterOrDigit() }
+        val ok = code.length == 6 && runCatching {
+            (java.net.URL("$HELPER/sync/$code").openConnection() as java.net.HttpURLConnection).let { it.connectTimeout = 10_000; it.responseCode == 200 }
+        }.getOrDefault(false)
+        main.post { if (ok) { syncCode = code; pushNow { done(true) } } else done(false) }
+    }.start()
 
     private fun toJson(t: Title) = JSONObject()
         .put("id", t.id).put("kind", t.kind.name).put("name", t.name).put("overview", t.overview)

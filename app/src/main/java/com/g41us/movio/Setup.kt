@@ -205,3 +205,55 @@ fun ProfileCard(onLanguage: () -> Unit) {
         }
     }
 }
+
+
+/** Settings: link devices with a short code, so My List and Continue watching follow you. */
+@Composable
+fun LinkCard(store: Store) {
+    var code by remember { mutableStateOf(store.syncCode) }
+    var typed by remember { mutableStateOf("") }
+    var msg by remember { mutableStateOf<String?>(null) }
+    var working by remember { mutableStateOf(false) }
+    Card {
+        Label("Link devices")
+        Spacer(Modifier.height(8.dp))
+        Text("My List, Continue watching and where you stopped follow you on every device with the same code.", fontSize = 13.sp, lineHeight = 18.sp, color = Muted, style = jakarta())
+        Spacer(Modifier.height(14.dp))
+        if (code.isNotEmpty()) {
+            Text("This device's code", fontSize = 13.sp, color = Muted, style = jakarta())
+            Text(code, fontSize = 38.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 8.sp, color = Violet, style = jakarta())
+            Text("On your other device, open Link devices and type this code.", fontSize = 13.sp, color = Muted, style = jakarta())
+            Spacer(Modifier.height(14.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                PrimaryButton("Sync now", R.drawable.ic_next, Modifier.weight(1f)) {
+                    working = true; store.pushNow { ok -> working = false; msg = t(if (ok) "Synced" else "Couldn't sync"); code = store.syncCode }
+                }
+                GhostButton("Unlink", null, Modifier.weight(1f)) { store.syncCode = ""; code = ""; msg = null }
+            }
+        } else {
+            PrimaryButton("Get a code", R.drawable.ic_next, Modifier.fillMaxWidth()) {
+                working = true; msg = null
+                store.createCode { c -> working = false; if (c != null) code = c else msg = t("Couldn't reach the server. Try again.") }
+            }
+            Spacer(Modifier.height(16.dp))
+            Text("Have a code from another device?", fontSize = 13.sp, color = Muted, style = jakarta())
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(12.dp)).background(Glass).padding(horizontal = 14.dp), contentAlignment = Alignment.CenterStart) {
+                    if (typed.isEmpty()) Text("Type the code", color = Muted, fontSize = 16.sp, style = jakarta())
+                    BasicTextField(typed, { v -> typed = v.uppercase().filter { it.isLetterOrDigit() }.take(6) }, singleLine = true,
+                        textStyle = TextStyle(color = Color.White, fontSize = 18.sp, fontFamily = Jakarta, fontWeight = FontWeight.Bold, letterSpacing = 4.sp),
+                        cursorBrush = SolidColor(Violet),
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters, imeAction = ImeAction.Done),
+                        modifier = Modifier.fillMaxWidth())
+                }
+                GhostButton("Link", null) {
+                    working = true; msg = null
+                    store.joinCode(typed) { ok -> working = false; if (ok) { code = store.syncCode; msg = t("Linked") } else msg = t("That code wasn't found. Check it and try again.") }
+                }
+            }
+        }
+        if (working) { Spacer(Modifier.height(10.dp)); Text("Checking…", fontSize = 13.sp, color = Muted, style = jakarta()) }
+        msg?.let { Spacer(Modifier.height(10.dp)); Text(it, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Soft, style = jakarta()) }
+    }
+}

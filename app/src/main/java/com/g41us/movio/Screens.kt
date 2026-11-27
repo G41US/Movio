@@ -401,6 +401,15 @@ fun SettingsScreen(version: String, update: UpdateState, blocked: Int, store: St
     val tv5 = rememberScrollState()
     ScrollList(tv5, PaddingValues(start = Gutter, end = GutterEnd, top = barSpace(), bottom = dockSpace()), narrow = true) {
         item { ProfileCard(onLanguage) }
+        item { LinkCard(store) }
+        item {
+            Card {
+                var kidsOn by remember { mutableStateOf(store.kids) }
+                ToggleRow("Kids mode", "Only family and animated titles.", kidsOn) {
+                    kidsOn = it; store.kids = it; Tmdb.kids = it; onLanguage()
+                }
+            }
+        }
         item {
             Card {
                 Row(verticalAlignment = Alignment.CenterVertically) {

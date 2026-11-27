@@ -59,6 +59,10 @@ sealed interface Screen {
 class MainActivity : ComponentActivity() {
     private val openRequest = mutableStateOf<Title?>(null)
 
+    // Linked devices: bring in changes when Movio opens, send ours when it goes to the background.
+    override fun onResume() { super.onResume(); Store.get(this).pushNow() }
+    override fun onPause() { super.onPause(); Store.get(this).pushNow() }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(AColor.TRANSPARENT),
@@ -66,6 +70,7 @@ class MainActivity : ComponentActivity() {
         )
         super.onCreate(savedInstanceState)
         I18n.init(this)
+        Tmdb.kids = Store.get(this).kids
         AdBlock.warm(this)
         Tmdb.diskDir = File(filesDir, "tmdb").apply { mkdirs() }
         // Load the browser engine now, so the first Play doesn't pay for it.

@@ -131,8 +131,14 @@ object Tmdb {
         )
     }
 
+    /** Kids mode: only family, animated and kids titles anywhere in the catalog. */
+    @Volatile var kids = false
+    private val KIDS = setOf(16, 10751, 10762)
+    fun kidsOk(t: Title) = !kids || t.genreIds.any { it in KIDS }
+
     private fun parseList(a: JSONArray?, fallback: Kind?): List<Title> =
-        (0 until (a?.length() ?: 0)).mapNotNull { parse(a!!.getJSONObject(it), fallback) }.filter { it.poster != null }
+        (0 until (a?.length() ?: 0)).mapNotNull { i -> a!!.getJSONObject(i).takeIf { !(kids && it.optBoolean("adult")) }?.let { parse(it, fallback) } }
+            .filter { it.poster != null && kidsOk(it) }
 
     suspend fun list(path: String, kind: Kind?, params: Map<String, String> = emptyMap()): List<Title> =
         parseList(get(path, params).optJSONArray("results"), kind)
@@ -160,7 +166,17 @@ object Tmdb {
     /** Rows that come after "Because you watched" on Home. */
     const val PERSONAL_AFTER = 3
 
-    suspend fun home(): List<Row> = rows(
+    private suspend fun kidsRows(only: Kind? = null): List<Row> = rows(
+        *listOfNotNull(
+            if (only != Kind.TV) r("Family movies") { list("discover/movie", Kind.MOVIE, mapOf("with_genres" to "10751", "sort_by" to "popularity.desc", "certification_country" to "US", "certification.lte" to "PG")) } else null,
+            if (only != Kind.TV) r("Animated movies") { list("discover/movie", Kind.MOVIE, mapOf("with_genres" to "16", "sort_by" to "popularity.desc", "certification_country" to "US", "certification.lte" to "PG")) } else null,
+            if (only != Kind.MOVIE) r("Kids shows") { list("discover/tv", Kind.TV, mapOf("with_genres" to "10762", "sort_by" to "popularity.desc")) } else null,
+            if (only != Kind.MOVIE) r("Animated shows") { list("discover/tv", Kind.TV, mapOf("with_genres" to "16,10751", "sort_by" to "popularity.desc")) } else null,
+            if (only != Kind.TV) r("Top rated family movies") { list("discover/movie", Kind.MOVIE, mapOf("with_genres" to "10751", "sort_by" to "vote_average.desc", "vote_count.gte" to "500", "certification_country" to "US", "certification.lte" to "PG")) } else null,
+        ).toTypedArray(),
+    )
+
+    suspend fun home(): List<Row> = if (kids) kidsRows() else rows(
         r("Top 10 today") { list("trending/all/day", null).take(10) },
         r("New in cinemas") { list("movie/now_playing", Kind.MOVIE) },
         r("Trending this week") { list("trending/all/week", null) },
@@ -172,6 +188,7 @@ object Tmdb {
     )
 
     suspend fun browse(kind: Kind, genre: Genre?): List<Row> {
+        if (kids && genre == null) return kidsRows(kind)
         if (genre != null) {
             val params = mapOf("with_genres" to genre.id.toString(), "sort_by" to "popularity.desc")
             val page2 = params + ("page" to "2")
