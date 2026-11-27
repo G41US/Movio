@@ -4,11 +4,11 @@
     <color name="white">#FFFFFFFF</color>
     <color name="app_bg">#FF07080D</color>
     <color name="panel">#FF151722</color>
-    <color name="violet">#FF9B6DFF</color>
-    <color name="pink">#FFFF5FA2</color>
+    <color name="violet">#FFFF4D2E</color>
+    <color name="pink">#FFFF9F1C</color>
     <color name="muted">#FF9EA1B3</color>
     <color name="soft">#FFDADBE5</color>
     <color name="gold">#FFFFC94D</color>
     <color name="hairline">#1FFFFFFF</color>
-    <color name="accent">#FF9B6DFF</color>
+    <color name="accent">#FFFF4D2E</color>
 </resources>

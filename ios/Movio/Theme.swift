@@ -3,8 +3,8 @@ import SwiftUI
 extension Color {
     static let ink = Color(red: 0.027, green: 0.031, blue: 0.051)
     static let panel = Color(red: 0.082, green: 0.090, blue: 0.133)
-    static let violet = Color(red: 0.608, green: 0.427, blue: 1.0)
-    static let pink = Color(red: 1.0, green: 0.373, blue: 0.635)
+    static let violet = Color(red: 1.0, green: 0.302, blue: 0.180)  // Sunset red (the name stays from the old theme)
+    static let pink = Color(red: 1.0, green: 0.624, blue: 0.110)  // Sunset orange
     static let muted = Color(red: 0.62, green: 0.63, blue: 0.70)
     static let soft = Color(red: 0.855, green: 0.859, blue: 0.898)
 }
@@ -90,7 +90,7 @@ struct RankedCard: View {
                 Text("\(rank)")
                     .font(jakarta(110, .extrabold))
                     .tracking(-6)
-                    .foregroundStyle(LinearGradient(colors: [.white, Color(red: 0.89, green: 0.87, blue: 1), Color(red: 0.56, green: 0.53, blue: 0.76)], startPoint: .top, endPoint: .bottom))
+                    .foregroundStyle(LinearGradient(colors: [.white, Color(red: 1.0, green: 0.90, blue: 0.86), Color(red: 0.76, green: 0.53, blue: 0.43)], startPoint: .top, endPoint: .bottom))
                     .shadow(color: .black.opacity(0.5), radius: 6, y: 2)
                     .offset(y: 14)
                 Art(url: TMDB.img(title.poster, "w342"))

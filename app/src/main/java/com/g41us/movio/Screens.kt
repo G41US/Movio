@@ -54,6 +54,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.clipToBounds
@@ -172,20 +174,48 @@ fun FeedScreen(kind: Kind?, store: Store, onOpen: (Title) -> Unit, onPlay: (Titl
 
 @Composable
 private fun PlatformRow(onPlatform: (Int) -> Unit) {
-    val tv = LocalWide.current
-    val size = if (tv) 96.dp else 68.dp
+    val tv = LocalTv.current
     SectionTitle("Platforms")
-    LazyRow(Modifier.tvEdgeFade(), contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(if (tv) 18.dp else 14.dp)) {
-        items(Tmdb.PLATFORMS, key = { it.id }) { p ->
-            Column(Modifier.width(size + 8.dp).clickableNoRipple { onPlatform(p.id) }, horizontalAlignment = Alignment.CenterHorizontally) {
-                val shape = RoundedCornerShape(size * .26f)
-                Box(Modifier.size(size).tappableCard(shape) { onPlatform(p.id) }) {
-                    NetImage(Tmdb.img(p.logo, "w154"), null, Modifier.fillMaxSize().clip(shape).border(1.dp, Color.White.copy(alpha = .08f), shape), contentScale = ContentScale.Crop)
-                }
-                Spacer(Modifier.height(7.dp))
-                androidx.compose.material3.Text(p.name, fontSize = if (tv) 14.sp else 12.sp, fontWeight = FontWeight.Bold, color = Soft, style = jakarta(), maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-        }
+    LazyRow(Modifier.tvEdgeFade(), contentPadding = PaddingValues(start = Gutter, end = GutterEnd, top = if (tv) 12.dp else 4.dp, bottom = if (tv) 12.dp else 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(if (LocalWide.current) 16.dp else 12.dp)) {
+        items(Tmdb.PLATFORMS, key = { it.id }) { p -> if (tv) PlatformCard(p) { onPlatform(p.id) } else PlatformTile(p) { onPlatform(p.id) } }
+    }
+}
+
+/** TV: a slim card, logo and name inside, the same width as a poster; the highlighted one turns white. */
+@Composable
+private fun PlatformCard(p: Tmdb.Platform, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(14.dp)
+    var focused by remember { mutableStateOf(false) }
+    val k by androidx.compose.animation.core.animateFloatAsState(if (focused) 1.04f else 1f, label = "pc")
+    Row(
+        Modifier.width(TvCard).height(58.dp).graphicsLayer { scaleX = k; scaleY = k }
+            .onFocusChanged { focused = it.isFocused }.clickableNoRipple(onClick)
+            .softRing(if (focused) .7f else 0f, shape)
+            .clip(shape).background(if (focused) Color.White else Color(0xFF15161E))
+            .border(1.dp, if (focused) Color.White else Color.White.copy(alpha = .08f), shape)
+            .padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        NetImage(Tmdb.img(p.logo, "w92"), null, Modifier.size(32.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop)
+        Spacer(Modifier.width(10.dp))
+        androidx.compose.material3.Text(p.name, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (focused) Ink else Soft, style = jakarta(), maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/** Phone: a wide dark tile with the logo, name underneath. */
+@Composable
+private fun PlatformTile(p: Tmdb.Platform, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(16.dp)
+    Column(Modifier.width(150.dp).clickableNoRipple(onClick)) {
+        Box(
+            Modifier.size(150.dp, 84.dp).shadow(12.dp, shape, ambientColor = Violet, spotColor = Violet)
+                .background(Brush.linearGradient(listOf(Color(0xFF1A1B25), Color(0xFF0F1017))), shape)
+                .border(1.5.dp, Violet.copy(alpha = .45f), shape),
+            contentAlignment = Alignment.Center,
+        ) { NetImage(Tmdb.img(p.logo, "w154"), null, Modifier.size(46.dp).clip(RoundedCornerShape(12.dp)), contentScale = ContentScale.Crop) }
+        Spacer(Modifier.height(8.dp))
+        androidx.compose.material3.Text(p.name, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Soft, style = jakarta(), maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 

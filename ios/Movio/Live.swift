@@ -74,7 +74,7 @@ struct LiveCard: View {
 private let liveCats = ["news", "sports", "movies", "entertainment", "music", "kids", "documentary", "religious", "general"]
 
 struct LiveView: View {
-    @AppStorage("liveCc") private var cc = Live.myCountry()
+    @AppStorage("liveCc2") private var cc = "ALL"
     @AppStorage("liveCat") private var cat = ""
     @State private var index: Live.Index?
     @State private var failed = false
@@ -84,7 +84,7 @@ struct LiveView: View {
     @State private var picking = false
     @State private var playing: LiveRequest?
     @State private var limit = 120
-    private let grid = [GridItem(.adaptive(minimum: 150), spacing: 12)]
+    private let grid = [GridItem(.adaptive(minimum: 104), spacing: 10)]
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -101,7 +101,7 @@ struct LiveView: View {
                         Text("Favourites").font(jakarta(19, .extrabold)).padding(.horizontal, 16).padding(.top, 4)
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 12) {
-                                ForEach(Array(favs.enumerated()), id: \.element.id) { i, ch in tile(ch, fav: true) { playing = LiveRequest(list: favs, i: i) }.frame(width: 150) }
+                                ForEach(Array(favs.enumerated()), id: \.element.id) { i, ch in tile(ch, fav: true) { playing = LiveRequest(list: favs, i: i) }.frame(width: 116) }
                             }
                             .padding(.horizontal, 16)
                         }
@@ -203,21 +203,21 @@ struct LiveView: View {
         Button(action: tap) {
             VStack(alignment: .leading, spacing: 6) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .fill(RadialGradient(colors: [Color(red: 0.16, green: 0.17, blue: 0.23), Color(red: 0.08, green: 0.09, blue: 0.12)], center: .topLeading, startRadius: 10, endRadius: 260))
                     if let l = ch.l, let u = URL(string: l) {
                         AsyncImage(url: u) { $0.resizable().scaledToFit() } placeholder: { Color.clear }
-                            .padding(.horizontal, 30).padding(.vertical, 22).shadow(color: .black.opacity(0.4), radius: 6, y: 3)
+                            .padding(.horizontal, 16).padding(.vertical, 12).shadow(color: .black.opacity(0.4), radius: 6, y: 3)
                     } else {
                         Text(verbatim: String(ch.n.prefix(2)).uppercased()).font(jakarta(24, .extrabold)).foregroundStyle(Color.soft)
                     }
                 }
-                .aspectRatio(16 / 10, contentMode: .fit)
-                .overlay(alignment: .topLeading) { LiveBadge().padding(8) }
+                .aspectRatio(16 / 11, contentMode: .fit)
+                .overlay(alignment: .topLeading) { LiveBadge(small: true).padding(6) }
                 .overlay(alignment: .topTrailing) { if fav { Text("★").foregroundStyle(Color(red: 1, green: 0.82, blue: 0.37)).padding(8) } }
-                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.white.opacity(0.07)))
-                Text(verbatim: ch.n).font(jakarta(14, .bold)).foregroundStyle(.white).lineLimit(1)
-                Text(verbatim: L((ch.c.first ?? "general").prefix(1).uppercased() + (ch.c.first ?? "general").dropFirst())).font(jakarta(12, .semibold)).foregroundStyle(Color.muted)
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.white.opacity(0.07)))
+                Text(verbatim: ch.n).font(jakarta(12.5, .bold)).foregroundStyle(.white).lineLimit(1)
+                Text(verbatim: L((ch.c.first ?? "general").prefix(1).uppercased() + (ch.c.first ?? "general").dropFirst())).font(jakarta(11, .semibold)).foregroundStyle(Color.muted)
             }
         }
         .buttonStyle(PressStyle())
@@ -242,12 +242,13 @@ struct LiveView: View {
 }
 
 struct LiveBadge: View {
+    var small = false
     var body: some View {
-        HStack(spacing: 5) {
-            Circle().fill(.white).frame(width: 5, height: 5)
-            Text(verbatim: "LIVE").font(.system(size: 10, weight: .heavy)).kerning(0.6).foregroundStyle(.white)
+        HStack(spacing: small ? 4 : 5) {
+            Circle().fill(.white).frame(width: small ? 4 : 5, height: small ? 4 : 5)
+            Text(verbatim: "LIVE").font(.system(size: small ? 8.5 : 10, weight: .heavy)).kerning(0.6).foregroundStyle(.white)
         }
-        .padding(.horizontal, 7).padding(.vertical, 3)
+        .padding(.horizontal, small ? 5 : 7).padding(.vertical, small ? 2 : 3)
         .background(Color(red: 1, green: 0.23, blue: 0.36).opacity(0.9), in: RoundedRectangle(cornerRadius: 6))
     }
 }

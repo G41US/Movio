@@ -17,6 +17,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.composed
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -45,8 +46,8 @@ import androidx.compose.ui.graphics.Shape
 
 val Ink = Color(0xFF07080D)
 val Panel = Color(0xFF151722)
-val Violet = Color(0xFF9B6DFF)
-val Pink = Color(0xFFFF5FA2)
+val Violet = Color(0xFFFF4D2E)  // Sunset red (the name stays from the old theme)
+val Pink = Color(0xFFFF9F1C)  // Sunset orange
 val Muted = Color(0xFF9EA1B3)
 val Soft = Color(0xFFDADBE5)
 val Gold = Color(0xFFFFC94D)
@@ -109,19 +110,37 @@ fun Modifier.tappableCard(shape: Shape?, onClick: () -> Unit): Modifier = compos
         .clickable(interactionSource = source, indication = null, onClick = onClick)
 }
 
-/** Premium TV focus: a smooth lift, plus a soft coloured glow when a [shape] is given. */
-fun Modifier.lift(on: Boolean, shape: Shape? = null, amount: Float = 1.07f): Modifier = composed {
+/** Premium TV focus: a small lift and, when a [shape] is given, a soft white outline that fades into a glow. */
+fun Modifier.lift(on: Boolean, shape: Shape? = null, amount: Float = 1.04f): Modifier = composed {
     val s by androidx.compose.animation.core.animateFloatAsState(if (on) amount else 1f, tween(220, easing = EnterEase), label = "lift")
-    val g by androidx.compose.animation.core.animateFloatAsState(if (on && shape != null) 1f else 0f, tween(220), label = "glow")
-    val glow = with(LocalDensity.current) { 12.dp.toPx() }
-    this.graphicsLayer {
-        scaleX = s; scaleY = s
-        if (shape != null) {
-            this.shape = shape; clip = false
-            shadowElevation = g * glow
-            ambientShadowColor = Violet; spotShadowColor = Violet.copy(alpha = .5f)
-        }
+    val g by androidx.compose.animation.core.animateFloatAsState(if (on && shape != null) 1f else 0f, tween(200), label = "ring")
+    this.graphicsLayer { scaleX = s; scaleY = s }
+        .then(if (shape != null) Modifier.softRing(g, shape) else Modifier)
+}
+
+/** A thin white outline with a glow that fades outwards (drawn outside the card, so nothing gets cut off inside it). */
+fun Modifier.softRing(strength: Float, shape: Shape): Modifier = this.drawWithContent {
+    drawContent()
+    if (strength <= 0f) return@drawWithContent
+    val o = shape.createOutline(size, layoutDirection, this)
+    val r = (o as? androidx.compose.ui.graphics.Outline.Rounded)?.roundRect?.topLeftCornerRadius?.x ?: 0f
+    val px = density
+    // Glow: a few wide, faint rings fading out.
+    for (i in 6 downTo 1) {
+        val spread = i * 2.2f * px
+        drawRoundRect(
+            Color.White.copy(alpha = strength * .05f * (7 - i) / 6f), topLeft = androidx.compose.ui.geometry.Offset(-spread, -spread),
+            size = androidx.compose.ui.geometry.Size(size.width + spread * 2, size.height + spread * 2),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(r + spread), style = androidx.compose.ui.graphics.drawscope.Stroke(2.4f * px),
+        )
     }
+    // The outline itself: thin and slightly see-through.
+    val w = 1.8f * px
+    drawRoundRect(
+        Color.White.copy(alpha = .85f * strength), topLeft = androidx.compose.ui.geometry.Offset(-w / 2, -w / 2),
+        size = androidx.compose.ui.geometry.Size(size.width + w, size.height + w), cornerRadius = androidx.compose.ui.geometry.CornerRadius(r + w / 2),
+        style = androidx.compose.ui.graphics.drawscope.Stroke(w),
+    )
 }
 
 /** Card/button edge: a hairline on phones, nothing on TV. */
