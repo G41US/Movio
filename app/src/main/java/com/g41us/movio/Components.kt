@@ -406,7 +406,7 @@ fun Hero(items: List<Title>, saved: (Title) -> Boolean, onPlay: (Title) -> Unit,
                     art == null -> null
                     else -> Tmdb.img(art.image, if (art.wide) "w1280" else "w780")
                 }
-                if (image != null) NetImage(image, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().kenBurns())
+                if (image != null) NetImage(image, null, contentScale = ContentScale.Crop, alignment = if (wide) androidx.compose.ui.BiasAlignment(0f, -0.75f) else Alignment.Center, modifier = Modifier.fillMaxSize().kenBurns())  // wide: keep the top of the picture (faces), the bottom goes under the fade
                 if (wide) Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Ink.copy(alpha = .85f), .55f to Color.Transparent)))
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Ink.copy(alpha = .35f), .3f to Color.Transparent, .62f to Ink.copy(alpha = .55f), 1f to Ink)))
             }

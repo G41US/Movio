@@ -472,7 +472,7 @@ fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPerson:
                     d.cleanPoster != null -> Tmdb.img(d.cleanPoster, "w780")
                     else -> Tmdb.img(t.backdrop ?: t.poster, "w1280")
                 }
-                if (image != null) NetImage(image, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().kenBurns())
+                if (image != null) NetImage(image, null, contentScale = ContentScale.Crop, alignment = if (wide) androidx.compose.ui.BiasAlignment(0f, -0.75f) else Alignment.Center, modifier = Modifier.fillMaxSize().kenBurns())  // wide: keep the top of the picture (faces), the bottom goes under the fade
                 if (wide) Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to Ink.copy(alpha = .85f), .6f to Color.Transparent)))
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Ink.copy(alpha = .4f), .35f to Color.Transparent, .7f to Ink.copy(alpha = .7f), 1f to Ink)))
                 Column(Modifier.align(Alignment.BottomStart).padding(start = Gutter, end = GutterEnd).enterUp()) {

@@ -1,5 +1,5 @@
 // Keeps the app shell on the phone so Movio opens instantly; everything else comes from the network.
-const SHELL = "movio-shell-v38";
+const SHELL = "movio-shell-v39";
 const DLC = "movio-dl";  // downloads: kept across updates
 const FILES = ["./", "index.html", "style.css", "i18n.js", "i18n.json", "app.js", "config.js", "manifest.webmanifest", "icons/icon-180.png",
   "fonts/jakarta_regular.ttf", "fonts/jakarta_semibold.ttf", "fonts/jakarta_bold.ttf", "fonts/jakarta_extrabold.ttf"];
