@@ -77,11 +77,13 @@ struct RootView: View {
             tab(HomeView(), "Home", "house.fill")
             tab(BrowseView(kind: .movie), "Movies", "film.fill")
             tab(BrowseView(kind: .tv), "TV Shows", "tv.fill")
+            tab(TogetherView(), "Together", "person.2.fill")
             tab(SearchView(), "Search", "magnifyingglass")
             tab(MyListView(), "My List", "bookmark.fill")
         }
         .id("\(profile.lang)\(store.kids)")  // a new language or kids mode reloads every screen
         .overlay(alignment: .top) { GreetingPill(text: profile.greeting).padding(.top, 6) }
+        .overlay(alignment: .top) { InviteBanner().padding(.top, 4) }
         .fullScreenCover(item: $store.playing) { req in
             PlayerScreen(request: req).environmentObject(store).environmentObject(profile)
         }

@@ -387,6 +387,7 @@ struct DetailsView: View {
     @State private var d: Details?
     @State private var season = 1
     @State private var episodes: [Episode] = []
+    @State private var together = false
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -425,6 +426,7 @@ struct DetailsView: View {
                             store.toggleLike(title, genres: d?.genres ?? [])
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         }
+                        action("person.2.fill", "Together", on: false, tint: .white) { together = true }
                         ShareLink(item: URL(string: "https://g41us.github.io/Movio/#/title/\(title.kind.rawValue)/\(title.id)")!,
                                   subject: Text(verbatim: title.name), message: Text(verbatim: I18n.f("Watch {1} on Movio", title.name))) {
                             actionLabel("square.and.arrow.up", "Share", on: false, tint: .white)
@@ -475,6 +477,11 @@ struct DetailsView: View {
             }
         }
         .task(id: season) { if title.kind == .tv { episodes = (try? await TMDB.episodes(title.id, season)) ?? [] } }
+        .sheet(isPresented: $together) {
+            let p = store.recent[title.key]
+            WatchTogetherSheet(title: title, season: title.kind == .tv ? p?.season ?? 1 : 1, episode: title.kind == .tv ? p?.episode ?? 1 : 1)
+                .environmentObject(store).presentationDetents([.medium, .large])
+        }
     }
 
     private var meta: String {
