@@ -72,41 +72,38 @@ jobs:
             adb shell "run-as com.g41us.movio sh -c 'echo \"<?xml version=\\\"1.0\\\" encoding=\\\"utf-8\\\" standalone=\\\"yes\\\" ?><map><boolean name=\\\"setup_done\\\" value=\\\"true\\\" /><string name=\\\"lang\\\">en</string><string name=\\\"sub_lang\\\">en</string><string name=\\\"name\\\">Marvelous</string></map>\" > shared_prefs/movio_profile.xml'"
             adb shell am start -n com.g41us.movio/.MainActivity
             sleep 25
+            mkdir -p shots
             adb exec-out screencap -p > shots/1_home.png
-            for i in 1 2 3 4 5 6 7 8; do adb shell input keyevent KEYCODE_DPAD_LEFT; sleep 0.3; done
-            for i in 1 2 3 4 5 6 7 8; do adb shell input keyevent KEYCODE_DPAD_UP; sleep 0.3; done
-            for i in 1 2 3 4; do adb shell input keyevent KEYCODE_DPAD_DOWN; sleep 0.4; done
-            sleep 1
-            adb exec-out screencap -p > shots/2_menu_together.png
-            adb shell input keyevent KEYCODE_DPAD_CENTER
-            sleep 6
-            adb exec-out screencap -p > shots/3_together.png
-            adb shell input keyevent KEYCODE_DPAD_CENTER
+            adb shell input keyevent KEYCODE_DPAD_LEFT
             sleep 3
-            adb exec-out screencap -p > shots/4_add.png
-            adb shell input keyevent KEYCODE_BACK
+            adb exec-out screencap -p > shots/2_menu.png
+            adb shell input keyevent KEYCODE_DPAD_DOWN
             sleep 2
-            for i in 1 2 3 4 5 6 7 8; do adb shell input keyevent KEYCODE_DPAD_LEFT; sleep 0.3; done
-            for i in 1 2 3 4 5 6 7 8; do adb shell input keyevent KEYCODE_DPAD_UP; sleep 0.3; done
-            adb shell input keyevent KEYCODE_DPAD_CENTER
-            sleep 6
+            adb exec-out screencap -p > shots/3_menu_down.png
+            adb shell input keyevent KEYCODE_DPAD_RIGHT
+            sleep 2
             adb shell input keyevent KEYCODE_DPAD_DOWN
-            sleep 1.5
-            adb shell input keyevent KEYCODE_DPAD_DOWN
-            sleep 1.5
-            adb shell input keyevent KEYCODE_DPAD_DOWN
-            sleep 1.5
-            adb shell input keyevent KEYCODE_DPAD_CENTER
-            sleep 7
-            adb exec-out screencap -p > shots/5_details.png
-            for i in 1 2 3 4; do adb shell input keyevent KEYCODE_DPAD_RIGHT; sleep 1; done
-            sleep 1
-            adb exec-out screencap -p > shots/6_details_together.png
-            adb shell input keyevent KEYCODE_DPAD_CENTER
             sleep 3
-            adb exec-out screencap -p > shots/7_watch_dialog.png
+            adb exec-out screencap -p > shots/4_rows.png
+            adb shell input keyevent KEYCODE_DPAD_RIGHT
+            adb shell input keyevent KEYCODE_DPAD_RIGHT
+            adb shell input keyevent KEYCODE_DPAD_RIGHT
+            sleep 3
+            adb exec-out screencap -p > shots/5_rows_side.png
+            adb shell input keyevent KEYCODE_DPAD_DOWN
+            adb shell input keyevent KEYCODE_DPAD_DOWN
+            sleep 3
+            adb exec-out screencap -p > shots/6_lower.png
+            for i in 1 2 3 4 5 6 7 8; do adb shell input keyevent KEYCODE_DPAD_LEFT; sleep 0.3; done
+            sleep 1
+            for i in 1 2 3 4 5 6; do adb shell input keyevent KEYCODE_DPAD_DOWN; sleep 0.3; done
             adb shell input keyevent KEYCODE_DPAD_CENTER
-            for i in 1 2 3 4 5; do sleep 8; adb exec-out screencap -p > shots/8_party_waiting_$i.png; done
+            sleep 4
+            adb exec-out screencap -p > shots/7_settings.png
+            adb shell input keyevent KEYCODE_DPAD_RIGHT
+            for i in 1 2 3 4 5 6 7; do adb shell input keyevent KEYCODE_DPAD_DOWN; sleep 0.3; done
+            sleep 2
+            adb exec-out screencap -p > shots/8_settings_link.png
       - uses: actions/upload-artifact@v4
         with:
           name: tv-shots
