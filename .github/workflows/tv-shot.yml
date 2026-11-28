@@ -99,7 +99,9 @@ jobs:
             adb shell input keyevent KEYCODE_DPAD_CENTER
             sleep 7
             adb exec-out screencap -p > shots/5_details.png
-            for i in 1 2 3; do adb shell input keyevent KEYCODE_DPAD_RIGHT; sleep 0.6; done
+            adb shell input keyevent KEYCODE_DPAD_RIGHT; sleep 1.5
+            adb exec-out screencap -p > shots/6a_right1.png
+            adb shell input keyevent KEYCODE_DPAD_RIGHT; sleep 1.5
             adb exec-out screencap -p > shots/6_details_together.png
             adb shell input keyevent KEYCODE_DPAD_CENTER
             sleep 3
