@@ -1,5 +1,7 @@
 package com.g41us.movio
 
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
@@ -229,12 +231,12 @@ fun GhostButton(text: String, icon: Int?, modifier: Modifier = Modifier, onClick
 }
 
 @Composable
-fun Chip(label: String, active: Boolean, onClick: () -> Unit) {
+fun Chip(label: String, active: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Text(
         label, fontSize = 14.sp, style = jakarta(),
         fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
         color = if (active) Color.White else Soft,
-        modifier = Modifier.clip(RoundedCornerShape(50))
+        modifier = modifier.clip(RoundedCornerShape(50))
             .background(if (active) Brand else Brush.linearGradient(listOf(Glass, Glass)))
             .border(1.dp, if (active) Color.Transparent else Edge, RoundedCornerShape(50))
             .focusGlow(RoundedCornerShape(50))
@@ -279,9 +281,14 @@ fun PosterCard(t: Title, width: Dp, onClick: () -> Unit) {
         var focused by remember { mutableStateOf(false) }
         Column(Modifier.width(width)) {
             Box(Modifier.onFocusChanged { focused = it.hasFocus }.tappableCard(RoundedCornerShape(12.dp), onClick)) { Poster(t, Modifier.fillMaxWidth()) }
-            Spacer(Modifier.height(10.dp))
-            Text(if (focused) t.name else "", fontSize = 15.sp, lineHeight = 19.sp, fontWeight = FontWeight.SemiBold, color = Color.White, style = jakarta(),
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            // The highlighted poster's name and details fade in underneath (space is kept so rows never jump).
+            val a by animateFloatAsState(if (focused) 1f else 0f, tween(220), label = "name")
+            Column(Modifier.padding(top = 10.dp, start = 2.dp, end = 2.dp).graphicsLayer { alpha = a; translationY = (1 - a) * 6.dp.toPx() }) {
+                Text(t.name, fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.Bold, color = Color.White, style = jakarta(),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(listOfNotNull(t.year, if (t.kind == Kind.TV) com.g41us.movio.t("Series") else com.g41us.movio.t("Movie"), t.rating.takeIf { it > 0 }?.let { "★ %.1f".format(it) }).joinToString("  ·  "),
+                    fontSize = 11.5.sp, lineHeight = 15.sp, fontWeight = FontWeight.SemiBold, color = Muted, style = jakarta(), maxLines = 1)
+            }
         }
         return
     }
@@ -352,7 +359,7 @@ fun ContinueCard(p: Progress, progress: Float? = null, leftMs: Long? = null, onC
     // TV: clean artwork with a slim progress bar; the name and time left sit underneath.
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(16.dp)
-    Column(Modifier.width(300.dp)) {
+    Column(Modifier.width(264.dp)) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(16f / 9f).onFocusChanged { focused = it.hasFocus }.tappableCard(shape, onClick).clip(shape).background(Panel),
         ) {

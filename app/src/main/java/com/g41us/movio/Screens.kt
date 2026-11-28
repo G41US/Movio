@@ -157,7 +157,8 @@ fun FeedScreen(kind: Kind?, store: Store, onOpen: (Title) -> Unit, onPlay: (Titl
                 }
                 if (kind == null && store.continueWatching.isNotEmpty()) item(key = "continue") {
                     SectionTitle("Continue watching")
-                    LazyRow(Modifier.tvEdgeFade(), contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(if (LocalWide.current) 18.dp else 12.dp)) {
+                    LazyRow(Modifier.tvEdgeFade(), contentPadding = PaddingValues(start = Gutter, end = GutterEnd, top = if (LocalTv.current) 12.dp else 0.dp, bottom = if (LocalTv.current) 8.dp else 0.dp),
+                        horizontalArrangement = Arrangement.spacedBy(if (LocalWide.current) 18.dp else 12.dp)) {
                         items(store.continueWatching, key = { it.title.key }) { p ->
                             val pos = store.position(store.posKey(p.title, p.season, p.episode))
                             // a < 0 means that episode was finished: no "time left", it'll play on from the next one.
@@ -254,9 +255,9 @@ fun PlatformScreen(id: Int, onOpen: (Title) -> Unit) {
     }
     val tvBar = LocalTopBar.current
     LazyVerticalGrid(
-        GridCells.Adaptive(if (LocalWide.current) 200.dp else 108.dp), Modifier.fillMaxSize().dpadScroll(grid), state = grid,
+        GridCells.Adaptive(if (LocalTv.current) TvCard - 16.dp else if (LocalWide.current) 200.dp else 108.dp), Modifier.fillMaxSize().dpadScroll(grid), state = grid,
         contentPadding = PaddingValues(start = Gutter, end = GutterEnd, top = if (tvBar != null) 0.dp else barSpace(), bottom = dockSpace()),
-        horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(18.dp),
+        horizontalArrangement = Arrangement.spacedBy(if (LocalTv.current) 16.dp else 12.dp), verticalArrangement = Arrangement.spacedBy(if (LocalTv.current) 6.dp else 18.dp),
     ) {
         if (tvBar != null) item(span = { GridItemSpan(maxLineSpan) }) { Box(Modifier.bleed(Gutter, GutterEnd)) { tvBar() } }
         item(span = { GridItemSpan(maxLineSpan) }) {
@@ -271,7 +272,7 @@ fun PlatformScreen(id: Int, onOpen: (Title) -> Unit) {
                 }
                 Spacer(Modifier.height(2.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Chip(t("Shows"), kind == Kind.TV) { kind = Kind.TV }
+                    Chip(t("Shows"), kind == Kind.TV, Modifier.tvFirstFocus(p.id)) { kind = Kind.TV }
                     Chip(t("Movies"), kind == Kind.MOVIE) { kind = Kind.MOVIE }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -308,9 +309,9 @@ fun SearchScreen(onOpen: (Title) -> Unit) {
     val tv2 = rememberLazyGridState()
     val tvBar = LocalTopBar.current
     LazyVerticalGrid(
-        GridCells.Adaptive(if (LocalWide.current) 200.dp else 108.dp), Modifier.fillMaxSize().dpadScroll(tv2), state = tv2,
+        GridCells.Adaptive(if (LocalTv.current) TvCard - 16.dp else if (LocalWide.current) 200.dp else 108.dp), Modifier.fillMaxSize().dpadScroll(tv2), state = tv2,
         contentPadding = PaddingValues(start = Gutter, end = GutterEnd, top = if (tvBar != null) 0.dp else barSpace(), bottom = dockSpace()),
-        horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(18.dp),
+        horizontalArrangement = Arrangement.spacedBy(if (LocalTv.current) 16.dp else 12.dp), verticalArrangement = Arrangement.spacedBy(if (LocalTv.current) 6.dp else 18.dp),
     ) {
         if (tvBar != null) item(span = { GridItemSpan(maxLineSpan) }) { Box(Modifier.bleed(Gutter, GutterEnd)) { tvBar() } }
         item(span = { GridItemSpan(maxLineSpan) }) {
@@ -391,9 +392,9 @@ fun MyListScreen(store: Store, onOpen: (Title) -> Unit, onDownloads: () -> Unit)
     var likedTab by rememberSaveable { mutableStateOf(false) }
     val tvBar = LocalTopBar.current
     LazyVerticalGrid(
-        GridCells.Adaptive(if (LocalWide.current) 200.dp else 108.dp), Modifier.fillMaxSize().dpadScroll(tv3), state = tv3,
+        GridCells.Adaptive(if (LocalTv.current) TvCard - 16.dp else if (LocalWide.current) 200.dp else 108.dp), Modifier.fillMaxSize().dpadScroll(tv3), state = tv3,
         contentPadding = PaddingValues(start = Gutter, end = GutterEnd, top = if (tvBar != null) 0.dp else barSpace(), bottom = dockSpace()),
-        horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(18.dp),
+        horizontalArrangement = Arrangement.spacedBy(if (LocalTv.current) 16.dp else 12.dp), verticalArrangement = Arrangement.spacedBy(if (LocalTv.current) 6.dp else 18.dp),
     ) {
         if (tvBar != null) item(span = { GridItemSpan(maxLineSpan) }) { Box(Modifier.bleed(Gutter, GutterEnd)) { tvBar() } }
         item(span = { GridItemSpan(maxLineSpan) }) {
@@ -818,7 +819,7 @@ fun PersonScreen(person: Person, onOpen: (Title) -> Unit) {
     val wide = LocalWide.current
     val d = (state as? Load.Done)?.value
     LazyVerticalGrid(
-        GridCells.Adaptive(if (wide) 170.dp else 104.dp), Modifier.fillMaxSize().dpadScroll(tv6), state = tv6,
+        GridCells.Adaptive(if (LocalTv.current) TvCard - 16.dp else if (wide) 170.dp else 104.dp), Modifier.fillMaxSize().dpadScroll(tv6), state = tv6,
         contentPadding = PaddingValues(start = Gutter, end = GutterEnd, top = if (tvBar != null) 0.dp else barSpace(), bottom = dockSpace()),
         horizontalArrangement = Arrangement.spacedBy(if (wide) 18.dp else 12.dp), verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
