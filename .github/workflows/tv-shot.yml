@@ -106,8 +106,7 @@ jobs:
             sleep 3
             adb exec-out screencap -p > shots/7_watch_dialog.png
             adb shell input keyevent KEYCODE_DPAD_CENTER
-            sleep 12
-            adb exec-out screencap -p > shots/8_party_waiting.png
+            for i in 1 2 3 4 5; do sleep 8; adb exec-out screencap -p > shots/8_party_waiting_$i.png; done
       - uses: actions/upload-artifact@v4
         with:
           name: tv-shots
