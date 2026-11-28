@@ -354,7 +354,13 @@ struct LivePlayerView: View {
                 if controls && m.state == "playing" && Date().timeIntervalSince(touched) > 4 { withAnimation { controls = false } }
             }
         }
-        .onDisappear { m.player.pause(); onClose() }
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 20_000_000_000)
+                if m.state == "playing" { Ping.watching(m.channel.name, "live"); try? await Task.sleep(nanoseconds: 220_000_000_000) }
+            }
+        }
+        .onDisappear { m.player.pause(); onClose(); Ping.stopped() }
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
     }

@@ -672,7 +672,17 @@ struct PlayerScreen: View {
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
         .onAppear { rotate(landscape: true) }
-        .onDisappear { m.close(); rotate(landscape: false) }
+        .onDisappear { m.close(); rotate(landscape: false); Ping.stopped() }
+        .task {
+            // Admin page: what's playing (every 4 minutes while it plays).
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 20_000_000_000)
+                if m.isPlaying {
+                    Ping.watching(m.title.kind == .tv ? "\(m.title.name) · S\(m.season) E\(m.episode)" : m.title.name, m.title.kind == .tv ? "tv" : "movie")
+                    try? await Task.sleep(nanoseconds: 220_000_000_000)
+                }
+            }
+        }
         .task {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 500_000_000)

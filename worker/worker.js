@@ -169,6 +169,25 @@ export default {
     const url = new URL(req.url);
     const p = url.pathname;
     try {
+      // Usage: each app checks in (anonymous device id, platform, version) when it opens and while playing.
+      if (p === "/ping" && req.method === "POST") {
+        const b = await req.json().catch(() => ({}));
+        if (!/^[a-z0-9-]{8,64}$/i.test(b.d || "")) return new Response("bad", { status: 400, headers: CORS });
+        const stub = env.STATS.get(env.STATS.idFromName("main"));
+        ctx.waitUntil(stub.fetch("https://stats/ping", { method: "POST", body: JSON.stringify({ ...b, c: req.cf?.country || "" }) }));
+        return new Response(null, { status: 204, headers: CORS });
+      }
+      // Admin page data (password only).
+      if (p === "/admin/data") {
+        if (!env.ADMIN_PASS || req.headers.get("Authorization") !== "Bearer " + env.ADMIN_PASS) return new Response("no", { status: 401, headers: CORS });
+        const stub = env.STATS.get(env.STATS.idFromName("main"));
+        const d = await (await stub.fetch("https://stats/data")).json();
+        d.stats = JSON.parse((await env.MOVIO_SYNC.get("stats")) || '{"titles":{},"genres":{},"days":{}}');
+        return json200(d);
+      }
+      if (p === "/admin/purge-test" && req.headers.get("Authorization") === "Bearer " + env.ADMIN_PASS) {
+        return env.STATS.get(env.STATS.idFromName("main")).fetch("https://stats/purge");
+      }
       // AVO TV channel: /avo/<channelId> → redirect to a fresh stream (no proxy needed, AVO allows any site).
       if (p === "/avo/list") {
         // What AVO offers to whoever's asking (the list can depend on the viewer's country).
@@ -423,4 +442,51 @@ async function vidzee(kind, id, se, ep) {
   };
   // Ask every server at once; the first that really answers wins.
   return Promise.any(["peak", "dcloud", "tik", "v6:English"].map(one)).catch(() => null);
+}
+
+
+/**
+ * Movio's usage book (a SQLite-backed Durable Object, free on Workers): who opened Movio and when,
+ * on what device and version, and what's playing right now. No names or emails, only random device ids.
+ */
+export class Stats {
+  constructor(state) {
+    this.sql = state.storage.sql;
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS devices (id TEXT PRIMARY KEY, platform TEXT, version TEXT, country TEXT, first INTEGER, last INTEGER);
+      CREATE TABLE IF NOT EXISTS days (day TEXT, id TEXT, PRIMARY KEY (day, id));
+      CREATE TABLE IF NOT EXISTS watching (id TEXT PRIMARY KEY, title TEXT, kind TEXT, at INTEGER, platform TEXT);`);
+  }
+  async fetch(req) {
+    const u = new URL(req.url), now = Date.now(), day = new Date(now + 3600e3).toISOString().slice(0, 10);  // Lagos day
+    if (u.pathname === "/ping") {
+      const b = await req.json();
+      const pf = String(b.p || "").slice(0, 16), v = String(b.v || "").slice(0, 16), c = String(b.c || "").slice(0, 2);
+      this.sql.exec(`INSERT INTO devices VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET platform = excluded.platform, version = excluded.version, country = excluded.country, last = excluded.last`, b.d, pf, v, c, now, now);
+      this.sql.exec(`INSERT OR IGNORE INTO days VALUES (?, ?)`, day, b.d);
+      if (b.w) this.sql.exec(`INSERT INTO watching VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET title = excluded.title, kind = excluded.kind, at = excluded.at, platform = excluded.platform`,
+        b.d, String(b.w).slice(0, 120), String(b.k || "").slice(0, 8), now, pf);
+      else if (b.stop) this.sql.exec(`DELETE FROM watching WHERE id = ?`, b.d);
+      return new Response(null, { status: 204 });
+    }
+    if (u.pathname === "/purge") {
+      for (const t of ["devices", "days", "watching"]) this.sql.exec(`DELETE FROM ${t} WHERE id LIKE 'test-%'`);
+      return new Response("ok");
+    }
+    const rows = (q, ...a) => [...this.sql.exec(q, ...a)];
+    const one = (q, ...a) => rows(q, ...a)[0]?.n ?? 0;
+    const since = (n) => new Date(now + 3600e3 - n * 86400e3).toISOString().slice(0, 10);
+    const daily = rows(`SELECT day, COUNT(*) AS n FROM days WHERE day > ? GROUP BY day ORDER BY day`, since(30));
+    return Response.json({
+      now, total: one(`SELECT COUNT(*) AS n FROM devices`),
+      today: one(`SELECT COUNT(*) AS n FROM days WHERE day = ?`, day),
+      week: one(`SELECT COUNT(DISTINCT id) AS n FROM days WHERE day > ?`, since(7)),
+      month: one(`SELECT COUNT(DISTINCT id) AS n FROM days WHERE day > ?`, since(30)),
+      newToday: one(`SELECT COUNT(*) AS n FROM devices WHERE first > ?`, Date.parse(day + "T00:00:00+01:00")),
+      watching: rows(`SELECT title, kind, platform, at FROM watching WHERE at > ? ORDER BY at DESC`, now - 7 * 60e3),
+      platforms: rows(`SELECT platform AS k, COUNT(*) AS n FROM devices WHERE last > ? GROUP BY platform ORDER BY n DESC`, now - 30 * 86400e3),
+      versions: rows(`SELECT platform || ' ' || version AS k, COUNT(*) AS n FROM devices WHERE last > ? GROUP BY platform, version ORDER BY n DESC LIMIT 12`, now - 30 * 86400e3),
+      countries: rows(`SELECT country AS k, COUNT(*) AS n FROM devices WHERE last > ? GROUP BY country ORDER BY n DESC LIMIT 12`, now - 30 * 86400e3),
+      daily,
+    });
+  }
 }

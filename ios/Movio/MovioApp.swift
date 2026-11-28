@@ -68,7 +68,7 @@ struct RootView: View {
             else if !profile.setupDone { SetupView().transition(.opacity) } else { tabs }
         }
         // Every new version is required: if one is out, Movio waits on the update screen.
-        .task { required = await ForceUpdateView.newer() }
+        .task { Ping.open(); required = await ForceUpdateView.newer() }
     }
     @State private var required: URL?
 

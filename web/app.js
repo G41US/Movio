@@ -178,6 +178,26 @@ function downloadsView() {
 }
 document.addEventListener("dls", () => { if (location.hash.startsWith("#/downloads")) downloadsView(); });
 
+// Anonymous check-ins for the admin page: a random id for this browser and the app version, sent on open and
+// every few minutes while something plays. No names, emails or accounts.
+const PING = (() => {
+  let id = localStorage.getItem("devid");
+  if (!id) { id = (crypto.randomUUID?.() || Math.random().toString(36).slice(2) + Date.now().toString(36)); localStorage.setItem("devid", id); }
+  let ver = "";
+  (window.caches ? caches.keys().then((k) => { ver = (k.find((x) => x.startsWith("movio-shell-v")) || "").replace("movio-shell-v", "v"); }) : Promise.resolve()).finally(() => send());
+  function send(extra = {}) {
+    try { fetch(`${HELPER}/ping`, { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ d: id, p: "web", v: ver, ...extra }) }).catch(() => {}); } catch {}
+  }
+  let last = 0;
+  setInterval(() => {
+    const v = P?.video, lv = LP?.el?.querySelector("video");
+    if (v && !v.paused && Date.now() - last > 240e3) { last = Date.now(); send({ w: P.t.kind === "tv" ? `${P.t.name} · S${P.s} E${P.e}` : P.t.name, k: P.t.kind === "tv" ? "tv" : "movie" }); }
+    else if (!v && lv && !lv.paused && Date.now() - last > 240e3) { last = Date.now(); send({ w: LP.list[LP.i]?.n || "Live TV", k: "live" }); }
+    else if (!v && !(lv && !lv.paused) && last) { last = 0; send({ stop: true }); }
+  }, 20e3);
+  return { send };
+})();
+
 const APK = "https://github.com/G41US/Movio/releases/latest";
 function downloadNote() {
   const iphone = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);

@@ -323,6 +323,8 @@ class LivePlayerActivity : ComponentActivity() {
         overlay.setContent { CompositionLocalProvider(LocalTv provides tvDevice) { Overlay() } }
         tune()
         lifecycleScope.launch { while (true) { delay(1000); if (controls && state == "playing" && System.currentTimeMillis() - lastTouch > 4000) controls = false } }
+        // Admin page: which channel is on (every 4 minutes while it plays).
+        lifecycleScope.launch { while (true) { delay(20_000); if (state == "playing") { Ping.watching(this@LivePlayerActivity, list[i].name, "live"); delay(220_000) } } }
     }
 
     private var viaHelper = false
@@ -375,7 +377,7 @@ class LivePlayerActivity : ComponentActivity() {
 
     override fun onStop() { super.onStop(); if (::exo.isInitialized) exo.pause() }
     override fun onStart() { super.onStart(); if (::exo.isInitialized && state == "playing") exo.play() }
-    override fun onDestroy() { super.onDestroy(); if (::exo.isInitialized) exo.release() }
+    override fun onDestroy() { if (isFinishing) Ping.stopped(this); super.onDestroy(); if (::exo.isInitialized) exo.release() }
 
     @Composable
     private fun Overlay() {
