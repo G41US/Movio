@@ -1,5 +1,7 @@
 package com.g41us.movio
 
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -222,11 +224,28 @@ fun ProfileCard(onLanguage: () -> Unit) {
         var name by remember { mutableStateOf(I18n.name) }
         Text("Name", fontSize = 13.sp, color = Muted, style = jakarta())
         Spacer(Modifier.height(6.dp))
-        Box(Modifier.fillMaxWidth().height(48.dp).clip(RoundedCornerShape(12.dp)).background(Glass).padding(horizontal = 14.dp), contentAlignment = Alignment.CenterStart) {
-            if (name.isEmpty()) Text("Your name", color = Muted, fontSize = 16.sp, style = jakarta())
-            BasicTextField(name, { if (it.length <= 24) { name = it; I18n.name = it; I18n.save() } }, singleLine = true,
-                textStyle = TextStyle(color = Color.White, fontSize = 16.sp, fontFamily = Jakarta, fontWeight = FontWeight.SemiBold),
-                cursorBrush = SolidColor(Violet), keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words), modifier = Modifier.fillMaxWidth())
+        // The name only changes after pressing Edit (then the keyboard comes up); Done or leaving saves it.
+        var editing by remember { mutableStateOf(false) }
+        val fr = remember { androidx.compose.ui.focus.FocusRequester() }
+        val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+        val done = { editing = false; I18n.name = name.trim(); I18n.save(); keyboard?.hide() }
+        Row(Modifier.fillMaxWidth().height(52.dp).clip(RoundedCornerShape(14.dp)).background(Glass).padding(start = 14.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                if (editing) {
+                    if (name.isEmpty()) Text("Your name", color = Muted, fontSize = 16.sp, style = jakarta())
+                    var had by remember { mutableStateOf(false) }
+                    BasicTextField(name, { if (it.length <= 24) name = it }, singleLine = true,
+                        textStyle = TextStyle(color = Color.White, fontSize = 16.sp, fontFamily = Jakarta, fontWeight = FontWeight.SemiBold),
+                        cursorBrush = SolidColor(Violet),
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { done() }),
+                        modifier = Modifier.fillMaxWidth().focusRequester(fr).onFocusChanged { if (it.isFocused) had = true else if (had) done() })
+                    LaunchedEffect(Unit) { kotlinx.coroutines.delay(80); runCatching { fr.requestFocus() }; keyboard?.show() }
+                } else Text(name.ifBlank { t("Your name") }, color = if (name.isBlank()) Muted else Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, style = jakarta(), maxLines = 1)
+            }
+            Text(t(if (editing) "Done" else "Edit"), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = if (editing) Ink else Color.White, style = jakarta(),
+                modifier = Modifier.clip(RoundedCornerShape(50)).background(if (editing) Color.White else Color.White.copy(alpha = .12f)).focusGlow(RoundedCornerShape(50))
+                    .clickable { if (editing) done() else editing = true }.padding(horizontal = 16.dp, vertical = 8.dp))
         }
         Spacer(Modifier.height(16.dp))
         Text("App language", fontSize = 13.sp, color = Muted, style = jakarta())

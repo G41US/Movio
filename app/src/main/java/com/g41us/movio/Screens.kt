@@ -1,5 +1,6 @@
 package com.g41us.movio
 
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -150,19 +151,25 @@ fun FeedScreen(kind: Kind?, store: Store, onOpen: (Title) -> Unit, onPlay: (Titl
                     )
                 }
                 if (kind != null) item(key = "genres") {
-                    LazyRow(contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 18.dp)) {
+                    LazyRow(Modifier.padding(top = 18.dp).tvEdgeFade(), contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         item { Chip("All", genre == null) { genre = null } }
                         items(if (kind == Kind.MOVIE) Tmdb.movieGenres else Tmdb.tvGenres) { g -> Chip(g.name, genre == g) { genre = g } }
                     }
                 }
                 if (kind == null && store.continueWatching.isNotEmpty()) item(key = "continue") {
+                    // The first thing you'd continue is found ahead of time, so it starts at once.
+                    LaunchedEffect(store.continueWatching.first().title.key) {
+                        val p = store.continueWatching.first()
+                        kotlinx.coroutines.delay(1500)
+                        Source.warmUp("Club", p.title.kind, p.title.id, if (p.title.kind == Kind.TV) p.season else 1, if (p.title.kind == Kind.TV) p.episode else 1)
+                    }
                     SectionTitle("Continue watching")
                     LazyRow(Modifier.tvEdgeFade(), contentPadding = PaddingValues(start = Gutter, end = GutterEnd, top = if (LocalTv.current) 12.dp else 0.dp, bottom = if (LocalTv.current) 8.dp else 0.dp),
                         horizontalArrangement = Arrangement.spacedBy(if (LocalWide.current) 18.dp else 12.dp)) {
                         items(store.continueWatching, key = { it.title.key }) { p ->
                             val pos = store.position(store.posKey(p.title, p.season, p.episode))
                             // a < 0 means that episode was finished: no "time left", it'll play on from the next one.
-                            ContinueCard(p, pos?.let { (a, b) -> if (b > 0 && a >= 0) a.toFloat() / b else null }, pos?.let { (a, b) -> (b - a).takeIf { b > 0 && a >= 0 && it > 0 } }) { onPlay(p.title) }
+                            ContinueCard(p, pos?.let { (a, b) -> if (b > 0 && a >= 0) a.toFloat() / b else null }, pos?.let { (a, b) -> (b - a).takeIf { b > 0 && a >= 0 && it > 0 } }) { onOpen(p.title); onPlay(p.title) }  // leaving the player lands on its page, not Home
                         }
                     }
                 }
@@ -339,11 +346,11 @@ fun SearchScreen(onOpen: (Title) -> Unit) {
         // Kind of film, then year.
         item(span = { GridItemSpan(maxLineSpan) }) {
             Column(Modifier.bleed(Gutter, GutterEnd), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                LazyRow(contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                LazyRow(Modifier.tvEdgeFade(), contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     item { Chip(t("All"), cat.isEmpty()) { cat = "" } }
                     items(Tmdb.CATS, key = { it.id }) { c -> Chip(t(c.name), cat == c.id) { cat = c.id } }
                 }
-                LazyRow(contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                LazyRow(Modifier.tvEdgeFade(), contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     item { Chip(t("Any year"), year.isEmpty()) { year = "" } }
                     items(Tmdb.YEARS, key = { it }) { y -> Chip(t(y), year == y) { year = y } }
                 }
@@ -439,6 +446,12 @@ fun shareTitle(ctx: android.content.Context, t: Title) {
 fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPerson: (Person) -> Unit, onTrailer: (String) -> Unit, onPlay: (Title, Int, Int) -> Unit) {
     val (state, retry) = load(title.key) { Tmdb.details(title) }
     val last = store.lastEpisode(title)
+    // Find the stream while you read the page, so Play starts straight away.
+    LaunchedEffect(title.key) {
+        kotlinx.coroutines.delay(400)
+        if (title.kind == Kind.TV) Source.warmUp("Club", Kind.TV, title.id, last?.season ?: 1, last?.episode ?: 1)
+        else Source.warmUp("Club", Kind.MOVIE, title.id, 1, 1)
+    }
     LaunchedEffect(title.key) { Prefetch.title(title, last?.season ?: 1, last?.episode ?: 1) }
     var season by remember(title.key) { mutableIntStateOf(last?.season ?: 1) }
 
@@ -524,7 +537,7 @@ fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPerson:
                 }
                 if (d.cast.isNotEmpty()) item(key = "cast") {
                     SectionTitle("Cast")
-                    LazyRow(contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    LazyRow(Modifier.tvEdgeFade(), contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                         items(d.cast, key = { it.id }) { p -> CastCard(p) { onPerson(p) } }
                     }
                 }
@@ -533,16 +546,16 @@ fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPerson:
                         val ctx = androidx.compose.ui.platform.LocalContext.current
                         val scope = rememberCoroutineScope()
                         SectionTitle("Episodes")
-                        LazyRow(contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            items(d.seasons) { se -> Chip("Season ${se.number}", se.number == season) { season = se.number } }
-                            item {
-                                DownloadPill(tf("Download season {1}", season)) {
-                                    val eps = d.seasons.firstOrNull { it.number == season }?.episodeCount ?: 0
-                                    scope.launch {
-                                        val list = runCatching { Tmdb.episodes(t.id, season).map { it.number } }.getOrNull() ?: (1..eps).toList()
-                                        Downloads.fetchSeason(ctx, t, season, list)
-                                        android.widget.Toast.makeText(ctx, tf("Downloading season {1} — see Downloads", season), android.widget.Toast.LENGTH_SHORT).show()
-                                    }
+                        // Season: a dropdown; the download button next to it is always for the season shown.
+                        Row(Modifier.padding(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            SeasonPicker(d.seasons, season) { season = it }
+                            DownloadPill(tf("Download season {1}", season)) {
+                                val eps = d.seasons.firstOrNull { it.number == season }?.episodeCount ?: 0
+                                val n = season
+                                scope.launch {
+                                    val list = runCatching { Tmdb.episodes(t.id, n).map { it.number } }.getOrNull() ?: (1..eps).toList()
+                                    Downloads.fetchSeason(ctx, t, n, list)
+                                    android.widget.Toast.makeText(ctx, tf("Downloading season {1} — see Downloads", n), android.widget.Toast.LENGTH_SHORT).show()
                                 }
                             }
                         }
@@ -611,6 +624,46 @@ private fun EpisodeList(show: Title, season: Int, last: Progress?, onPlay: (Int)
 // ---------- Downloads from a title's page ----------
 
 enum class DL { NONE, RUNNING, DONE }
+
+/** "Season 2 · 10 episodes ▾": opens a dark sheet listing every season; the one you're on is ticked. */
+@Composable
+fun SeasonPicker(seasons: List<Season>, season: Int, onPick: (Int) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    val cur = seasons.firstOrNull { it.number == season }
+    Row(Modifier.clip(RoundedCornerShape(50)).background(Color.White).focusGlow(RoundedCornerShape(50)).clickable { open = true }
+        .padding(start = 18.dp, end = 12.dp, top = 9.dp, bottom = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(cur?.name?.takeIf { it.isNotBlank() && !it.startsWith("Season") } ?: tf("Season {1}", season), fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Ink, style = jakarta())
+        if (cur != null && cur.episodeCount > 0) Text("  ·  " + tf("{1} episodes", cur.episodeCount), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Ink.copy(alpha = .55f), style = jakarta())
+        Spacer(Modifier.width(6.dp))
+        Icon(painterResource(R.drawable.ic_chevron_down), null, tint = Ink, modifier = Modifier.size(18.dp))
+    }
+    if (open) androidx.compose.ui.window.Dialog(onDismissRequest = { open = false }) {
+        val first = remember { FocusRequester() }
+        LaunchedEffect(Unit) { kotlinx.coroutines.delay(80); runCatching { first.requestFocus() } }
+        Column(Modifier.widthIn(max = 380.dp).fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Color(0xF2121319))
+            .border(1.dp, Color.White.copy(alpha = .08f), RoundedCornerShape(24.dp)).padding(vertical = 14.dp)) {
+            Text(t("Seasons"), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Muted, style = jakarta(), modifier = Modifier.padding(start = 22.dp, bottom = 8.dp))
+            androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                items(seasons.size) { i ->
+                    val se = seasons[i]
+                    var f by remember { mutableStateOf(false) }
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp).clip(RoundedCornerShape(14.dp))
+                        .background(if (f) Color.White.copy(alpha = .12f) else Color.Transparent)
+                        .then(if (se.number == season) Modifier.focusRequester(first) else if (i == 0 && seasons.none { it.number == season }) Modifier.focusRequester(first) else Modifier)
+                        .onFocusChanged { f = it.isFocused }.clickable { onPick(se.number); open = false }
+                        .padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(se.name.ifBlank { tf("Season {1}", se.number) }, fontSize = 16.sp, fontWeight = if (se.number == season) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                color = Color.White, style = jakarta(), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (se.episodeCount > 0) Text(tf("{1} episodes", se.episodeCount), fontSize = 12.sp, color = Muted, style = jakarta())
+                        }
+                        if (se.number == season) Icon(painterResource(R.drawable.ic_check), null, tint = Violet, modifier = Modifier.size(20.dp))
+                    }
+                }
+            }
+        }
+    }
+}
 
 @Composable
 fun DownloadPill(label: String, onClick: () -> Unit) {
@@ -757,20 +810,6 @@ fun SettingsScreen(version: String, update: UpdateState, blocked: Int, store: St
                 ToggleRow("New episode alerts", "Know when a show in My List has a new episode.", alerts) { alerts = it; store.alerts = it; onAlerts(it) }
                 Spacer(Modifier.height(6.dp))
                 GhostButton("Downloads", R.drawable.ic_download, onClick = onDownloads)
-            }
-        }
-        item {
-            Card {
-                Label("Ad blocking")
-                Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(painterResource(R.drawable.ic_shield), null, tint = Color(0xFF5EE6A8), modifier = Modifier.size(22.dp))
-                    Spacer(Modifier.width(10.dp))
-                    Text(if (blocked > 0) tf("On · {1} ad and tracker sites blocked", "%,d".format(blocked)) else "On",
-                        fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White, style = jakarta())
-                }
-                Spacer(Modifier.height(6.dp))
-                Text("Pop-ups, redirects and banner ads are blocked while you watch.", fontSize = 13.sp, color = Muted, style = jakarta())
             }
         }
         item {

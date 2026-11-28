@@ -183,14 +183,14 @@ fun LiveScreen() {
                 val top = (listOf(cc, Live.myCountry(), "NG", "GH", "KE", "ZA", "US", "UK", "FR")).distinct()
                     .mapNotNull { c -> idx.countries.firstOrNull { it.first == c } }.sortedBy { it.second }
                 Box(Modifier.bleed(Gutter, GutterEnd)) {
-                    LazyRow(contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LazyRow(Modifier.tvEdgeFade(), contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         item { Chip(t("All"), cc == "ALL") { cc = "ALL" } }
                         items(top, key = { it.first }) { c -> Chip(c.second, cc == c.first) { cc = c.first } }
                         item { Chip(t("All countries") + " ›", false) { picking = true } }
                     }
                 }
                 Box(Modifier.bleed(Gutter, GutterEnd)) {
-                    LazyRow(contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LazyRow(Modifier.tvEdgeFade(), contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         item { Chip(t("All"), cat.isEmpty()) { cat = "" } }
                         items(LIVE_CATS.filter { it in idx.cats }, key = { it }) { c -> Chip(t(c.replaceFirstChar { it.uppercase() }), cat == c) { cat = c } }
                     }
@@ -198,7 +198,7 @@ fun LiveScreen() {
                 if (favs.isNotEmpty() && query.isBlank()) {
                     SectionTitle("Favourites")
                     Box(Modifier.bleed(Gutter, GutterEnd)) {
-                        LazyRow(contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        LazyRow(Modifier.tvEdgeFade(), contentPadding = PaddingValues(start = Gutter, end = GutterEnd), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             items(favs, key = { "f" + it.id }) { ch -> Box(Modifier.width(if (LocalTv.current) TvCard else if (wide) 170.dp else 116.dp)) { ChannelTile(ch, true, { Live.play(ctx, favs, favs.indexOf(ch)) }) { Live.toggleFav(ctx, ch); favs = Live.favs(ctx) } } }
                         }
                     }
