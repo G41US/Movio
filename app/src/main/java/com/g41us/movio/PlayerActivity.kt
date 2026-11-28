@@ -359,7 +359,9 @@ class PlayerActivity : ComponentActivity() {
         Box(Modifier.fillMaxSize()) {
             when (phase) {
                 Phase.NATIVE -> {
-                    PlayerControls(exo, host, controlsVisible) { controlsVisible = it; placeSubtitles() }
+                    @Suppress("UNUSED_VARIABLE") val rev = partyRev
+                    val blocking = party?.let { p -> (partyHost && !partyStarted) || (partyWait && p.others.any { it.waiting } && p.st?.playing == true) } == true
+                    if (!blocking) PlayerControls(exo, host, controlsVisible) { controlsVisible = it; placeSubtitles() }
                     party?.let { PartyLayer(it) }
                     if (resumedAt > 0) Row(
                         Modifier.align(Alignment.BottomStart).safeDrawingPadding().padding(start = 24.dp, bottom = if (controlsVisible) 112.dp else 28.dp)
