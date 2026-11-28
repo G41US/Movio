@@ -1296,7 +1296,7 @@ class PlayerActivity : ComponentActivity() {
             val loading = p.others.filter { it.waiting }
             val alone = partyHost && !partyStarted
             if (alone || (partyWait && loading.isNotEmpty() && p.st?.playing == true)) {
-                Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color.Black.copy(alpha = .82f), Color.Black.copy(alpha = .5f)))), contentAlignment = Alignment.Center) {
+                Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color.Black.copy(alpha = .96f), Color.Black.copy(alpha = .78f)))), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
                         if (alone) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1329,7 +1329,7 @@ class PlayerActivity : ComponentActivity() {
             }
             // Top right: who's here, reactions, chat and settings (shown with the controls).
             androidx.compose.animation.AnimatedVisibility(controlsVisible || alone, modifier = Modifier.align(Alignment.TopEnd), enter = fadeIn(), exit = fadeOut()) {
-                Row(Modifier.safeDrawingPadding().padding(top = if (tv) 18.dp else 12.dp, end = if (tv) 28.dp else 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.safeDrawingPadding().padding(top = if (tv) 18.dp else 12.dp, end = if (tv) 92.dp else 64.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     val others = p.others
                     Text(if (others.isNotEmpty()) "● " + tf("Watching with {1}", others.joinToString(", ") { it.name }) else tf("Party {1}", p.code),
                         color = Color.White, fontSize = 12.5.sp, fontWeight = FontWeight.Bold, style = jakarta(), maxLines = 1,
