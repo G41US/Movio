@@ -126,18 +126,18 @@ fun Modifier.softRing(strength: Float, shape: Shape): Modifier = this.drawWithCo
     val r = (o as? androidx.compose.ui.graphics.Outline.Rounded)?.roundRect?.topLeftCornerRadius?.x ?: 0f
     val px = density
     // Glow: a few wide, faint rings fading out.
-    for (i in 6 downTo 1) {
-        val spread = i * 2.2f * px
+    for (i in 7 downTo 1) {
+        val spread = i * 2.4f * px
         drawRoundRect(
-            Color.White.copy(alpha = strength * .05f * (7 - i) / 6f), topLeft = androidx.compose.ui.geometry.Offset(-spread, -spread),
+            Color.White.copy(alpha = strength * .075f * (8 - i) / 7f), topLeft = androidx.compose.ui.geometry.Offset(-spread, -spread),
             size = androidx.compose.ui.geometry.Size(size.width + spread * 2, size.height + spread * 2),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(r + spread), style = androidx.compose.ui.graphics.drawscope.Stroke(2.4f * px),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(r + spread), style = androidx.compose.ui.graphics.drawscope.Stroke(2.6f * px),
         )
     }
-    // The outline itself: thin and slightly see-through.
-    val w = 1.8f * px
+    // The edge itself: a soft, half-see-through line the glow grows out of (no hard white border).
+    val w = 1.4f * px
     drawRoundRect(
-        Color.White.copy(alpha = .85f * strength), topLeft = androidx.compose.ui.geometry.Offset(-w / 2, -w / 2),
+        Color.White.copy(alpha = .5f * strength), topLeft = androidx.compose.ui.geometry.Offset(-w / 2, -w / 2),
         size = androidx.compose.ui.geometry.Size(size.width + w, size.height + w), cornerRadius = androidx.compose.ui.geometry.CornerRadius(r + w / 2),
         style = androidx.compose.ui.graphics.drawscope.Stroke(w),
     )

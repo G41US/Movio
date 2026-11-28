@@ -512,7 +512,8 @@ class PlayerActivity : ComponentActivity() {
         if (source.name in Source.HELPED) {
             pageHost = ""
             webView.loadUrl("about:blank")
-            preloaded?.takeIf { it.first == "${source.name}:$season:$episode" && SystemClock.uptimeMillis() - it.third < 30 * 60_000 }?.let { (_, p, _) ->
+            (preloaded?.takeIf { it.first == "${source.name}:$season:$episode" && SystemClock.uptimeMillis() - it.third < 30 * 60_000 }?.second
+                ?: Source.takeWarm(source.name, kind, id, season, episode))?.let { p ->
                 preloaded = null
                 subtitleTracks = (p.subtitles + subtitleTracks).distinctBy { it.url }
                 trying = Stream(p.url, p.headers, hls = true)

@@ -461,6 +461,9 @@ W = [
 ("Download failed. Tap to try again.", "Échec du téléchargement. Touchez pour réessayer.", "La descarga falló. Toca para reintentar.", "O download falhou. Toque para tentar de novo.", "فشل التنزيل. اضغط للمحاولة مجددًا."),
 ("Delete", "Supprimer", "Eliminar", "Excluir", "حذف"),
 ("Tap Download on a film or episode to watch it without internet.", "Touchez Télécharger sur un film ou un épisode pour le regarder sans internet.", "Toca Descargar en una película o episodio para verlo sin internet.", "Toque em Baixar num filme ou episódio para assistir sem internet.", "اضغط تنزيل على فيلم أو حلقة لمشاهدته دون إنترنت."),
+("Seasons", "Saisons", "Temporadas", "Temporadas", "المواسم"),
+("Edit", "Modifier", "Editar", "Editar", "تعديل"),
+("Done", "OK", "Listo", "Pronto", "تم"),
 ]
 LANGS = ["fr", "es", "pt", "ar"]
 seen = {}

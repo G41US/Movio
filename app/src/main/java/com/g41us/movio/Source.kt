@@ -1,6 +1,7 @@
 package com.g41us.movio
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -19,6 +20,21 @@ data class Playable(val url: String, val subtitles: List<Subtitle>, val headers:
 object Source {
     /** Sources Movio's helper can hand over as a clean stream (no web page, no ads), like the web app. */
     val HELPED = setOf("Club", "Peach", "Mist", "Main")
+
+    /**
+     * Streams found ahead of time (a title's page is open, or you're on its Continue watching card), so pressing
+     * Play starts at once. Kept for 10 minutes.
+     */
+    private val warm = java.util.concurrent.ConcurrentHashMap<String, Pair<Playable, Long>>()
+    private val warming = java.util.Collections.synchronizedSet(HashSet<String>())
+    private val bg = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+    fun warmUp(name: String, kind: Kind, id: Int, season: Int, episode: Int) {
+        val k = "$name:$kind:$id:$season:$episode"
+        if (warm[k]?.let { System.currentTimeMillis() - it.second < 8 * 60_000 } == true || !warming.add(k)) return
+        bg.launch { try { viaHelper(name, kind, id, season, episode)?.let { warm[k] = it to System.currentTimeMillis() } } finally { warming.remove(k) } }
+    }
+    fun takeWarm(name: String, kind: Kind, id: Int, season: Int, episode: Int): Playable? =
+        warm.remove("$name:$kind:$id:$season:$episode")?.takeIf { System.currentTimeMillis() - it.second < 10 * 60_000 }?.first
 
     /** The helper's stream for [name], or null if that source doesn't have this title. */
     suspend fun viaHelper(name: String, kind: Kind, id: Int, season: Int, episode: Int): Playable? = withContext(Dispatchers.IO) {

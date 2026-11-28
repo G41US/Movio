@@ -12,6 +12,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.launch
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.graphicsLayer
@@ -60,6 +61,9 @@ fun TvRail(tab: Tab, top: Screen?, onTab: (Tab) -> Unit, onDownloads: () -> Unit
     )
     val reqs = remember { List(items.size) { androidx.compose.ui.focus.FocusRequester() } }
     items.forEachIndexed { i, it -> it.focus = reqs[i] }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    // Choosing an item opens that page and closes the menu (focus moves onto the page).
+    val picked: (RailItem) -> Unit = { item -> item.onClick(); scope.launch { kotlinx.coroutines.delay(200); onRight(); kotlinx.coroutines.delay(250); onRight() } }
     Box(
         Modifier.fillMaxHeight().width(w)
             // Folded: no panel at all, just the icons over the picture. Open: a dark wash so the names read.
@@ -79,14 +83,14 @@ fun TvRail(tab: Tab, top: Screen?, onTab: (Tab) -> Unit, onDownloads: () -> Unit
     ) {
         Column(Modifier.fillMaxSize().padding(top = 64.dp, bottom = 14.dp)) {
             Spacer(Modifier.weight(1f))
-            items.forEach { RailButton(it, open) }
+            items.forEach { RailButton(it, open) { picked(it) } }
             Spacer(Modifier.weight(1f))
         }
     }
 }
 
 @Composable
-private fun RailButton(item: RailItem, open: Boolean) {
+private fun RailButton(item: RailItem, open: Boolean, onPick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxWidth().padding(vertical = 1.dp)) {
         // The page you're on: a short white bar at the screen edge.
@@ -101,7 +105,7 @@ private fun RailButton(item: RailItem, open: Boolean) {
                     else Brush.horizontalGradient(listOf(Color.Transparent, Color.Transparent)))
                 .focusRequester(item.focus)
                 .onFocusChanged { focused = it.isFocused }
-                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = item.onClick)
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onPick)
                 .padding(horizontal = 11.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -149,23 +153,18 @@ private fun Profile(open: Boolean, onClick: () -> Unit) {
 fun Modifier.tvPage(r: androidx.compose.ui.focus.FocusRequester): Modifier =
     this.focusRequester(r).focusRestorer().focusGroup()
 
-/** TV rows: pictures fade away as they slide toward the menu, so nothing sits hard against the icons. */
+/**
+ * TV rows: pictures fade away as they slide toward the menu, so nothing sits hard against the icons.
+ * Drawn as a dark wash over the edge (one cheap rectangle) rather than an off-screen mask, so scrolling stays smooth.
+ */
 @androidx.compose.runtime.Composable
 fun Modifier.tvEdgeFade(): Modifier {
     if (!LocalTv.current) return this
     val end = with(androidx.compose.ui.platform.LocalDensity.current) { Gutter.toPx() }
-    return this.graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
-        .drawWithContent {
-            drawContent()
-            drawRect(
-                Brush.horizontalGradient(
-                    0f to Color.Black.copy(alpha = .03f), .2f to Color.Black.copy(alpha = .08f), .35f to Color.Black.copy(alpha = .18f),
-                    .5f to Color.Black.copy(alpha = .34f), .62f to Color.Black.copy(alpha = .55f), .75f to Color.Black.copy(alpha = .78f),
-                    .88f to Color.Black.copy(alpha = .93f), 1f to Color.Black, startX = 0f, endX = end,
-                ),
-                blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
-            )
-        }
+    val wash = remember(end) {
+        Brush.horizontalGradient(0f to Ink, .25f to Ink.copy(alpha = .92f), .5f to Ink.copy(alpha = .66f), .75f to Ink.copy(alpha = .3f), 1f to Ink.copy(alpha = 0f), startX = 0f, endX = end)
+    }
+    return this.drawWithContent { drawContent(); drawRect(wash, size = androidx.compose.ui.geometry.Size(end, size.height)) }
 }
 
 /** Movio's logo and name, always at the top-left of the TV screen (outside the menu, so it's never cut off). */
