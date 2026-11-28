@@ -794,6 +794,16 @@ fun SettingsScreen(version: String, update: UpdateState, blocked: Int, store: St
                     is UpdateState.Ready -> PrimaryButton("Install update", R.drawable.ic_check, onClick = onUpdate)
                     else -> PrimaryButton("Check for updates", R.drawable.ic_refresh, onClick = onUpdate)
                 }
+                // Putting Movio on another TV: the Downloader app's code.
+                Spacer(Modifier.height(20.dp))
+                Label("Install on another TV")
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("7487995", fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 3.sp, color = Color.White, style = jakarta(),
+                        modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(Glass).padding(horizontal = 16.dp, vertical = 8.dp))
+                    Spacer(Modifier.width(14.dp))
+                    Text("Open the Downloader app on the TV and enter this code.", fontSize = 13.sp, lineHeight = 18.sp, color = Muted, style = jakarta())
+                }
             }
         }
         item {

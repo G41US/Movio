@@ -464,6 +464,9 @@ W = [
 ("Seasons", "Saisons", "Temporadas", "Temporadas", "المواسم"),
 ("Edit", "Modifier", "Editar", "Editar", "تعديل"),
 ("Done", "OK", "Listo", "Pronto", "تم"),
+("Install on another TV", "Installer sur une autre TV", "Instalar en otra TV", "Instalar em outra TV", "التثبيت على تلفاز آخر"),
+("Open the Downloader app on the TV and enter this code.", "Ouvrez l'app Downloader sur la TV et entrez ce code.", "Abre la app Downloader en la TV e introduce este código.", "Abra o app Downloader na TV e digite este código.", "افتح تطبيق Downloader على التلفاز وأدخل هذا الرمز."),
+("On a TV: Downloader app, code 7487995", "Sur une TV : app Downloader, code 7487995", "En una TV: app Downloader, código 7487995", "Numa TV: app Downloader, código 7487995", "على التلفاز: تطبيق Downloader، الرمز 7487995"),
 ]
 LANGS = ["fr", "es", "pt", "ar"]
 seen = {}

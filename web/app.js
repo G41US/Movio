@@ -185,6 +185,7 @@ function downloadNote() {
     { label: I.t("Browsers can't keep films for offline. The Movio app can."), on: false, fn: () => {} },
     iphone ? { label: I.t("Get Movio for iPhone"), on: true, fn: () => window.open("https://github.com/G41US/Movio/releases/tag/ios-source", "_blank") }
            : { label: I.t("Get Movio for Android"), on: true, fn: () => window.open(APK, "_blank") },
+    { label: I.t("On a TV: Downloader app, code 7487995"), on: false, fn: () => {} },
   ]);
 }
 
