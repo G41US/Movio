@@ -135,6 +135,7 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
             return
         }
         loadSubtitles()
+        if let code = req.party { startParty(code, host: req.host) }
         start(Sources.index(first), automatic: true)
     }
 
@@ -282,10 +283,12 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
             Links.save(posKey, source.name, url: t.url, page: t.page)
             syncSubtitles()
         }
-        if let s = savedPosition(), s.0 > 30, s.1 <= 0 || s.0 < s.1 - 60 {
-            player.seek(to: CMTime(seconds: s.0, preferredTimescale: 600))
+        if party != nil { partyReady() } else {
+            if let s = savedPosition(), s.0 > 30, s.1 <= 0 || s.0 < s.1 - 60 {
+                player.seek(to: CMTime(seconds: s.0, preferredTimescale: 600))
+            }
+            player.play()
         }
-        player.play()
         Haptic.soft()
         if offline == nil { stopPage() }
         nowPlaying.update(self)
@@ -379,6 +382,7 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
         let lines = cues.filter { now >= $0.start && now < $0.end }.map(\.text).joined(separator: "\n")
         if lines != caption { caption = lines }
         ticks += 1
+        if party != nil { partyBuffering(); if ticks % 4 == 0 { partyTick() } }
         if ticks % 20 == 0 && phase == .playing { savePosition(); nowPlaying.update(self); prepareNext() }
         updateCountdown()
         // Stuck loading for 20 s without an error: treat it as a failure.
@@ -394,7 +398,9 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
     }
 
     func toggle() {
+        let willPlay = !isPlaying
         isPlaying ? player.pause() : player.play()
+        partyMine(willPlay ? "play" : "pause", playing: willPlay)
         Haptic.tap()
         Task { @MainActor in try? await Task.sleep(nanoseconds: 300_000_000); nowPlaying.update(self) }
     }
@@ -409,6 +415,7 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
         player.seek(to: CMTime(seconds: v, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
         position = v
         nowPlaying.update(self)
+        partyMine("seek", playing: nil)
     }
 
     /// The skip button for wherever we are (credits on a show are handled by the Next episode card).
@@ -470,6 +477,7 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
         Task { runtime = await TMDB.runtime(title.kind, title.id, season, episode) }
         loadSubtitles()
         loadSegments()
+        partyEpisode()
         start(sourceIndex, automatic: true)
     }
 
@@ -480,6 +488,7 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
         Task { runtime = await TMDB.runtime(title.kind, title.id, season, episode) }
         loadSubtitles()
         loadSegments()
+        partyEpisode()
         start(sourceIndex, automatic: true)
     }
 
@@ -588,8 +597,141 @@ final class PlayerModel: NSObject, ObservableObject, WKNavigationDelegate, WKUID
         return parts.isEmpty ? "In sync" : "In sync (" + parts.joined(separator: ", ") + ")"
     }
 
+
+    // MARK: Watch party: this player follows everyone else's
+
+    struct FloatReact: Identifiable { let id: Int; let e: String }
+    struct ChatLine: Identifiable { let id: Int; let by: String; let m: String }
+    @Published var party: PartyLink?
+    @Published var partyStarted = true
+    @Published var partyLow = UserDefaults.standard.bool(forKey: "tg_low")
+    @Published var partyWait = UserDefaults.standard.object(forKey: "tg_wait") as? Bool ?? true
+    @Published var partyReacts = true
+    @Published var floats: [FloatReact] = []
+    @Published var chatLines: [ChatLine] = []
+    var partyHost = false
+    private var partySynced = false
+    private var partyQuiet = Date.distantPast
+    private var bufferSince: Date?
+    private var toldWaiting = true
+    private var floatId = 0
+
+    private func startParty(_ code: String, host: Bool) {
+        partyHost = host; partyStarted = !host
+        let link = PartyLink(code: code, name: Profile.shared.name)
+        link.onMessage = { [weak self] m in self?.onParty(m) }
+        party = link
+        link.open()
+    }
+    private func quiet(_ s: Double = 1.5) { partyQuiet = Date().addingTimeInterval(s) }
+    private func held(_ p: PartyLink) -> Bool { partyWait && p.others.contains { $0.waiting } }
+
+    private func onParty(_ m: [String: Any]) {
+        guard let p = party else { return }
+        objectWillChange.send()
+        switch m["t"] as? String {
+        case "hello": partyApply(first: true)
+        case "state":
+            guard let st = p.st else { return }
+            if title.kind == .tv && (st.s != season || st.e != episode) { partyGoTo(st.s, st.e); return }
+            partyApply(first: false)
+        case "react":
+            guard partyReacts else { return }
+            floatId += 1
+            let f = FloatReact(id: floatId, e: m["e"] as? String ?? "❤️")
+            floats.append(f)
+            Task { try? await Task.sleep(nanoseconds: 2_600_000_000); floats.removeAll { $0.id == f.id } }
+        case "chat":
+            floatId += 1
+            chatLines.append(ChatLine(id: floatId, by: m["by"] as? String ?? "", m: m["m"] as? String ?? ""))
+            if chatLines.count > 30 { chatLines.removeFirst() }
+        default: break
+        }
+    }
+
+    /// Line this player up with the party: same moment, playing or paused.
+    private func partyApply(first: Bool) {
+        guard let p = party, phase == .playing, let st = p.st, let want = p.expected else { return }
+        if title.kind == .tv && (st.s != season || st.e != episode) { partyGoTo(st.s, st.e); return }
+        quiet()
+        if abs(position - want) > (first ? 1 : 1.5) { player.seek(to: CMTime(seconds: max(0, want), preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero); position = want }
+        if st.playing && !held(p) && partyStarted { player.play() } else { player.pause() }
+    }
+
+    private func partyReady() {
+        applyLowData()
+        partyApply(first: true)
+        if party?.st == nil || !partyStarted { player.pause() }
+        Task { try? await Task.sleep(nanoseconds: 1_200_000_000); partySynced = true }
+    }
+
+    /// You pressed play or pause, or jumped: everyone follows.
+    private func partyMine(_ why: String, playing: Bool?) {
+        guard let p = party, partySynced, phase == .playing, Date() > partyQuiet else { return }
+        p.state(playing: playing ?? p.st?.playing ?? isPlaying, pos: position, s: season, e: episode, why: why)
+    }
+
+    private func partyBuffering() {
+        guard let p = party, phase == .playing else { return }
+        if player.timeControlStatus == .waitingToPlayAtSpecifiedRate {
+            if bufferSince == nil { bufferSince = Date() }
+            if !toldWaiting, let b = bufferSince, Date().timeIntervalSince(b) > 1.2 { toldWaiting = true; p.waiting(true) }
+        } else {
+            bufferSince = nil
+            if toldWaiting && (player.currentItem?.status == .readyToPlay) { toldWaiting = false; p.waiting(false) }
+        }
+    }
+
+    /// Every second: wait for whoever is loading, start when everyone's in, and close small gaps unnoticed.
+    private func partyTick() {
+        guard let p = party, phase == .playing else { return }
+        if partyHost && !partyStarted && !p.others.isEmpty && !p.others.contains(where: { $0.waiting }) && player.currentItem?.status == .readyToPlay {
+            partyStarted = true; partySynced = true
+            p.state(playing: true, pos: position, s: season, e: episode, why: "start")
+            return
+        }
+        guard let st = p.st, partyStarted else { if player.rate > 0 && !partyStarted { quiet(); player.pause() }; return }
+        if held(p) { if player.rate > 0 { quiet(); player.pause() }; return }
+        if st.playing && player.rate == 0 && player.timeControlStatus == .paused {
+            quiet(); if let w = p.expected { player.seek(to: CMTime(seconds: w, preferredTimescale: 600)) }; player.play(); return
+        }
+        guard st.playing, player.timeControlStatus == .playing, let want = p.expected else { return }
+        let d = want - position
+        if abs(d) > 3 { quiet(); player.rate = 1; player.seek(to: CMTime(seconds: want, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) }
+        else { player.rate = abs(d) < 0.25 ? 1 : (d > 0 ? 1.08 : 0.92) }
+    }
+
+    private func partyEpisode() {
+        guard let p = party else { return }
+        partySynced = false
+        p.state(playing: true, pos: 0, s: season, e: episode, why: "next")
+    }
+
+    private func partyGoTo(_ s: Int, _ e: Int) {
+        guard s != season || e != episode else { return }
+        savePosition()
+        if s != season { season = s; Task { episodes = (try? await TMDB.episodes(title.id, s)) ?? [] } }
+        episode = e
+        failedSources = []; autoTried = 0; partySynced = false
+        Task { runtime = await TMDB.runtime(title.kind, title.id, season, episode) }
+        loadSubtitles()
+        loadSegments()
+        start(sourceIndex, automatic: true)
+    }
+
+    func applyLowData() {
+        let low = partyLow && party != nil
+        player.currentItem?.preferredPeakBitRate = low ? 1_400_000 : 0
+        player.currentItem?.preferredMaximumResolution = low ? CGSize(width: 854, height: 480) : .zero
+    }
+    func setPartyLow(_ on: Bool) { partyLow = on; UserDefaults.standard.set(on, forKey: "tg_low"); applyLowData() }
+    func setPartyWait(_ on: Bool) { partyWait = on; UserDefaults.standard.set(on, forKey: "tg_wait") }
+    func startNow() { guard let p = party else { return }; partyStarted = true; partySynced = true; player.play(); p.state(playing: true, pos: position, s: season, e: episode, why: "play") }
+    func leaveParty() { party?.close(); party = nil; player.rate = isPlaying ? 1 : 0; applyLowData() }
+
     func close() {
         savePosition()
+        party?.close(); party = nil
         nowPlaying.detach()
         player.pause()
         player.replaceCurrentItem(with: nil)
@@ -663,6 +805,7 @@ struct PlayerScreen: View {
                 hudView
                 skipAndNext
             }
+            if let p = m.party, m.phase == .playing { PartyOverlay(m: m, p: p, controls: controls) }
             if m.phase == .finding { findingView }
             if m.phase == .web { webBar }
             if m.phase == .failed { failedView }
@@ -1049,4 +1192,100 @@ func clock(_ s: Double) -> String {
     guard s.isFinite, s > 0 else { return "0:00" }
     let t = Int(s)
     return t >= 3600 ? String(format: "%d:%02d:%02d", t / 3600, t / 60 % 60, t % 60) : String(format: "%d:%02d", t / 60, t % 60)
+}
+
+
+/// The watch party on top of the player: waiting screens, who's here, reactions, chat and settings.
+struct PartyOverlay: View {
+    @ObservedObject var m: PlayerModel
+    @ObservedObject var p: PartyLink
+    let controls: Bool
+    @State private var settings = false
+    @State private var chatOpen = false
+    @State private var msg = ""
+
+    var body: some View {
+        let loading = p.others.filter { $0.waiting }
+        let alone = m.partyHost && !m.partyStarted
+        ZStack {
+            if alone || (m.partyWait && !loading.isEmpty && p.st?.playing == true) {
+                RadialGradient(colors: [.black.opacity(0.82), .black.opacity(0.5)], center: .center, startRadius: 10, endRadius: 500).ignoresSafeArea()
+                VStack(spacing: 10) {
+                    if alone {
+                        HStack(spacing: 8) {
+                            ForEach(Array(p.code.enumerated()), id: \.offset) { _, c in
+                                Text(String(c)).font(jakarta(28, .extrabold)).frame(width: 54, height: 64).background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
+                            }
+                        }
+                        Text(verbatim: p.others.isEmpty ? I18n.t("Waiting for them to join…") : I18n.f("{1} is getting ready…", p.others[0].name)).font(jakarta(22, .extrabold)).padding(.top, 8)
+                        Text("They can join from your invite, or by entering this code in Movio's Together tab").font(jakarta(14)).foregroundStyle(Color.soft).multilineTextAlignment(.center)
+                        Button { m.startNow() } label: {
+                            Text("Start now").font(jakarta(16, .bold)).foregroundStyle(Color.ink).padding(.horizontal, 24).frame(height: 46).background(.white, in: RoundedRectangle(cornerRadius: 14))
+                        }.padding(.top, 8)
+                    } else {
+                        TgAvatar(name: loading[0].name, size: 76)
+                        Text(verbatim: I18n.f("Waiting for {1}…", loading.map(\.name).joined(separator: ", "))).font(jakarta(22, .extrabold)).padding(.top, 8)
+                        Text("You'll both carry on together in a moment.").font(jakarta(14)).foregroundStyle(Color.soft)
+                    }
+                }.padding(24)
+            }
+            VStack {
+                if controls || alone {
+                    HStack(spacing: 8) {
+                        Spacer()
+                        Text(verbatim: p.others.isEmpty ? I18n.f("Party {1}", p.code) : "● " + I18n.f("Watching with {1}", p.others.map(\.name).joined(separator: ", ")))
+                            .font(jakarta(12, .bold)).lineLimit(1).padding(.horizontal, 12).padding(.vertical, 7).background(Color.black.opacity(0.55), in: Capsule())
+                        HStack(spacing: 2) {
+                            ForEach(["❤️", "😂", "😮", "😢", "🔥"], id: \.self) { e in
+                                Button { p.react(e) } label: { Text(e).font(.system(size: 18)).frame(width: 34, height: 34) }
+                            }
+                        }.padding(3).background(Color.black.opacity(0.55), in: Capsule())
+                        Button { chatOpen.toggle() } label: { Image(systemName: "bubble.left.fill").font(.system(size: 15)).foregroundStyle(.white).frame(width: 38, height: 38).background(Color.black.opacity(0.55), in: Circle()) }
+                        Button { settings = true } label: { Image(systemName: "gearshape.fill").font(.system(size: 15)).foregroundStyle(.white).frame(width: 38, height: 38).background(Color.black.opacity(0.55), in: Circle()) }
+                    }
+                    .padding(.top, 12).padding(.horizontal, 16)
+                    .transition(.opacity)
+                }
+                Spacer()
+                HStack(alignment: .bottom) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(m.chatLines.suffix(chatOpen ? 8 : 3)) { l in
+                            Text(verbatim: "\(l.by): \(l.m)").font(jakarta(13, .semibold)).padding(.horizontal, 12).padding(.vertical, 7)
+                                .background(Color(red: 0.09, green: 0.09, blue: 0.13).opacity(0.85), in: RoundedRectangle(cornerRadius: 14))
+                        }
+                        if chatOpen {
+                            TextField(I18n.t("Message…"), text: $msg).font(jakarta(14)).padding(.horizontal, 12).frame(width: 260, height: 40)
+                                .background(Color(red: 0.09, green: 0.09, blue: 0.13).opacity(0.92), in: RoundedRectangle(cornerRadius: 14))
+                                .submitLabel(.send).onSubmit { let t = msg.trimmingCharacters(in: .whitespaces); if !t.isEmpty { p.chat(t) }; msg = "" }
+                        }
+                    }
+                    Spacer()
+                    ZStack(alignment: .bottom) { ForEach(m.floats) { f in FloatUp(e: f.e) } }.frame(width: 120, height: 300)
+                }
+                .padding(.horizontal, 20).padding(.bottom, controls ? 110 : 26)
+            }
+        }
+        .animation(.easeOut(duration: 0.2), value: controls)
+        .sheet(isPresented: $settings) {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("PARTY SETTINGS").font(jakarta(12, .extrabold)).foregroundStyle(Color.violet)
+                Toggle(isOn: Binding(get: { m.partyLow }, set: { m.setPartyLow($0) })) { VStack(alignment: .leading) { Text("Low data for me").font(jakarta(15, .bold)); Text("Lower quality on this device only. The others still get full quality.").font(jakarta(12)).foregroundStyle(Color.muted) } }
+                Toggle(isOn: Binding(get: { m.partyWait }, set: { m.setPartyWait($0) })) { VStack(alignment: .leading) { Text("Wait for each other").font(jakarta(15, .bold)); Text("Pause everyone's screen if one of you is loading").font(jakarta(12)).foregroundStyle(Color.muted) } }
+                Toggle(isOn: $m.partyReacts) { Text("Show reactions").font(jakarta(15, .bold)) }
+                Text(verbatim: I18n.f("Party code: {1}", p.code)).font(jakarta(14, .bold)).foregroundStyle(Color.soft)
+                BigButton(label: "Leave the party", white: false) { settings = false; m.leaveParty() }
+            }
+            .tint(.violet).padding(22).presentationDetents([.medium])
+            .background(Color(red: 0.07, green: 0.07, blue: 0.1).ignoresSafeArea())
+        }
+    }
+}
+
+private struct FloatUp: View {
+    let e: String
+    @State private var up = false
+    var body: some View {
+        Text(e).font(.system(size: 40)).offset(x: CGFloat.random(in: -30...30), y: up ? -260 : 0).opacity(up ? 0 : 1).scaleEffect(up ? 1 : 0.6)
+            .onAppear { withAnimation(.easeOut(duration: 2.5)) { up = true } }
+    }
 }

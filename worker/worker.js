@@ -169,6 +169,24 @@ export default {
     const url = new URL(req.url);
     const p = url.pathname;
     try {
+      // Together: people you watch with (codes, connections, invites) and party rooms that keep players in sync.
+      if (p.startsWith("/tg/") && req.method === "POST") {
+        return withCors(await env.TOGETHER.get(env.TOGETHER.idFromName("main")).fetch("https://tg" + p.slice(3), { method: "POST", body: await req.text() }));
+      }
+      if (p === "/room/new" && req.method === "POST") {
+        const A = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+        for (let k = 0; k < 6; k++) {
+          const code = Array.from(crypto.getRandomValues(new Uint8Array(4)), (b) => A[b % A.length]).join("");
+          const r = await env.ROOM.get(env.ROOM.idFromName(code)).fetch("https://room/create?code=" + code, { method: "POST", body: await req.clone().text() });
+          if (r.status === 200) return withCors(r);
+        }
+        return new Response("busy", { status: 503, headers: CORS });
+      }
+      const rm = /^\/room\/([A-Z0-9]{4})(\/ws|\/info)$/.exec(p);
+      if (rm) {
+        const r = await env.ROOM.get(env.ROOM.idFromName(rm[1])).fetch(new Request("https://room" + rm[2] + url.search, req));
+        return rm[2] === "/ws" ? r : withCors(r);
+      }
       // Usage: each app checks in (anonymous device id, platform, version) when it opens and while playing.
       if (p === "/ping" && req.method === "POST") {
         const b = await req.json().catch(() => ({}));
@@ -489,4 +507,111 @@ export class Stats {
       daily,
     });
   }
+}
+
+
+/**
+ * Together's address book: each person (one per linked set of devices) gets a public id and a 5-letter code.
+ * Connections are two-way; invites wait 10 minutes for the other person to open Movio.
+ */
+export class Together {
+  constructor(state) {
+    this.sql = state.storage.sql;
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS people (key TEXT PRIMARY KEY, pid TEXT UNIQUE, name TEXT, code TEXT UNIQUE, last INTEGER);
+      CREATE TABLE IF NOT EXISTS links (a TEXT, b TEXT, kind TEXT, at INTEGER, PRIMARY KEY (a, b));
+      CREATE TABLE IF NOT EXISTS invites (id INTEGER PRIMARY KEY AUTOINCREMENT, to_pid TEXT, from_pid TEXT, room TEXT, title TEXT, at INTEGER);`);
+  }
+  async key(who) { return [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode("movio:" + who)))].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 32); }
+  rnd(n, A = "ABCDEFGHJKMNPQRSTUVWXYZ23456789") { return Array.from(crypto.getRandomValues(new Uint8Array(n)), (b) => A[b % A.length]).join(""); }
+  one(q, ...a) { return [...this.sql.exec(q, ...a)][0]; }
+  async fetch(req) {
+    const op = new URL(req.url).pathname.slice(1), b = await req.json().catch(() => ({})), now = Date.now();
+    if (!b.who || String(b.who).length < 6) return Response.json({ error: "who" }, { status: 400 });
+    const key = await this.key(String(b.who));
+    let me = this.one(`SELECT * FROM people WHERE key = ?`, key);
+    // Devices linked later: carry the old identity (connections and all) over to the new one.
+    if (!me && b.prev) {
+      const old = this.one(`SELECT * FROM people WHERE key = ?`, await this.key(String(b.prev)));
+      if (old) { this.sql.exec(`UPDATE people SET key = ? WHERE pid = ?`, key, old.pid); me = { ...old, key }; }
+    }
+    if (!me) {
+      let code; do { code = this.rnd(5); } while (this.one(`SELECT 1 AS x FROM people WHERE code = ?`, code));
+      me = { key, pid: this.rnd(12, "abcdefghijkmnpqrstuvwxyz23456789"), name: "", code, last: now };
+      this.sql.exec(`INSERT INTO people VALUES (?, ?, ?, ?, ?)`, me.key, me.pid, me.name, me.code, now);
+    }
+    const name = String(b.name || me.name || "").slice(0, 24);
+    this.sql.exec(`UPDATE people SET last = ?, name = ? WHERE pid = ?`, now, name, me.pid);
+    const mirror = { partner: "partner", friend: "friend", family: "family" };
+    if (op === "connect") {
+      const other = this.one(`SELECT * FROM people WHERE code = ?`, String(b.code || "").toUpperCase().replace(/[^A-Z0-9]/g, ""));
+      if (!other) return Response.json({ error: "That code wasn't found. Check it and try again." }, { status: 404 });
+      if (other.pid === me.pid) return Response.json({ error: "That's your own code." }, { status: 400 });
+      const kind = mirror[b.kind] || "friend";
+      this.sql.exec(`INSERT OR REPLACE INTO links VALUES (?, ?, ?, ?)`, me.pid, other.pid, kind, now);
+      this.sql.exec(`INSERT OR IGNORE INTO links VALUES (?, ?, ?, ?)`, other.pid, me.pid, kind, now);
+    }
+    if (op === "remove") this.sql.exec(`DELETE FROM links WHERE (a = ? AND b = ?) OR (a = ? AND b = ?)`, me.pid, b.pid, b.pid, me.pid);
+    if (op === "kind" && mirror[b.kind]) this.sql.exec(`UPDATE links SET kind = ? WHERE a = ? AND b = ?`, b.kind, me.pid, b.pid);
+    if (op === "invite") {
+      for (const to of (Array.isArray(b.to) ? b.to : []).slice(0, 8))
+        if (this.one(`SELECT 1 AS x FROM links WHERE a = ? AND b = ?`, me.pid, to)) this.sql.exec(`INSERT INTO invites (to_pid, from_pid, room, title, at) VALUES (?, ?, ?, ?, ?)`, to, me.pid, String(b.room || "").slice(0, 8), JSON.stringify(b.title || {}).slice(0, 2000), now);
+    }
+    if (op === "dismiss") this.sql.exec(`DELETE FROM invites WHERE id = ? AND to_pid = ?`, b.id, me.pid);
+    this.sql.exec(`DELETE FROM invites WHERE at < ?`, now - 15 * 60e3);
+    const people = [...this.sql.exec(`SELECT p.pid, p.name, p.last, l.kind, l.at FROM links l JOIN people p ON p.pid = l.b WHERE l.a = ? ORDER BY l.at`, me.pid)]
+      .map((x) => ({ pid: x.pid, name: x.name || "Friend", kind: x.kind, online: now - x.last < 150e3 }));
+    const invites = [...this.sql.exec(`SELECT i.id, i.room, i.title, i.at, p.name FROM invites i JOIN people p ON p.pid = i.from_pid WHERE i.to_pid = ? AND i.at > ? ORDER BY i.at DESC`, me.pid, now - 10 * 60e3)]
+      .map((x) => ({ id: x.id, room: x.room, from: x.name || "Friend", title: JSON.parse(x.title || "{}"), at: x.at }));
+    return Response.json({ pid: me.pid, code: me.code, name, people, invites });
+  }
+}
+
+/**
+ * A watch party: everyone's player follows one shared state (playing, position, episode). If someone is loading,
+ * the others wait. Also carries reactions and chat. Rooms forget themselves 12 hours after the last visit.
+ */
+export class Room {
+  constructor(state) { this.state = state; this.storage = state.storage; }
+  members() {
+    return this.state.getWebSockets().map((ws) => ws.deserializeAttachment() || {}).filter((m) => m.id)
+      .map((m) => ({ id: m.id, name: m.name, waiting: !!m.waiting }));
+  }
+  send(msg, except) { const s = JSON.stringify({ ...msg, now: Date.now() }); for (const ws of this.state.getWebSockets()) if (ws !== except) try { ws.send(s); } catch {} }
+  async fetch(req) {
+    const u = new URL(req.url);
+    if (u.pathname === "/create") {
+      if (await this.storage.get("title")) return new Response("taken", { status: 409 });
+      const b = await req.json().catch(() => ({}));
+      await this.storage.put({ title: b.title || {}, code: u.searchParams.get("code"), host: String(b.name || "").slice(0, 24), st: { playing: false, pos: 0, at: Date.now(), s: b.title?.s || 1, e: b.title?.e || 1 } });
+      await this.storage.setAlarm(Date.now() + 12 * 3600e3);
+      return Response.json({ room: u.searchParams.get("code") });
+    }
+    const title = await this.storage.get("title");
+    if (!title) return new Response("not found", { status: 404 });
+    if (u.pathname === "/info") return Response.json({ title, host: await this.storage.get("host"), members: this.members() });
+    if (req.headers.get("Upgrade") !== "websocket") return new Response("ws only", { status: 426 });
+    const [client, server] = Object.values(new WebSocketPair());
+    this.state.acceptWebSocket(server);
+    server.serializeAttachment({ id: crypto.randomUUID().slice(0, 8), name: String(u.searchParams.get("name") || "Friend").slice(0, 24), waiting: true });
+    server.send(JSON.stringify({ t: "hello", you: server.deserializeAttachment().id, title, st: await this.storage.get("st"), members: this.members(), now: Date.now() }));
+    this.send({ t: "members", members: this.members(), joined: server.deserializeAttachment().name }, server);
+    await this.storage.setAlarm(Date.now() + 12 * 3600e3);
+    return new Response(null, { status: 101, webSocket: client });
+  }
+  async webSocketMessage(ws, raw) {
+    let m; try { m = JSON.parse(raw); } catch { return; }
+    const me = ws.deserializeAttachment() || {};
+    if (m.t === "state") {
+      const st = { playing: !!m.playing, pos: Math.max(0, +m.pos || 0), at: Date.now(), s: +m.s || 1, e: +m.e || 1 };
+      await this.storage.put("st", st);
+      this.send({ t: "state", st, by: me.name, byId: me.id, why: m.why || "" });  // to everyone, sender too: all follow the newest state
+    } else if (m.t === "wait") {
+      ws.serializeAttachment({ ...me, waiting: !!m.on });
+      this.send({ t: "members", members: this.members() });
+    } else if (m.t === "react") this.send({ t: "react", e: String(m.e || "❤️").slice(0, 8), by: me.name });
+    else if (m.t === "chat") this.send({ t: "chat", m: String(m.m || "").slice(0, 300), by: me.name, id: me.id });
+  }
+  async webSocketClose(ws) { try { ws.close(); } catch {} ; this.send({ t: "members", members: this.members().filter((x) => x.id !== (ws.deserializeAttachment() || {}).id), left: (ws.deserializeAttachment() || {}).name }); }
+  async webSocketError(ws) { await this.webSocketClose(ws); }
+  async alarm() { if (!this.state.getWebSockets().length) await this.storage.deleteAll(); else await this.storage.setAlarm(Date.now() + 12 * 3600e3); }
 }

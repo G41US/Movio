@@ -54,6 +54,7 @@ fun TvRail(tab: Tab, top: Screen?, onTab: (Tab) -> Unit, onDownloads: () -> Unit
         RailItem("Search", R.drawable.ic_search, top == null && tab == Tab.SEARCH) { onTab(Tab.SEARCH) },
         RailItem("Movies", R.drawable.ic_movies, top == null && tab == Tab.MOVIES) { onTab(Tab.MOVIES) },
         RailItem("TV Shows", R.drawable.ic_tv, top == null && tab == Tab.TV) { onTab(Tab.TV) },
+        RailItem("Together", R.drawable.ic_people, top == null && tab == Tab.TOGETHER) { onTab(Tab.TOGETHER) },
         RailItem("Live TV", R.drawable.ic_live, top == null && tab == Tab.LIVE) { onTab(Tab.LIVE) },
         RailItem("My List", R.drawable.ic_bookmark, top == null && tab == Tab.LIST) { onTab(Tab.LIST) },
         RailItem("Downloads", R.drawable.ic_download, top is Screen.Downloads, onDownloads),

@@ -8,6 +8,9 @@ struct PlayRequest: Identifiable, Hashable {
     var episode: Int = 1
     /// Set when playing a download.
     var offline: String? = nil
+    /// A watch party's code (the player follows everyone in it); host if you started it.
+    var party: String? = nil
+    var host = false
     var id: String { "\(title.key):\(season):\(episode)" }
 }
 

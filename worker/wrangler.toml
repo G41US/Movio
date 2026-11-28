@@ -13,6 +13,18 @@ id = "22fa04177cfa466e89b2a0640ecc2bd9"
 name = "STATS"
 class_name = "Stats"
 
+[[durable_objects.bindings]]
+name = "TOGETHER"
+class_name = "Together"
+
+[[durable_objects.bindings]]
+name = "ROOM"
+class_name = "Room"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Stats"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["Together", "Room"]

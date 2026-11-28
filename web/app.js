@@ -899,6 +899,7 @@ async function details(kind, id) {
         <button class="act ${inList(t) ? "on" : ""}" data-list="${key(t)}">${inList(t) ? ICON.check : ICON.plus}<span>${I.t("My List")}</span></button>
         <button class="act ${liked(t) ? "on" : ""}" id="alike">${ICON.heart}<span>${I.t(liked(t) ? "Liked" : "Like")}</span></button>
         <button class="act" id="ashare">${ICON.share}<span>${I.t("Share")}</span></button>
+        <button class="act" id="atog"><svg class="line" viewBox="0 0 24 24"><circle cx="9" cy="8.5" r="3.2"/><path d="M3.5 19c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5"/><circle cx="16.8" cy="9.5" r="2.6"/><path d="M15.6 14.2c2.6-.3 4.4 1.3 4.9 4.3"/></svg><span>${I.t("Together")}</span></button>
         <button class="act" id="adown">${ICON.down}<span>${I.t("Download")}</span></button>
       </div>
       ${o.tagline ? `<div class="tag">${esc(o.tagline)}</div>` : ""}
@@ -916,6 +917,7 @@ async function details(kind, id) {
   const lb = document.getElementById("alike");
   lb.onclick = () => { const on = toggleLike(t, genres); lb.classList.toggle("on", on); lb.querySelector("span").textContent = I.t(on ? "Liked" : "Like"); };
   document.getElementById("ashare").onclick = () => shareTitle(t);
+  document.getElementById("atog").onclick = () => { const m = /\/(\d+)\/(\d+)$/.exec(playTarget(t)) || []; TG.pickAndStart(t, +(m[1] || 1), +(m[2] || 1)); };
   const adown = document.getElementById("adown");
   if (kind === "movie") adown.onclick = () => dlStart(t);
   else adown.onclick = () => { const n = +document.getElementById("season")?.dataset.n || season; tmdb(`tv/${id}/season/${n}`).then((so) => { (so.episodes || []).forEach((e) => dlStart(t, n, e.episode_number)); }); };
@@ -1042,6 +1044,7 @@ const loadHls = () => (hlsLib ||= new Promise((ok, no) => { const sc = document.
 const touch = matchMedia("(pointer: coarse)").matches;
 
 let P = null; // the open player
+let PARTY = null; // the watch party this player follows (together.js)
 
 function closePlayer() {
   if (!P) return;
@@ -1216,6 +1219,7 @@ function play(url) {
   setSideways(touch && !localStorage.getItem("upright"));
   const v = st.querySelector("video");
   me.video = v;
+  if (PARTY) TG.attach(me);
   // Switching source (or a new try) makes a new video: give it the subtitles already loaded.
   me.tracks.forEach((x) => { x.node = null; if (x.text) build(x); });
   const savedVol = parseFloat(localStorage.getItem("vol"));
@@ -1229,6 +1233,7 @@ function play(url) {
     h.on(Hls.Events.ERROR, (_, d) => { if (d.fatal) { if (d.type === "mediaError") h.recoverMediaError(); else fail(); } });
     h.loadSource(url);
     h.attachMedia(v);
+    if (PARTY) TG.low(me);
   }).catch(() => fail());
   let ok = false, lastSave = 0;
   const fail = () => { if (me === P && !ok) { me.video = null; srcResult(me.source, false); next(); } };
@@ -1314,6 +1319,7 @@ function prepareNext(me) {
 function nextEpisode() {
   if (!P) return;
   const [s, e] = nextOf(P);
+  if (PARTY) TG.episode(s, e);  // everyone in the party moves on together
   // Smart downloads: a watched downloaded episode is removed and the next one downloads.
   if (P.source === "Downloaded" && localStorage.getItem("smartdl") !== "0") { dlRemove(dlId(P.t, P.s, P.e)); dlStart(P.t, s, e); }
   location.replace(playHref(P.t, s, e));
@@ -1654,7 +1660,8 @@ async function route() {
   const h = location.hash.replace(/^#/, "") || "/";
   const parts = h.split("/").filter(Boolean);
   if (parts[0] !== "play") closePlayer();
-  const tab = { "": "home", movies: "movies", tv: "tv", live: "live", search: "search", list: "list" }[parts[0] || ""] || "";
+  if (parts[0] !== "play" && parts[0] !== "party") TG.leave();
+  const tab = { "": "home", movies: "movies", tv: "tv", live: "live", search: "search", list: "list", together: "together" }[parts[0] || ""] || "";
   if (parts[0] !== "live") closeLive();
   document.querySelectorAll("#tabs a").forEach((a) => a.classList.toggle("on", a.dataset.tab === tab));
   view.scrollTo(0, 0);
@@ -1668,6 +1675,8 @@ async function route() {
     else if (parts[0] === "person") await person(parts[1]);
     else if (parts[0] === "stats") await statsView();
     else if (parts[0] === "downloads") downloadsView();
+    else if (parts[0] === "together") await TG.view();
+    else if (parts[0] === "party") { if (!(await TG.join(parts[1]))) location.replace("#/together"); }
     else if (parts[0] === "platform") await platform(parts[1]);
     else if (parts[0] === "live") await liveView();
     else if (parts[0] === "play") await player(parts[1], parts[2], parts[3] || 1, parts[4] || 1);

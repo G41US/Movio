@@ -18,6 +18,7 @@ import java.util.UUID
 object Ping {
     private val bg = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    fun deviceId(c: Context): String = id(c)
     private fun id(c: Context): String {
         val p = c.getSharedPreferences("movio_misc", Context.MODE_PRIVATE)
         return p.getString("device_id", null) ?: UUID.randomUUID().toString().also { p.edit().putString("device_id", it).apply() }
