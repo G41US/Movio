@@ -76,6 +76,7 @@ class MainActivity : ComponentActivity() {
             .putExtra("id", 1399).putExtra("kind", "TV").putExtra("name", "Game of Thrones").putExtra("s", 1).putExtra("e", 2).putExtra("demo", true))
         Tmdb.kids = Store.get(this).kids
         AdBlock.warm(this)
+        Ping.open(this)
         Tmdb.diskDir = File(filesDir, "tmdb").apply { mkdirs() }
         // Load the browser engine now, so the first Play doesn't pay for it.
         window.decorView.post { try { android.webkit.WebView(this).destroy() } catch (_: Exception) { } }

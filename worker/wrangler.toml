@@ -7,3 +7,12 @@ workers_dev = true
 [[kv_namespaces]]
 binding = "MOVIO_SYNC"
 id = "22fa04177cfa466e89b2a0640ecc2bd9"
+
+# Usage book for the admin page (SQLite Durable Object, free plan).
+[[durable_objects.bindings]]
+name = "STATS"
+class_name = "Stats"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Stats"]

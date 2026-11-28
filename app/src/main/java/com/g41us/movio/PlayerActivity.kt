@@ -199,6 +199,17 @@ class PlayerActivity : ComponentActivity() {
         I18n.init(this)
         super.onCreate(savedInstanceState)
         AdBlock.warm(this)
+        // Admin page: what's playing (every 4 minutes while it plays).
+        lifecycleScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(20_000)
+                if (::exo.isInitialized && exo.isPlaying) {
+                    val n = title?.name ?: intent.getStringExtra("name") ?: ""
+                    Ping.watching(this@PlayerActivity, if (kind == Kind.TV) "$n · S$season E$episode" else n, if (kind == Kind.TV) "tv" else "movie")
+                    kotlinx.coroutines.delay(220_000)
+                }
+            }
+        }
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -1370,7 +1381,7 @@ class PlayerActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        if (isFinishing) { savePosition(); runSmart() }
+        if (isFinishing) { savePosition(); runSmart(); Ping.stopped(this) }
         try { night?.release() } catch (_: Exception) {}
         savePosition()
         main.removeCallbacksAndMessages(null)
