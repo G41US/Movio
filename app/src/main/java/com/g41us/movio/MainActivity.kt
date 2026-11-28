@@ -256,6 +256,7 @@ fun App(openRequest: androidx.compose.runtime.MutableState<Title?>) {
                     Tab.HOME -> FeedScreen(null, store, ::open, ::play, onPlatform = { stack.add(Screen.Platform(it)) }) { stack.add(Screen.Downloads) }
                     Tab.MOVIES -> FeedScreen(Kind.MOVIE, store, ::open, ::play) { stack.add(Screen.Downloads) }
                     Tab.TV -> FeedScreen(Kind.TV, store, ::open, ::play) { stack.add(Screen.Downloads) }
+                    Tab.TOGETHER -> TogetherScreen { t, s, e, room -> PlayerActivity.start(context, t, s, e, party = room) }
                     Tab.LIVE -> LiveScreen()
                     Tab.SEARCH -> SearchScreen(::open)
                     Tab.LIST -> MyListScreen(store, ::open) { stack.add(Screen.Downloads) }
@@ -275,6 +276,8 @@ fun App(openRequest: androidx.compose.runtime.MutableState<Title?>) {
             }
             if (!isTv) bar()
             if (!wide) Dock(if (top == null) tab else null, { t -> stack.clear(); tab = t }, Modifier.align(Alignment.BottomCenter))
+            // Watch party invites from the people you're connected with.
+            if (!splash) InviteBanner { t, s, e, room -> PlayerActivity.start(context, t, s, e, party = room) }
 
             if (splash) Splash { splash = false } else Greeting()
         }

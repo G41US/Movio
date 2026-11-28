@@ -131,6 +131,7 @@ enum class Tab(val label: String, val icon: Int) {
     HOME("Home", R.drawable.ic_home),
     MOVIES("Movies", R.drawable.ic_movies),
     TV("TV Shows", R.drawable.ic_tv),
+    TOGETHER("Together", R.drawable.ic_people),
     LIVE("Live", R.drawable.ic_live),
     SEARCH("Search", R.drawable.ic_search),
     LIST("My List", R.drawable.ic_bookmark),

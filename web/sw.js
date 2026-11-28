@@ -1,7 +1,7 @@
 // Keeps the app shell on the phone so Movio opens instantly; everything else comes from the network.
-const SHELL = "movio-shell-v40";
+const SHELL = "movio-shell-v41";
 const DLC = "movio-dl";  // downloads: kept across updates
-const FILES = ["./", "index.html", "style.css", "i18n.js", "i18n.json", "app.js", "config.js", "manifest.webmanifest", "icons/icon-180.png",
+const FILES = ["./", "index.html", "style.css", "i18n.js", "i18n.json", "app.js", "together.js", "config.js", "manifest.webmanifest", "icons/icon-180.png",
   "fonts/jakarta_regular.ttf", "fonts/jakarta_semibold.ttf", "fonts/jakarta_bold.ttf", "fonts/jakarta_extrabold.ttf"];
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(SHELL).then((c) => c.addAll(FILES)).then(() => self.skipWaiting())); });
 self.addEventListener("activate", (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== SHELL && k !== DLC).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });

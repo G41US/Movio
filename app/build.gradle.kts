@@ -80,4 +80,5 @@ dependencies {
     implementation("androidx.media3:media3-database:1.8.0")
     implementation("androidx.media3:media3-datasource:1.8.0")
     implementation("androidx.work:work-runtime-ktx:2.10.5")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }

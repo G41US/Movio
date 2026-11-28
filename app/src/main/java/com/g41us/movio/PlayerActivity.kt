@@ -1,5 +1,9 @@
 package com.g41us.movio
 
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.runtime.key
 import android.annotation.SuppressLint
 import android.app.PictureInPictureParams
 import android.content.Context
@@ -114,12 +118,14 @@ import java.io.ByteArrayInputStream
 class PlayerActivity : ComponentActivity() {
 
     companion object {
-        fun start(context: Context, t: Title, season: Int, episode: Int, offline: String? = null) {
+        /** [party]: a watch party's code (the player follows everyone in it); [host] if you started it. */
+        fun start(context: Context, t: Title, season: Int, episode: Int, offline: String? = null, party: String? = null, host: Boolean = false) {
             Store.get(context).watched(t, season, episode)
             context.startActivity(
                 Intent(context, PlayerActivity::class.java)
                     .putExtra("id", t.id).putExtra("kind", t.kind.name).putExtra("name", t.name)
                     .putExtra("s", season).putExtra("e", episode).putExtra("offline", offline)
+                    .putExtra("party", party).putExtra("host", host)
                     .putExtra("art", t.backdrop ?: t.poster)
             )
         }
@@ -250,17 +256,19 @@ class PlayerActivity : ComponentActivity() {
         exo = ExoPlayer.Builder(this, renderers).setLoadControl(load).build().apply {
             playWhenReady = true
             addListener(object : Player.Listener {
-                override fun onPlaybackStateChanged(state: Int) { if (state == Player.STATE_READY) onReady() }
+                override fun onPlaybackStateChanged(state: Int) { if (state == Player.STATE_READY) onReady(); partyBuffering(state) }
+                override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) { partyMine(if (playWhenReady) "play" else "pause") }
                 override fun onPlayerError(error: PlaybackException) { onStreamFailed() }
                 override fun onPositionDiscontinuity(old: Player.PositionInfo, new: Player.PositionInfo, reason: Int) {
                     if (reason == Player.DISCONTINUITY_REASON_SEEK || reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT) speech.seeked(new.positionMs)
-                    if (reason == Player.DISCONTINUITY_REASON_SEEK) learnIntro(old.positionMs, new.positionMs)
+                    if (reason == Player.DISCONTINUITY_REASON_SEEK) { learnIntro(old.positionMs, new.positionMs); partyMine("seek") }
                 }
                 override fun onAudioSessionIdChanged(audioSessionId: Int) { applyNight() }
                 override fun onTracksChanged(tracks: androidx.media3.common.Tracks) { pickOwnSubtitle(tracks) }
             })
         }
 
+        intent.getStringExtra("party")?.takeIf { it.length == 4 }?.let { startParty(it, intent.getBooleanExtra("host", false)) }
         val root = FrameLayout(this).apply { setBackgroundColor(android.graphics.Color.BLACK) }
         webView = WebView(this)
         playerView = PlayerView(this).apply {
@@ -352,6 +360,7 @@ class PlayerActivity : ComponentActivity() {
             when (phase) {
                 Phase.NATIVE -> {
                     PlayerControls(exo, host, controlsVisible) { controlsVisible = it; placeSubtitles() }
+                    party?.let { PartyLayer(it) }
                     if (resumedAt > 0) Row(
                         Modifier.align(Alignment.BottomStart).safeDrawingPadding().padding(start = 24.dp, bottom = if (controlsVisible) 112.dp else 28.dp)
                             .clip(RoundedCornerShape(12.dp)).background(Color(0xF00E1017)).padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
@@ -816,12 +825,12 @@ class PlayerActivity : ComponentActivity() {
             store.stat("play", t, t.genreIds.mapNotNull { Tmdb.GENRE_NAMES[it] })
         }
         playerView.visibility = View.VISIBLE
-        store.position(posKey())?.let { (p, dur) -> if (p > 30_000 && (dur <= 0 || p < dur - 60_000)) { exo.seekTo(p); resumedAt = p; main.postDelayed({ resumedAt = 0L }, 7000) } }
+        if (party == null) store.position(posKey())?.let { (p, dur) -> if (p > 30_000 && (dur <= 0 || p < dur - 60_000)) { exo.seekTo(p); resumedAt = p; main.postDelayed({ resumedAt = 0L }, 7000) } }
         // Subtitles in the language picked at setup (or none).
         exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
             .setPreferredTextLanguage(I18n.subLang.takeIf { it != "off" } ?: "en")
             .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, I18n.subLang == "off").build()
-        exo.play()
+        if (party == null) exo.play() else partyReady()
         failedSources.remove(sourceIndex)
         // A show only remembers a source you picked yourself, so it keeps starting on Club.
         if (offlineId == null && (kind != Kind.TV || !auto)) store.setSourceFor(title ?: Title(id, kind, name, "", null, null, null, 0.0), source.name)
@@ -892,6 +901,7 @@ class PlayerActivity : ComponentActivity() {
         runSmart()
         failedSources.clear()
         autoTried = 0
+        partyEpisode()
         start(Sources.index("Club"), automatic = true, save = false)  // every episode starts on Club
     }
 
@@ -929,6 +939,7 @@ class PlayerActivity : ComponentActivity() {
         title?.let { store.watched(it, season, episode) }
         runSmart()
         failedSources.clear(); autoTried = 0
+        partyEpisode()
         start(Sources.index("Club"), automatic = true, save = false)
     }
 
@@ -1132,6 +1143,255 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private val audio by lazy { getSystemService(AUDIO_SERVICE) as AudioManager }
+
+
+    // ---------- Watch party: this player follows everyone else's ----------
+    private var party by mutableStateOf<PartyLink?>(null)
+    private var partyHost = false
+    private var partyStarted by mutableStateOf(false)
+    private var partySynced = false
+    private var partyQuiet = 0L
+    private var partyRev by mutableIntStateOf(0)          // bumps when members change, so the overlay redraws
+    private var partyLow by mutableStateOf(false)
+    private var partyWait by mutableStateOf(true)
+    private var partyReacts by mutableStateOf(true)
+    private var partySheet by mutableStateOf(false)
+    private var partyChatOpen by mutableStateOf(false)
+    private val floats = androidx.compose.runtime.mutableStateListOf<Pair<Long, String>>()
+    private val chatLines = androidx.compose.runtime.mutableStateListOf<Triple<Long, String, String>>()
+    private var bufferJob: kotlinx.coroutines.Job? = null
+    private var toldWaiting = true
+
+    private fun startParty(code: String, host: Boolean) {
+        partyHost = host; partyStarted = !host
+        partyLow = prefs.getBoolean("tg_low", false); partyWait = prefs.getBoolean("tg_wait", true)
+        val link = PartyLink(code, I18n.name) { m -> onPartyMessage(m) }
+        party = link
+        link.open()
+        lifecycleScope.launch { while (party === link) { kotlinx.coroutines.delay(1000); partyTick(link) } }
+        applyLowData()
+    }
+
+    private fun quiet(ms: Long = 1500) { partyQuiet = SystemClock.uptimeMillis() + ms }
+    private fun held(p: PartyLink) = partyWait && p.others.any { it.waiting }
+
+    private fun onPartyMessage(m: org.json.JSONObject) {
+        val p = party ?: return
+        partyRev++
+        when (m.optString("t")) {
+            "hello" -> partyApply(first = true)
+            "members" -> {
+                m.optString("joined").takeIf { it.isNotBlank() }?.let { Toast.makeText(this, tf("{1} joined", it), Toast.LENGTH_SHORT).show() }
+                m.optString("left").takeIf { it.isNotBlank() }?.let { Toast.makeText(this, tf("{1} left", it), Toast.LENGTH_SHORT).show() }
+            }
+            "state" -> {
+                val st = p.st ?: return
+                if (kind == Kind.TV && (st.s != season || st.e != episode)) { partyGoTo(st.s, st.e); return }
+                val why = m.optString("why")
+                if ((why == "play" || why == "pause") && m.optString("byId") != p.you)
+                    Toast.makeText(this, tf(if (st.playing) "{1} pressed play" else "{1} paused", m.optString("by")), Toast.LENGTH_SHORT).show()
+                partyApply(first = false)
+            }
+            "react" -> if (partyReacts) { val id = SystemClock.uptimeMillis(); floats += id to m.optString("e"); main.postDelayed({ floats.removeAll { it.first == id } }, 2600) }
+            "chat" -> {
+                val id = SystemClock.uptimeMillis()
+                chatLines += Triple(id, m.optString("by"), m.optString("m"))
+                if (chatLines.size > 30) chatLines.removeAt(0)
+                if (!partyChatOpen) main.postDelayed({ if (!partyChatOpen) chatLines.removeAll { it.first == id } }, 7000)
+            }
+        }
+    }
+
+    /** Line this player up with the party: same moment, playing or paused. */
+    private fun partyApply(first: Boolean) {
+        val p = party ?: return
+        if (phase != Phase.NATIVE) return
+        val st = p.st ?: return
+        if (kind == Kind.TV && (st.s != season || st.e != episode)) { partyGoTo(st.s, st.e); return }
+        val want = p.expectedMs() ?: return
+        quiet()
+        if (kotlin.math.abs(exo.currentPosition - want) > if (first) 1000 else 1500) exo.seekTo(want.coerceAtLeast(0))
+        exo.playWhenReady = st.playing && !held(p) && partyStarted
+    }
+
+    private fun partyReady() {
+        val p = party ?: return
+        partyApply(first = true)
+        if (p.st == null && partyHost) exo.playWhenReady = false
+        main.postDelayed({ partySynced = true }, 1200)
+    }
+
+    /** You pressed play or pause, or jumped: everyone follows. */
+    private fun partyMine(why: String) {
+        val p = party ?: return
+        if (!partySynced || phase != Phase.NATIVE || SystemClock.uptimeMillis() < partyQuiet) return
+        if (why == "pause" && held(p)) return
+        val playing = if (why == "seek") p.st?.playing ?: exo.playWhenReady else exo.playWhenReady
+        p.state(playing, exo.currentPosition, season, episode, why)
+    }
+
+    private fun partyBuffering(state: Int) {
+        val p = party ?: return
+        if (state == Player.STATE_BUFFERING) {
+            bufferJob?.cancel()
+            bufferJob = lifecycleScope.launch { kotlinx.coroutines.delay(1200); if (exo.playbackState == Player.STATE_BUFFERING && !toldWaiting) { toldWaiting = true; p.waiting(true) } }
+        } else if (state == Player.STATE_READY) {
+            bufferJob?.cancel()
+            if (toldWaiting) { toldWaiting = false; p.waiting(false) }
+        }
+    }
+
+    /** Every second: wait for whoever is loading, start when everyone's in, and close small gaps unnoticed. */
+    private fun partyTick(p: PartyLink) {
+        if (phase != Phase.NATIVE) return
+        val st = p.st
+        if (partyHost && !partyStarted && p.others.isNotEmpty() && p.others.none { it.waiting } && exo.playbackState == Player.STATE_READY) {
+            partyStarted = true; partySynced = true
+            p.state(true, exo.currentPosition, season, episode, "start")
+            return
+        }
+        if (st == null || !partyStarted) { if (exo.playWhenReady && !partyStarted) { quiet(); exo.playWhenReady = false }; return }
+        if (held(p)) { if (exo.playWhenReady) { quiet(); exo.playWhenReady = false }; return }
+        if (st.playing && !exo.playWhenReady) { quiet(); exo.seekTo(p.expectedMs() ?: exo.currentPosition); exo.playWhenReady = true; return }
+        if (!st.playing || !exo.isPlaying) { exo.setPlaybackSpeed(1f); return }
+        val d = (p.expectedMs() ?: return) - exo.currentPosition
+        when {
+            kotlin.math.abs(d) > 3000 -> { exo.setPlaybackSpeed(1f); quiet(); exo.seekTo(exo.currentPosition + d) }
+            kotlin.math.abs(d) < 250 -> exo.setPlaybackSpeed(1f)
+            else -> exo.setPlaybackSpeed(if (d > 0) 1.08f else 0.92f)
+        }
+    }
+
+    private fun partyEpisode() {
+        val p = party ?: return
+        partySynced = false
+        p.state(true, 0, season, episode, "next")
+    }
+
+    private fun partyGoTo(s: Int, e: Int) {
+        if (s == season && e == episode) return
+        savePosition()
+        val newSeason = s != season
+        season = s; episode = e
+        if (newSeason) lifecycleScope.launch { loadEpisodeInfo() }
+        updateLabel()
+        title?.let { store.watched(it, season, episode) }
+        failedSources.clear(); autoTried = 0; partySynced = false
+        start(Sources.index("Club"), automatic = true, save = false)
+    }
+
+    private fun applyLowData() {
+        if (!::exo.isInitialized) return
+        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon().apply {
+            if (partyLow && party != null) setMaxVideoSize(854, 480) else clearVideoSizeConstraints()
+        }.build()
+    }
+
+    @Composable
+    private fun PartyLayer(p: PartyLink) {
+        @Suppress("UNUSED_VARIABLE") val rev = partyRev
+        val tv = packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)
+        Box(Modifier.fillMaxSize()) {
+            // Waiting: for them to join (host), or for whoever is loading.
+            val loading = p.others.filter { it.waiting }
+            val alone = partyHost && !partyStarted
+            if (alone || (partyWait && loading.isNotEmpty() && p.st?.playing == true)) {
+                Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color.Black.copy(alpha = .82f), Color.Black.copy(alpha = .5f)))), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
+                        if (alone) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                p.code.forEach { c ->
+                                    Box(Modifier.size(54.dp, 64.dp).clip(RoundedCornerShape(16.dp)).background(Color.White.copy(alpha = .08f)), contentAlignment = Alignment.Center) {
+                                        Text(c.toString(), color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, style = jakarta())
+                                    }
+                                }
+                            }
+                            Spacer(Modifier.height(16.dp))
+                            Text(if (p.others.isNotEmpty()) tf("{1} is getting ready…", p.others.first().name) else t("Waiting for them to join…"), color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, style = jakarta())
+                            Spacer(Modifier.height(6.dp))
+                            Text(t("They can join from your invite, or by entering this code in Movio's Together tab"), color = Soft, fontSize = 14.sp, style = jakarta(), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                            Spacer(Modifier.height(18.dp))
+                            val fr = remember { androidx.compose.ui.focus.FocusRequester() }
+                            LaunchedEffect(Unit) { kotlinx.coroutines.delay(300); runCatching { fr.requestFocus() } }
+                            PrimaryButton("Start now", R.drawable.ic_play_fill, Modifier.focusRequester(fr)) {
+                                partyStarted = true; partySynced = true
+                                p.state(true, exo.currentPosition, season, episode, "play")
+                            }
+                        } else {
+                            Avatar(loading.first().name, 76.dp, 0)
+                            Spacer(Modifier.height(16.dp))
+                            Text(tf("Waiting for {1}…", loading.joinToString(", ") { it.name }), color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, style = jakarta())
+                            Spacer(Modifier.height(6.dp))
+                            Text(t("You'll both carry on together in a moment."), color = Soft, fontSize = 14.sp, style = jakarta())
+                        }
+                    }
+                }
+            }
+            // Top right: who's here, reactions, chat and settings (shown with the controls).
+            androidx.compose.animation.AnimatedVisibility(controlsVisible || alone, modifier = Modifier.align(Alignment.TopEnd), enter = fadeIn(), exit = fadeOut()) {
+                Row(Modifier.safeDrawingPadding().padding(top = if (tv) 18.dp else 12.dp, end = if (tv) 28.dp else 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val others = p.others
+                    Text(if (others.isNotEmpty()) "● " + tf("Watching with {1}", others.joinToString(", ") { it.name }) else tf("Party {1}", p.code),
+                        color = Color.White, fontSize = 12.5.sp, fontWeight = FontWeight.Bold, style = jakarta(), maxLines = 1,
+                        modifier = Modifier.clip(RoundedCornerShape(50)).background(Color(0x99070810)).padding(horizontal = 12.dp, vertical = 7.dp))
+                    Row(Modifier.clip(RoundedCornerShape(50)).background(Color(0x99070810)).padding(3.dp)) {
+                        listOf("❤️", "😂", "😮", "😢", "🔥").forEach { e ->
+                            var f by remember { mutableStateOf(false) }
+                            Box(Modifier.size(if (tv) 40.dp else 34.dp).clip(RoundedCornerShape(50)).background(if (f) Color.White.copy(alpha = .22f) else Color.Transparent)
+                                .onFocusChanged { f = it.isFocused }.clickable { p.react(e) }, contentAlignment = Alignment.Center) {
+                                Text(e, fontSize = if (tv) 20.sp else 17.sp)
+                            }
+                        }
+                    }
+                    if (!tv) GlassIcon(R.drawable.ic_people, size = 38.dp) { partyChatOpen = !partyChatOpen }
+                    GlassIcon(R.drawable.ic_settings, size = 38.dp) { partySheet = true }
+                }
+            }
+            // Reactions float up the right side.
+            floats.forEach { (id, e) -> key(id) { FloatingReaction(e, Modifier.align(Alignment.BottomEnd)) } }
+            // Chat: newest messages bottom-left (phone: a box to type in when open).
+            Column(Modifier.align(Alignment.BottomStart).safeDrawingPadding().padding(start = 20.dp, bottom = if (controlsVisible) 120.dp else 30.dp).widthIn(max = 300.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                chatLines.takeLast(if (partyChatOpen) 8 else 3).forEach { (_, by, m) ->
+                    Text("$by: $m", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, style = jakarta(),
+                        modifier = Modifier.clip(RoundedCornerShape(14.dp)).background(Color(0xCC161722)).padding(horizontal = 12.dp, vertical = 7.dp))
+                }
+                if (partyChatOpen && !tv) {
+                    var msg by remember { mutableStateOf("") }
+                    androidx.compose.foundation.text.BasicTextField(msg, { msg = it.take(300) }, singleLine = true,
+                        textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 14.sp, fontFamily = Jakarta),
+                        cursorBrush = androidx.compose.ui.graphics.SolidColor(Violet),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Send),
+                        keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSend = { if (msg.isNotBlank()) { p.chat(msg.trim()); msg = "" } }),
+                        modifier = Modifier.width(260.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xE6161722)).padding(horizontal = 12.dp, vertical = 10.dp),
+                        decorationBox = { inner -> if (msg.isEmpty()) Text(t("Message…"), color = Muted, fontSize = 14.sp, style = jakarta()); inner() })
+                }
+            }
+            if (partySheet) androidx.compose.ui.window.Dialog(onDismissRequest = { partySheet = false }) {
+                Column(Modifier.widthIn(max = 420.dp).fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Color(0xF5121319)).padding(20.dp)) {
+                    Label("Party settings")
+                    Spacer(Modifier.height(12.dp))
+                    ToggleRow("Low data for me", "Lower quality on this device only. The others still get full quality.", partyLow) { partyLow = it; prefs.edit().putBoolean("tg_low", it).apply(); applyLowData() }
+                    ToggleRow("Wait for each other", "Pause everyone's screen if one of you is loading", partyWait) { partyWait = it; prefs.edit().putBoolean("tg_wait", it).apply() }
+                    ToggleRow("Show reactions", "", partyReacts) { partyReacts = it }
+                    Spacer(Modifier.height(8.dp))
+                    Text(tf("Party code: {1}", p.code), color = Soft, fontSize = 14.sp, fontWeight = FontWeight.Bold, style = jakarta())
+                    Spacer(Modifier.height(14.dp))
+                    GhostButton("Leave the party", null, Modifier.fillMaxWidth()) { partySheet = false; p.close(); party = null; applyLowData(); exo.setPlaybackSpeed(1f) }
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun FloatingReaction(e: String, modifier: Modifier) {
+        val rise = remember { androidx.compose.animation.core.Animatable(0f) }
+        val x = remember { (40..130).random() }
+        LaunchedEffect(Unit) { rise.animateTo(1f, androidx.compose.animation.core.tween(2500, easing = androidx.compose.animation.core.LinearOutSlowInEasing)) }
+        Text(e, fontSize = 40.sp, modifier = modifier.padding(end = x.dp, bottom = 90.dp).graphicsLayer {
+            translationY = -rise.value * 260.dp.toPx(); alpha = if (rise.value < .12f) rise.value / .12f else 1f - (rise.value - .12f) / .88f
+            scaleX = .7f + .4f * kotlin.math.min(1f, rise.value * 6); scaleY = scaleX
+        })
+    }
 
     /** Credits: the video slides into the top-left corner (Netflix style) while Up next fills the screen. */
     private var demo = false
@@ -1382,6 +1642,7 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onDestroy() {
         if (isFinishing) { savePosition(); runSmart(); Ping.stopped(this) }
+        party?.close(); party = null
         try { night?.release() } catch (_: Exception) {}
         savePosition()
         main.removeCallbacksAndMessages(null)

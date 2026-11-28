@@ -446,6 +446,13 @@ fun shareTitle(ctx: android.content.Context, t: Title) {
 fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPerson: (Person) -> Unit, onTrailer: (String) -> Unit, onPlay: (Title, Int, Int) -> Unit) {
     val (state, retry) = load(title.key) { Tmdb.details(title) }
     val last = store.lastEpisode(title)
+    var together by remember { mutableStateOf(false) }
+    if (together) {
+        val ctx0 = androidx.compose.ui.platform.LocalContext.current
+        val s0 = if (title.kind == Kind.TV) last?.season ?: 1 else 1
+        val e0 = if (title.kind == Kind.TV) last?.episode ?: 1 else 1
+        WatchTogetherDialog(title, s0, e0, onStart = { room -> PlayerActivity.start(ctx0, title, s0, e0, party = room, host = true) }) { together = false }
+    }
     // Find the stream while you read the page, so Play starts straight away.
     LaunchedEffect(title.key) {
         kotlinx.coroutines.delay(400)
@@ -507,6 +514,7 @@ fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPerson:
                             GhostButton(if (saved) "In My List" else "My List", if (saved) R.drawable.ic_check else R.drawable.ic_plus) { store.toggle(t) }
                             GhostButton(if (isLiked) "Liked" else "Like", if (isLiked) R.drawable.ic_heart_fill else R.drawable.ic_heart) { like() }
                             if (d.trailer != null) GhostButton("Trailer", R.drawable.ic_trailer) { onTrailer(d.trailer) }
+                            GhostButton("Together", R.drawable.ic_people) { together = true }
                             if (t.kind == Kind.MOVIE) { val dl = dlState(t, 1, 1); GhostButton(dlLabel(dl), if (dl == DL.DONE) R.drawable.ic_check else R.drawable.ic_download) { download(ctx, t, 1, 1) } }
                         } else {
                             PrimaryButton(label, R.drawable.ic_play_fill, Modifier.fillMaxWidth().tvFirstFocus(t.key)) {
@@ -519,6 +527,7 @@ fun DetailsScreen(title: Title, store: Store, onOpen: (Title) -> Unit, onPerson:
                                 ActionTile(if (isLiked) R.drawable.ic_heart_fill else R.drawable.ic_heart, if (isLiked) "Liked" else "Like", isLiked, Pink) { like() }
                                 ActionTile(R.drawable.ic_share, "Share", false, Color.White) { shareTitle(ctx, t) }
                                 if (d.trailer != null) ActionTile(R.drawable.ic_trailer, "Trailer", false, Color.White) { onTrailer(d.trailer) }
+                                ActionTile(R.drawable.ic_people, "Together", false, Color.White) { together = true }
                                 if (t.kind == Kind.MOVIE) { val dl = dlState(t, 1, 1); ActionTile(if (dl == DL.DONE) R.drawable.ic_check else R.drawable.ic_download, dlLabel(dl), dl != DL.NONE, Color.White) { download(ctx, t, 1, 1) } }
                             }
                         }
